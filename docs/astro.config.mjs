@@ -105,6 +105,10 @@ export default defineConfig({
               label: "JSON Schema and OpenAPI",
               slug: "guides/json-schema-and-openapi",
             },
+            {
+              label: "Testing with pytest-probatio",
+              slug: "guides/testing-with-pytest",
+            },
             { label: "Troubleshooting", slug: "guides/troubleshooting" },
           ],
         },

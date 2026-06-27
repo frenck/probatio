@@ -27,7 +27,9 @@ classifiers = [
 # Stays 0.0.0 in development; the release workflow stamps the real version from
 # the git tag at publish time, the same as the core package.
 version = "0.0.0"
-dependencies = ["probatio", "pytest>=8"]
+# Released lock-step with probatio (same version), but the matcher only uses
+# probatio's stable public surface, so a floor is enough rather than an exact pin.
+dependencies = ["probatio>=0.1.0", "pytest>=8"]
 
 [project.urls]
 Homepage = "https://github.com/frenck/probatio"

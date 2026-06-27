@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from pytest_probatio.plugin import Exact, Partial, S
+from pytest_probatio.plugin import Exact, Partial
 
-__all__ = ["Exact", "Partial", "S"]
+__all__ = ["Exact", "Partial"]

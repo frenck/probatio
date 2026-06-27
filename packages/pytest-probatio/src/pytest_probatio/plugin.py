@@ -1,18 +1,16 @@
 """Use a probatio schema as a pytest assertion matcher.
 
-``assert response == S({"name": str, "port": Port()})`` validates ``response``
+``assert response == Exact({"name": str, "port": Port()})`` validates ``response``
 against the schema. On a mismatch, pytest's assertion rewriting calls the
 ``pytest_assertrepr_compare`` hook below, which renders each probatio error by its
 path, so the failure points at the exact offending value instead of a bare
 ``assert ... == ...``.
 
-Three matchers are exposed, mirroring pytest-voluptuous so the move is familiar:
+Two matchers are exposed:
 
-- ``S(schema)``: extra dict keys make it unequal; ``<=`` relaxes that to a partial
-  match (extra keys allowed).
+- ``Exact(schema)``: extra dict keys make it unequal; ``<=`` relaxes that to a
+  partial match (extra keys allowed).
 - ``Partial(schema)``: a partial match under ``==`` (extra keys allowed).
-- ``Exact(schema)``: a strict match under ``==`` (the default ``S`` behavior, named
-  for clarity at a nested position).
 
 This lives outside the ``probatio`` package on purpose: the core library is
 dependency-free, and a pytest plugin is a test-framework concern.
@@ -95,11 +93,15 @@ class _Matcher:
         return f"{type(self).__name__}({self._strict.schema!r})"
 
 
-class S(_Matcher):
-    """A schema matcher: ``==`` is a strict match, ``<=`` a partial one."""
+class Exact(_Matcher):
+    """A schema matcher: ``==`` requires an exact match, ``<=`` a partial one.
+
+    Exact means an extra dictionary key makes the data unequal; ``<=`` relaxes
+    that to allow extra keys, the same as ``Partial`` under ``==``.
+    """
 
     def __init__(self, schema: typing.Any) -> None:
-        """Wrap ``schema`` as a strict-by-equality matcher."""
+        """Wrap ``schema`` as an exact-by-equality matcher."""
         super().__init__(schema, partial=False)
 
 
@@ -109,14 +111,6 @@ class Partial(_Matcher):
     def __init__(self, schema: typing.Any) -> None:
         """Wrap ``schema`` as a partial-by-equality matcher."""
         super().__init__(schema, partial=True)
-
-
-class Exact(_Matcher):
-    """A schema matcher whose ``==`` requires an exact match (no extra keys)."""
-
-    def __init__(self, schema: typing.Any) -> None:
-        """Wrap ``schema`` as a strict-by-equality matcher."""
-        super().__init__(schema, partial=False)
 
 
 def _format_path(path: list[typing.Any]) -> str:

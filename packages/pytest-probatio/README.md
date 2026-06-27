@@ -5,17 +5,17 @@ matcher. A schema reads as the expected shape, and a mismatch is explained by
 probatio's path-precise errors instead of a bare `assert`.
 
 ```python
-from pytest_probatio import S, Partial, Exact
+from pytest_probatio import Exact, Partial
 from probatio import Port
 
 
 def test_response(response):
-    # Strict: extra keys make it unequal.
-    assert response == S({"name": str, "port": Port()})
+    # Exact: extra keys make it unequal.
+    assert response == Exact({"name": str, "port": Port()})
 
     # Partial: extra keys are allowed.
     assert response == Partial({"name": str})
-    assert S({"name": str}) <= response
+    assert Exact({"name": str}) <= response
 ```
 
 When the data does not match, the failure lists each error by its path:
