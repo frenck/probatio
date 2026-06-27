@@ -33,13 +33,16 @@ Usage:
 """
 
 from __future__ import annotations
+import __future__
 
 import ast
 import io
 import os
 import re
 import sys
+import tempfile
 import traceback
+import types
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -307,6 +310,25 @@ def _check_nested_prints(node, stdout, lines, label, failures) -> None:
             )
 
 
+def _future_flags(tree: ast.Module) -> int:
+    """Compiler flags for any ``from __future__`` import at the top of a block.
+
+    Each statement is compiled on its own, so a block's ``from __future__ import
+    annotations`` would not reach the later statements without this; the class that
+    follows would then evaluate its annotations eagerly (on Python 3.13) and a
+    self-referential dataclass field (``children: list[Tree]``) would raise a
+    NameError before ``get_type_hints`` ever runs.
+    """
+    flags = 0
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
+            for alias in node.names:
+                feature = getattr(__future__, alias.name, None)
+                if feature is not None:
+                    flags |= feature.compiler_flag
+    return flags
+
+
 def run_block(env, code, label, expect, failures) -> None:
     """Execute one block statement by statement, checking output comments.
 
@@ -320,13 +342,14 @@ def run_block(env, code, label, expect, failures) -> None:
     else:
         raised = None
         lines = code.split("\n")
+        flags = _future_flags(tree)
         for node in tree.body:
             filename = label.split("  ", 1)[0]
             try:
                 if _is_print(node):
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        exec(_compile_node(node, filename), env)
+                        exec(_compile_node(node, filename, flags), env)
                     _check_output(node, buf.getvalue(), True, lines, label, failures)
                 elif isinstance(node, ast.Expr) and not _is_docstring(node):
                     # eval/exec here is the whole point of this tool: it runs the
@@ -338,6 +361,7 @@ def run_block(env, code, label, expect, failures) -> None:
                             ast.Expression(node.value),
                             filename,
                             "eval",
+                            flags=flags,
                             dont_inherit=True,
                         ),
                         env,
@@ -348,7 +372,7 @@ def run_block(env, code, label, expect, failures) -> None:
                     # body, so capture stdout and reconcile nested print comments.
                     buf = io.StringIO()
                     with redirect_stdout(buf):
-                        exec(_compile_node(node, filename), env)
+                        exec(_compile_node(node, filename, flags), env)
                     target = _checkable_target(node)
                     if target is not None and target in env:
                         _check_output(node, env[target], False, lines, label, failures)
@@ -378,12 +402,17 @@ def run_block(env, code, label, expect, failures) -> None:
         failures.append(f"{label}  expected {expect} but block succeeded")
 
 
-def _compile_node(node: ast.AST, filename: str):
+def _compile_node(node: ast.AST, filename: str, flags: int = 0):
     # dont_inherit keeps the harness's own __future__ flags (e.g. PEP 563
     # annotations) from leaking into example blocks, so each runs exactly like a
-    # reader's script.
+    # reader's script. ``flags`` carries only the block's *own* __future__ imports,
+    # which must reach every statement since they are compiled one at a time.
     return compile(
-        ast.Module(body=[node], type_ignores=[]), filename, "exec", dont_inherit=True
+        ast.Module(body=[node], type_ignores=[]),
+        filename,
+        "exec",
+        flags=flags,
+        dont_inherit=True,
     )
 
 
@@ -435,31 +464,38 @@ def main() -> int:
     # shared working directory, mirroring a reader copying blocks top to bottom.
     for path, blocks in iter_pages():
         rel = path.relative_to(DOCS)
-        env: dict[str, object] = {"__name__": "__doc_example__"}
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as tmp:
-            cwd = os.getcwd()
-            os.chdir(tmp)
-            try:
-                for line, marker, code in blocks:
-                    if marker == "skip":
-                        continue
-                    if not marker and _is_signature_only(code):
-                        continue
-                    expect = None
-                    if marker.startswith("raises"):
-                        expect = marker.split(None, 1)[1].strip()
-                    elif marker:
-                        # A typo'd marker must not silently run as a normal block.
-                        failures.append(
-                            f"{rel}:{line}  unknown verify marker: {marker!r}"
-                        )
-                        continue
-                    ran += 1
-                    run_block(env, code, f"{rel}:{line}", expect, failures)
-            finally:
-                os.chdir(cwd)
+        # Run the page's blocks inside a real module registered in ``sys.modules``,
+        # not a bare dict, so ``get_type_hints`` can resolve a forward reference
+        # (a self-referential dataclass like ``children: list[Tree]``) against the
+        # namespace the class was defined in, as it would in a reader's module.
+        module = types.ModuleType("__doc_example__")
+        env = module.__dict__
+        sys.modules[module.__name__] = module
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cwd = os.getcwd()
+                os.chdir(tmp)
+                try:
+                    for line, marker, code in blocks:
+                        if marker == "skip":
+                            continue
+                        if not marker and _is_signature_only(code):
+                            continue
+                        expect = None
+                        if marker.startswith("raises"):
+                            expect = marker.split(None, 1)[1].strip()
+                        elif marker:
+                            # A typo'd marker must not silently run as a normal block.
+                            failures.append(
+                                f"{rel}:{line}  unknown verify marker: {marker!r}"
+                            )
+                            continue
+                        ran += 1
+                        run_block(env, code, f"{rel}:{line}", expect, failures)
+                finally:
+                    os.chdir(cwd)
+        finally:
+            sys.modules.pop(module.__name__, None)
 
     print(f"ran {ran} python blocks")
     if failures:
