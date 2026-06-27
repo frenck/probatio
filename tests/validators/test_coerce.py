@@ -1,0 +1,140 @@
+"""Tests for the coercion validators (Coerce, Boolean)."""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+import voluptuous
+
+from probatio import Boolean, Coerce, DefaultTo, MultipleInvalid, Number, Schema, SetTo
+from probatio.error import BooleanInvalid, CoerceInvalid, Invalid
+
+
+def test_number_precision_and_scale() -> None:
+    """Number checks total digits (precision) and decimal places (scale)."""
+    assert Schema(Number(precision=6, scale=2))("1234.01") == "1234.01"
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Number(precision=6, scale=2))("1.0")
+    assert isinstance(caught.value.errors[0], Invalid)
+
+
+def test_number_yields_decimal() -> None:
+    """With yield_decimal the parsed Decimal is returned."""
+    assert Schema(Number(yield_decimal=True))("1234.01") == Decimal("1234.01")
+
+
+def test_number_rejects_nan_cleanly() -> None:
+    """NaN and infinity have no precision and are rejected, not crashed on."""
+    for value in ["NaN", "Infinity"]:
+        with pytest.raises(MultipleInvalid) as caught:
+            Schema(Number())(value)
+        assert isinstance(caught.value.errors[0], Invalid)
+
+
+@pytest.mark.parametrize("value", [None, {}, set(), b"x", [], ()])
+def test_number_rejects_non_numeric_types_cleanly(value: object) -> None:
+    """A non-numeric type yields Invalid, not a leaked TypeError/ValueError.
+
+    Mirrors voluptuous PR #539: ``Decimal(value)`` raises ``TypeError`` for
+    None/dict/set/bytes and ``ValueError`` for empty sequences. probatio catches
+    both, so every non-numeric input reports a clean Invalid.
+    """
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Number(precision=6, scale=2))(value)
+    assert isinstance(caught.value.errors[0], Invalid)
+
+
+def test_number_rejects_a_decimal_tuple_spec_without_overflow() -> None:
+    """A 3-element sequence is read by Decimal as (sign, digits, exponent).
+
+    A huge exponent there overflows the C long (an OverflowError). Found by the
+    fuzz harness; it must surface as a clean Invalid, not leak.
+    """
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Number())([0, (1, 2), 10**400])
+    assert isinstance(caught.value.errors[0], Invalid)
+
+
+def test_number_matches_voluptuous() -> None:
+    """Number agrees with voluptuous on accept/reject for precision/scale."""
+    cases = ["1234.01", "1.0", "12", "abc", "12.345"]
+    for spec in [{}, {"precision": 6, "scale": 2}, {"scale": 1}]:
+        prob = Schema(Number(**spec))
+        vol = voluptuous.Schema(voluptuous.Number(**spec))
+        for value in cases:
+            prob_ok = _accepts(prob, value)
+            vol_ok = _accepts(vol, value)
+            assert prob_ok == vol_ok, (spec, value, prob_ok, vol_ok)
+
+
+def _accepts(schema: object, value: str) -> bool:
+    """Return whether the schema accepts the value (any failure counts as no)."""
+    try:
+        schema(value)  # type: ignore[operator]
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
+def test_set_to_ignores_input() -> None:
+    """SetTo returns its fixed value regardless of the input."""
+    assert Schema(SetTo(42))("anything") == 42
+
+
+def test_default_to_replaces_none() -> None:
+    """DefaultTo replaces None and passes other values through."""
+    assert Schema(DefaultTo("fallback"))(None) == "fallback"
+    assert Schema(DefaultTo("fallback"))("given") == "given"
+
+
+def test_coerce_converts_the_value() -> None:
+    """Coerce returns the value converted to the target type."""
+    assert Schema(Coerce(int))("42") == 42
+
+
+def test_coerce_failure_is_reported() -> None:
+    """A failed conversion raises CoerceInvalid, not a bare ValueError."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(int))("nope")
+    assert isinstance(caught.value.errors[0], CoerceInvalid)
+
+
+def test_coerce_exposes_its_type() -> None:
+    """Coerce keeps its target type for introspection."""
+    assert Coerce(int).type is int
+
+
+def test_boolean_truthy_and_falsy_strings() -> None:
+    """Boolean reads common truthy and falsy strings."""
+    assert Schema(Boolean())("yes") is True
+    assert Schema(Boolean())("off") is False
+    assert Schema(Boolean())(1) is True
+
+
+def test_boolean_rejects_unknown_strings() -> None:
+    """An unrecognized string raises BooleanInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Boolean())("maybe")
+    assert isinstance(caught.value.errors[0], BooleanInvalid)
+
+
+def test_boolean_message_can_be_overridden() -> None:
+    """Boolean is a factory, so its message and class can be customized per use."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Boolean("not a flag"))("maybe")
+    assert str(caught.value.errors[0]) == "not a flag"
+
+
+def test_coerce_decimal_fails_cleanly_on_junk() -> None:
+    """Coerce(Decimal) maps decimal.InvalidOperation to CoerceInvalid, not a leak."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(Decimal))("not-a-decimal")
+    assert isinstance(caught.value.errors[0], CoerceInvalid)
+
+
+def test_coerce_int_fails_cleanly_on_infinity() -> None:
+    """Coerce(int) maps OverflowError (infinity) to CoerceInvalid, not a leak."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(int))(float("inf"))
+    assert isinstance(caught.value.errors[0], CoerceInvalid)

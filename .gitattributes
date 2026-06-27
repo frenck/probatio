@@ -1,0 +1,10 @@
+# Normalize text files to LF in the repository and working tree, so checkouts
+# stay stable on every platform. Files that git detects as binary are left
+# exactly as committed.
+* text=auto eol=lf
+
+# Flag whitespace errors in diffs for the code we hand-write.
+*.py whitespace=error
+
+# Keep the lockfile out of GitHub's language statistics.
+uv.lock linguist-generated=true

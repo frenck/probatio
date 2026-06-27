@@ -1,0 +1,77 @@
+---
+name: Release
+
+# yamllint disable-line rule:truthy
+on:
+  release:
+    types:
+      - published
+
+# Serialize releases per tag and never cancel an in-flight publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://pypi.org/p/probatio
+    permissions:
+      # Job permissions replace the top-level block, so the checkout needs read.
+      contents: read
+      attestations: write # Sign build provenance
+      id-token: write # Trusted publishing to PyPI
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up uv and Python
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          # No cache in the publish path: a poisoned cache must never reach the
+          # job that pushes artifacts to PyPI.
+          enable-cache: false
+          python-version: "3.13"
+      - name: 🏗 Set package version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="${RELEASE_TAG}"
+          version="${version,,}"
+          version="${version#v}"
+          uv version "${version}"
+      - name: 🏗 Build package
+        run: uv build
+      - name: 🧭 Locate the built wheel
+        run: |
+          wheel_path=$(ls dist/probatio-*-py3-none-any.whl)
+          echo "WHEEL_PATH=${wheel_path}" >> "${GITHUB_ENV}"
+      - name: 📝 Generate a CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ${{ env.WHEEL_PATH }}
+          format: cyclonedx-json
+          output-file: probatio.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: 📝 Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: "dist/*"
+      - name: 📝 Attest the SBOM against the built artifacts
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: "dist/*"
+          sbom-path: probatio.cdx.json
+      - name: 🚀 Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          verbose: true
+          print-hash: true

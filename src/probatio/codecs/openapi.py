@@ -1,0 +1,525 @@
+"""OpenAPI codec: ``to_openapi``.
+
+``to_openapi`` renders a schema as an OpenAPI Schema object, matching the output
+of voluptuous-openapi's ``convert`` so LLM tool calling and MCP consumers work on
+probatio schemas. It supports both OpenAPI 3.0 (``nullable``) and 3.1 (``type:
+null``) and takes the same ``custom_serializer`` hook, which returns a dict to
+override a node or ``UNSUPPORTED`` to defer.
+
+The shape differs from JSON Schema in small but load-bearing ways (the 3.0/3.1
+nullable split, ``required`` always present, ``additionalProperties`` only when
+open, ``format`` names, a type fallback for bare numeric/string constraints), so
+this is a distinct codec rather than a tweak of ``to_json_schema``.
+"""
+
+from __future__ import annotations
+
+import itertools
+from enum import Enum
+from inspect import isroutine, signature
+from types import UnionType
+from typing import Any, TypeVar, Union, cast, get_args, get_origin, get_type_hints
+
+from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES, UNSUPPORTED
+from probatio.markers import Marker, Optional, Required, Undefined
+from probatio.schema import ALLOW_EXTRA, Schema
+from probatio.validators import (
+    All,
+    Base64,
+    Capitalize,
+    Clamp,
+    Coerce,
+    Datetime,
+    Email,
+    FqdnUrl,
+    In,
+    Length,
+    Lower,
+    Match,
+    Maybe,
+    MultipleOf,
+    Percentage,
+    Port,
+    Range,
+    Secret,
+    Strip,
+    Time,
+    Title,
+    Upper,
+    Url,
+)
+from probatio.validators import Any as AnyValidator
+
+_NONE_TYPE = type(None)
+_V3_0 = "3.0"
+_V3_1 = "3.1.0"
+
+_OPENAPI_TYPES: dict[type, str] = {
+    bool: "boolean",
+    int: "integer",
+    float: "number",
+    str: "string",
+}
+# The identity-comparable validators that render as a bare ``format``. The name
+# matches voluptuous-openapi, which uses the validator's lower-cased name.
+_OPENAPI_FORMATS: dict[Any, str] = {
+    Lower: "lower",
+    Upper: "upper",
+    Capitalize: "capitalize",
+    Title: "title",
+    Strip: "strip",
+    Email: "email",
+    Url: "url",
+    FqdnUrl: "fqdnurl",
+}
+_OPEN_OBJECT: dict[str, Any] = {"type": "object", "additionalProperties": True}
+_OA_PORT_MIN = 1
+_OA_PORT_MAX = 65535
+_OA_PERCENT_MIN = 0
+_OA_PERCENT_MAX = 100
+
+
+def to_openapi(
+    schema: Any,
+    *,
+    custom_serializer: Any = None,
+    openapi_version: str = _V3_0,
+) -> dict[str, Any]:
+    """Render a schema as an OpenAPI Schema object.
+
+    ``openapi_version`` is ``"3.0"`` (the default, emitting ``nullable``) or
+    ``"3.1.0"`` (emitting ``type: null``). ``custom_serializer`` is called first
+    for each node and may return a dict to override the default, or ``UNSUPPORTED``
+    to defer.
+    """
+    return _oa(schema, custom_serializer, openapi_version)
+
+
+def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
+    """Give a value a type when it has none, the way voluptuous-openapi does."""
+    if all(key not in value for key in ("type", "anyOf", "oneOf", "allOf", "not")):
+        bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+        value["type"] = "number" if any(key in value for key in bounds) else "string"
+    return value
+
+
+def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
+    """Convert one schema node into an OpenAPI Schema object."""
+    additional: Any = None
+    if isinstance(node, Schema):
+        if node.extra == ALLOW_EXTRA:
+            additional = True
+        node = node.schema
+    if custom is not None:
+        result = custom(node)
+        if result is not UNSUPPORTED:
+            return cast("dict[str, Any]", result)
+    if isinstance(node, dict):
+        return _oa_mapping(node, custom, version, additional)
+    if isinstance(node, list | tuple | set | frozenset):
+        return _oa_sequence(node, custom, version)
+    return _oa_leaf(node, custom, version)
+
+
+def _oa_mapping(
+    node: dict[Any, Any],
+    custom: Any,
+    version: str,
+    additional: Any,
+) -> dict[str, Any]:
+    """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    constraint_groups: list[list[str]] = []
+    for key, value in node.items():
+        marker = key if isinstance(key, Marker) else None
+        pkey = marker.schema if marker is not None else key
+        pval = _oa(value, custom, version)
+        if marker is not None and marker.description:
+            pval["description"] = marker.description
+        if isinstance(marker, Required | Optional) and not isinstance(
+            marker.default,
+            Undefined,
+        ):
+            pval["default"] = marker.default()
+        if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
+            required.append(str(pkey))
+        pval = _ensure_default(pval)
+        if isinstance(pkey, AnyValidator):
+            props, group = _expand_any_key(
+                pkey,
+                pval,
+                required=isinstance(marker, Required),
+                wildcard=value is object,
+            )
+            properties.update(props)
+            if group is not None:
+                constraint_groups.append(group)
+        elif isinstance(pkey, str):
+            properties[pkey] = pval
+        else:
+            additional = _absorb_extra(pval, additional)
+    return _assemble_object(properties, required, additional, constraint_groups)
+
+
+def _expand_any_key(
+    pkey: AnyValidator,
+    pval: dict[str, Any],
+    *,
+    required: bool,
+    wildcard: bool,
+) -> tuple[dict[str, Any], list[str] | None]:
+    """Expand an ``Any`` key into (properties to add, optional constraint group)."""
+    names = [str(item) for item in pkey.validators]
+    if required:
+        props = {} if wildcard else {name: pval.copy() for name in names}
+        return props, names
+    return {name: pval.copy() for name in names}, None
+
+
+def _absorb_extra(pval: dict[str, Any], additional: Any) -> Any:
+    """Fold a type-key value into the object's ``additionalProperties``."""
+    if pval == _OPEN_OBJECT:
+        return True
+    return pval if additional is None else additional
+
+
+def _assemble_object(
+    properties: dict[str, Any],
+    required: list[str],
+    additional: Any,
+    constraint_groups: list[list[str]],
+) -> dict[str, Any]:
+    """Build the final object dict from the collected pieces."""
+    result: dict[str, Any] = {"type": "object"}
+    if properties or not additional:
+        result["properties"] = properties
+        result["required"] = required
+    if additional:
+        result["additionalProperties"] = additional
+    if constraint_groups:
+        result["anyOf"] = [
+            {"required": list(combination)}
+            for combination in itertools.product(*constraint_groups)
+        ]
+    return result
+
+
+def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
+    """Render a sequence schema as an OpenAPI array."""
+    items = list(node)
+    if len(items) == 1:
+        return {
+            "type": "array",
+            "items": _ensure_default(_oa(items[0], custom, version)),
+        }
+    return {
+        "type": "array",
+        "items": [_ensure_default(_oa(item, custom, version)) for item in items],
+    }
+
+
+def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
+    """Render a leaf node: a validator, a literal, a type, or None."""
+    combinator = _oa_combinator(node, custom, version)
+    if combinator is not None:
+        return combinator
+    if isinstance(node, Coerce):
+        node = node.type
+    if isinstance(node, str | int | float | bool):
+        return {"type": _OPENAPI_TYPES[type(node)], "enum": [node]}
+    if node is None:
+        return _oa_null(version)
+    typed = _oa_type(node, version)
+    if typed or not callable(node):
+        return typed
+    # A bare callable that is not a recognized type: read the type annotation of
+    # its first parameter, the way voluptuous-openapi's convert() does.
+    return _oa_callable(node, custom, version)
+
+
+def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
+    """Render a bare callable by the type hint of its first parameter.
+
+    Mirrors voluptuous-openapi: a function or method is inspected directly, a
+    callable instance through its ``__call__``. The first parameter's annotation
+    becomes the schema (a ``Union`` becomes an ``Any`` of its members); an
+    unannotated or ``Any``/``TypeVar`` parameter yields an open ``{}``. Annotations
+    that cannot be resolved fall back to ``{}`` rather than leaking.
+    """
+    try:
+        hints = get_type_hints(
+            node if isroutine(node) or isinstance(node, type) else node.__call__
+        )
+        params = list(signature(node).parameters.keys())
+    except (TypeError, NameError):
+        return {}
+    hint = hints.get(params[0], Any) if params else Any
+    if hint is Any or isinstance(hint, TypeVar):
+        return {}
+    if isinstance(hint, UnionType) or get_origin(hint) is Union:
+        members = [arg for arg in get_args(hint) if not isinstance(arg, TypeVar)]
+        if len(members) > 1:
+            hint = AnyValidator(*members)
+        elif len(members) == 1 and members[0] is not _NONE_TYPE:
+            hint = members[0]
+        else:
+            return {}
+    return _ensure_default(_oa(hint, custom, version))
+
+
+def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
+    """Render the combinators and constraint validators, or None if not one."""
+    if isinstance(node, All):
+        return _oa_all(node, custom, version)
+    if isinstance(node, Clamp | Range):
+        return _oa_range(node)
+    if isinstance(node, Length):
+        return _oa_length(node)
+    # Time subclasses Datetime, so it must be matched before the Datetime branch.
+    if isinstance(node, Time):
+        return {"type": "string", "format": "time"}
+    if isinstance(node, Datetime):
+        return {"type": "string", "format": "date-time"}
+    if isinstance(node, Match):
+        return {"pattern": node.pattern.pattern}
+    if isinstance(node, In):
+        return _oa_enum(list(node.container))
+    if node in _OPENAPI_FORMATS:
+        return {"format": _OPENAPI_FORMATS[node]}
+    if isinstance(node, Maybe):
+        return _oa_any([None, node.validator], custom, version)
+    if isinstance(node, AnyValidator):
+        return _oa_any(list(node.validators), custom, version)
+    return _oa_typed(node, custom, version)
+
+
+def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
+    """Render the network, identifier, and numeric-bound validators."""
+    for validator_type, json_format in FORMAT_BY_TYPE.items():
+        if isinstance(node, validator_type):
+            return {"type": "string", "format": json_format}
+    if isinstance(node, STRING_TYPES):
+        return {"type": "string"}
+    if isinstance(node, Port):
+        return {"type": "integer", "minimum": _OA_PORT_MIN, "maximum": _OA_PORT_MAX}
+    if isinstance(node, Percentage):
+        return {
+            "type": "number",
+            "minimum": _OA_PERCENT_MIN,
+            "maximum": _OA_PERCENT_MAX,
+        }
+    if isinstance(node, MultipleOf):
+        return {"type": "number", "multipleOf": node.factor}
+    if isinstance(node, Base64):
+        return {"type": "string", "contentEncoding": "base64"}
+    if isinstance(node, Secret):
+        return {**_oa(node.schema, custom, version), "writeOnly": True}
+    return None
+
+
+def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
+    """Merge an All's parts, falling back to allOf when keys conflict."""
+    merged: dict[str, Any] = {}
+    all_of: list[dict[str, Any]] = []
+    fallback = False
+    for validator in node.validators:
+        part = _oa(validator, custom, version)
+        if not part or part in all_of or part == _OPEN_OBJECT:
+            continue
+        if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
+            fallback = True
+        all_of.append(part)
+        if not fallback:
+            merged.update(part)
+    if fallback:
+        return {"allOf": all_of}
+    return _ensure_default(merged)
+
+
+def _oa_range(node: Clamp | Range) -> dict[str, Any]:
+    """Render a Range or Clamp as OpenAPI numeric bounds (Clamp is inclusive)."""
+    result: dict[str, Any] = {}
+    min_exclusive = isinstance(node, Range) and not node.min_included
+    max_exclusive = isinstance(node, Range) and not node.max_included
+    if node.min is not None:
+        result["exclusiveMinimum" if min_exclusive else "minimum"] = node.min
+    if node.max is not None:
+        result["exclusiveMaximum" if max_exclusive else "maximum"] = node.max
+    return result
+
+
+def _oa_length(node: Length) -> dict[str, Any]:
+    """Render a Length as OpenAPI string-length bounds."""
+    result: dict[str, Any] = {}
+    if node.min is not None:
+        result["minLength"] = node.min
+    if node.max is not None:
+        result["maxLength"] = node.max
+    return result
+
+
+def _oa_enum(values: list[Any]) -> dict[str, Any]:
+    """Render an enum (from In or an Enum type), extracting null members.
+
+    Like voluptuous-openapi, an enum marks itself ``nullable`` regardless of the
+    OpenAPI version (unlike ``Any``, which splits on version).
+    """
+    nullable = False
+    cleaned = []
+    for value in values:
+        if value is None or value is _NONE_TYPE:
+            nullable = True
+        else:
+            cleaned.append(value)
+    enum_type = _OPENAPI_TYPES.get(type(cleaned[0]), "string") if cleaned else "string"
+    result: dict[str, Any] = {"type": enum_type, "enum": cleaned}
+    if nullable:
+        result["nullable"] = True
+    return result
+
+
+def _oa_null(version: str) -> dict[str, Any]:
+    """Render ``None`` per the OpenAPI version."""
+    if version == _V3_1:
+        return {"type": "null"}
+    return {"type": "object", "nullable": True, "description": "Must be null"}
+
+
+def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
+    """Render an Any (or Maybe), a faithful port of voluptuous-openapi's Any block.
+
+    On 3.0 a top-level ``None`` becomes the ``nullable`` flag; on 3.1 it stays a
+    ``{"type": "null"}`` branch. Branches are flattened, de-duplicated (treating a
+    nullable and non-nullable twin as one), and same-type enums merged.
+    """
+    nullable = False
+    if version == _V3_0 and any(v is None or v is _NONE_TYPE for v in validators):
+        validators = [v for v in validators if v is not None and v is not _NONE_TYPE]
+        nullable = True
+    if len(validators) == 1:
+        result = _oa(validators[0], custom, version)
+        if nullable:
+            result["nullable"] = True
+        return result
+    any_of, nested_nullable = _flatten_any(
+        [_oa(validator, custom, version) for validator in validators],
+    )
+    nullable = nullable or nested_nullable
+    if _OPEN_OBJECT in any_of:
+        result = dict(_OPEN_OBJECT)
+        if nullable:
+            result["nullable"] = True
+        return result
+    return _collapse_any(_dedup_any(any_of), nullable=nullable)
+
+
+def _flatten_any(any_of: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Inline nested anyOf entries, reporting whether any carried ``nullable``."""
+    flattened: list[dict[str, Any]] = []
+    nullable = False
+    for item in any_of:
+        if item.get("anyOf"):
+            flattened.extend(item["anyOf"])
+            nullable = nullable or bool(item.get("nullable"))
+        else:
+            flattened.append(item)
+    return flattened, nullable
+
+
+def _dedup_preserving_order(values: list[Any]) -> list[Any]:
+    """Drop duplicate enum values by equality, keeping first-seen order.
+
+    Used when a member is unhashable (an enum of lists or dicts, valid in JSON
+    Schema), where ``list(set(...))`` would raise. Enums are short, so the
+    quadratic scan does not matter.
+    """
+    result: list[Any] = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _dedup_any(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """De-duplicate branches, unifying nullable twins and merging same-type enums."""
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if item in out:
+            continue
+        probe = dict(item)
+        if item.get("nullable"):
+            probe.pop("nullable")
+            if probe in out:
+                out[out.index(probe)]["nullable"] = True
+                continue
+        probe["nullable"] = True
+        if probe in out:
+            continue
+        twin = _enum_twin(item, out)
+        if twin is not None:
+            if item.get("nullable"):
+                twin["nullable"] = True
+            combined = twin["enum"] + item["enum"]
+            try:
+                # Match voluptuous-openapi's ``list(set(...))`` for the common
+                # hashable case, so the converted output stays identical.
+                twin["enum"] = list(set(combined))
+            except TypeError:
+                # Unhashable enum members (an enum of lists or dicts) cannot go
+                # through a set; dedup by equality instead, keeping order. The
+                # oracle cannot convert these at all, so there is nothing to match.
+                twin["enum"] = _dedup_preserving_order(combined)
+            continue
+        out.append(item)
+    return out
+
+
+def _collapse_any(any_of: list[dict[str, Any]], *, nullable: bool) -> dict[str, Any]:
+    """Collapse a de-duplicated anyOf to one entry where possible, applying nullable."""
+    null_count = sum(1 for item in any_of if item.get("nullable") is True)
+    if nullable or null_count > 1:
+        nullable = True
+        any_of = [
+            {key: value for key, value in item.items() if key != "nullable"}
+            for item in any_of
+        ]
+    result: dict[str, Any] = any_of[0] if len(any_of) == 1 else {"anyOf": any_of}
+    if nullable:
+        result["nullable"] = True
+    return result
+
+
+def _enum_twin(
+    item: dict[str, Any],
+    merged: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Find an already-merged entry that shares this item's enum type, if any.
+
+    A *non-empty* enum is required on both sides, matching voluptuous-openapi's
+    truthiness check (an empty enum, as ``In([None])`` produces, never merges).
+    """
+    if not item.get("enum"):
+        return None
+    for candidate in merged:
+        if candidate.get("enum") and candidate.get("type") == item.get("type"):
+            return candidate
+    return None
+
+
+def _oa_type(node: Any, version: str) -> dict[str, Any]:
+    """Render a Python type as an OpenAPI Schema object."""
+    if node in _OPENAPI_TYPES:
+        return {"type": _OPENAPI_TYPES[node]}
+    if isinstance(node, type):
+        if node is dict:
+            return dict(_OPEN_OBJECT)
+        if node in (list, set, tuple):
+            return {"type": "array", "items": _ensure_default({})}
+        if issubclass(node, Enum):
+            return _oa_enum([item.value for item in node])
+        if node is _NONE_TYPE:
+            return _oa_null(version)
+    if node is object:
+        return dict(_OPEN_OBJECT)
+    return {}

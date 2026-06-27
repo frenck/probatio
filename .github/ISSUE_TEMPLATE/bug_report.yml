@@ -1,0 +1,64 @@
+name: 🐛 Bug report
+description: Report a problem with probatio
+labels: [bugfix]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in the details
+        below so it can be reproduced.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: A minimal schema and the probatio call that triggers the bug.
+      render: python
+      placeholder: |
+        import probatio
+
+        schema = probatio.Schema({"key": str})
+        schema({"key": 123})
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What probatio did instead, including the full error or output.
+    validations:
+      required: true
+  - type: textarea
+    id: voluptuous
+    attributes:
+      label: voluptuous behavior, if relevant
+      description: >
+        If this is a compatibility issue, what does voluptuous do with the same
+        schema and value? Behavioral compatibility with voluptuous is the primary
+        correctness target.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: probatio version
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version and platform
+    validations:
+      required: true

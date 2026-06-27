@@ -1,0 +1,135 @@
+---
+title: Troubleshooting
+description: The common surprises when using Probatio, and how to deal with each.
+---
+
+A short list of the things that trip people up, with the symptom first and the
+fix second. Most of them are points where Probatio matches voluptuous exactly,
+so the fix is the same one you would reach for there.
+
+## I caught `Invalid` but got a `MultipleInvalid`
+
+A `Schema` call always wraps its failures in `MultipleInvalid`, even when there
+is only one. `MultipleInvalid` is itself an `Invalid`, so `except Invalid`
+catches it; the individual failures are in `.errors`.
+
+```python
+from probatio import Schema, Invalid, MultipleInvalid
+
+schema = Schema(int)
+
+try:
+    schema("nope")
+except Invalid as err:           # catches MultipleInvalid too
+    print(type(err).__name__)    # MultipleInvalid
+    print(err.errors[0].msg)     # expected int
+```
+
+To branch on a specific kind of failure (like `RangeInvalid`), inspect
+`err.errors[0]`, not the `MultipleInvalid` itself.
+
+## `RuntimeError: no YAML parser/dumper available`
+
+YAML is not in the Python standard library, so `load_yaml` and `dump_yaml` need a
+backend (the exact message is "no YAML parser available" when reading, "no YAML
+dumper available" when writing). Install one:
+
+```bash
+pip install "probatio[yaml]"   # PyYAML
+pip install "probatio[fast]"   # YAMLRocks, also speeds up JSON
+```
+
+The same applies to TOML _writing_: `dump_toml` needs `probatio[toml]` (`tomli-w`).
+Reading TOML works on the standard library, and JSON read and write always work.
+
+## `schema.load("...")` treats my string as content, not a path
+
+`load` and the `load_*` methods read their argument as the data itself when it is
+a string or bytes. To load a file, pass a `pathlib.Path` (or an open file). The
+format auto-detection in `load` comes from the path suffix, so it needs a path:
+
+```python
+from pathlib import Path
+from probatio import Schema
+
+schema = Schema({"name": str})
+config = Path("/tmp/probatio-example.json")
+config.write_text('{"name": "app"}')
+
+schema.load(config)  # {'name': 'app'}
+```
+
+## `SchemaError` from a wrapped `Self`
+
+`Self` works as a direct mapping value or list element, and as a branch of a
+combinator (`Any(Self, "stop")`, `All(Self, ...)`). It does not work inside a
+plain wrapping validator like `Maybe`, which compiles it outside the recursive
+context and raises:
+
+<!-- verify: raises SchemaError -->
+
+```python
+from probatio import Schema, Maybe, Self
+
+Schema({"next": Maybe(Self)})  # SchemaError
+```
+
+For an optional recursive key, mark the key `Optional`, do not wrap the value:
+
+```python
+from probatio import Schema, Optional, Required, Self
+
+schema = Schema({Required("value"): int, Optional("next"): Self})
+
+schema({"value": 1, "next": {"value": 2}})  # {'value': 1, 'next': {'value': 2}}
+```
+
+## My custom validator's `ValueError` message has a `not a valid value:` prefix
+
+A plain `ValueError` from a callable is kept, but reported as
+`not a valid value: <your message>`. The reason is preserved; the prefix is not.
+Raise `Invalid` with your own message to control it exactly, with no prefix:
+
+```python
+from probatio import Schema, Invalid
+
+def even(value):
+    if value % 2:
+        raise Invalid("must be even")
+    return value
+
+try:
+    Schema(even)(3)
+except Invalid as err:
+    print(err.errors[0].msg)  # must be even
+```
+
+## `Remove` dropped my key, but a bad value still errored
+
+`Remove` validates the value before dropping it. Only a value that validates is
+removed; a value that fails its schema is reported, the same as any other key.
+That is voluptuous behavior, not a Probatio quirk.
+
+```python
+from probatio import Schema, Remove
+
+schema = Schema({"keep": int, Remove("drop"): str})
+
+schema({"keep": 1, "drop": "x"})  # {'keep': 1}
+```
+
+## `data is nested too deeply for this recursive schema`
+
+A recursive `Self` schema has a depth guard, so cyclic or pathologically deep
+data raises a clean `Invalid` instead of crashing the interpreter with a
+`RecursionError`. The limit scales with the interpreter's recursion limit. Real
+data is nowhere near it; if you knowingly need deeper, raise
+`sys.setrecursionlimit` before validating.
+
+## A difference from voluptuous that is not documented
+
+Probatio targets behavioral compatibility, and the handful of intentional
+differences are listed on the [compatibility page](/getting-started/compatibility/)
+and the [compatibility matrix](/reference/compatibility-matrix/). Anything else is
+a bug; please [open an issue](https://github.com/frenck/probatio/issues) with a
+small reproduction.

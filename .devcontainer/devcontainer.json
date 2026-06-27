@@ -1,0 +1,56 @@
+{
+  "name": "Probatio",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:2": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "installTools": false,
+      "version": "3.14"
+    },
+    "ghcr.io/devcontainers-extra/features/uv:1": {}
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["README.md", "src/probatio/__init__.py"]
+    },
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode",
+        "GitHub.vscode-pull-request-github",
+        "charliermarsh.ruff",
+        "GitHub.vscode-github-actions",
+        "tamasfe.even-better-toml",
+        "ryanluker.vscode-coverage-gutters"
+      ],
+      "settings": {
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.codeActionsOnSave": {
+            "source.fixAll": true,
+            "source.organizeImports": true
+          }
+        },
+        "coverage-gutters.customizable.context-menu": true,
+        "coverage-gutters.customizable.status-bar-toggler-watchCoverageAndVisibleEditors-enabled": true,
+        "coverage-gutters.showGutterCoverage": false,
+        "coverage-gutters.showLineCoverage": true,
+        "coverage-gutters.xmlname": "coverage.xml",
+        "editor.formatOnSave": true,
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "python.analysis.extraPaths": ["${workspaceFolder}/src"],
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "python.testing.cwd": "${workspaceFolder}",
+        "python.testing.pytestArgs": ["--cov-report=xml"],
+        "python.testing.pytestEnabled": true,
+        "ruff.importStrategy": "fromEnvironment",
+        "ruff.interpreter": [".venv/bin/python"],
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  },
+  "updateContentCommand": ". ${NVM_DIR}/nvm.sh && nvm install && nvm use && uv sync && uvx prek install"
+}

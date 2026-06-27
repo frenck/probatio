@@ -1,0 +1,64 @@
+---
+name: Docs
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version-file: docs/.nvmrc
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - name: 🏗 Install dependencies
+        run: npm ci
+        working-directory: docs
+      - name: 🚀 Build the documentation site
+        run: npm run build
+        working-directory: docs
+      - name: 📦 Upload the Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: [build]
+    # Production only: publish to probatio.frenck.dev on pushes to main (or a
+    # manual dispatch on main), and never from a fork. The artifact comes from
+    # the build job above, so nothing is rebuilt here.
+    if: >-
+      github.repository == 'frenck/probatio'
+      && github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish to GitHub Pages
+      id-token: write # OIDC token the deploy-pages action verifies
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -1,0 +1,26 @@
+---
+name: ✨ Feature request
+description: Suggest a new feature for probatio
+labels: [new-feature]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the feature you'd like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What problem does this solve? A concrete example helps.
+    validations:
+      required: false
+  - type: textarea
+    id: additional-information
+    attributes:
+      label: Additional information
+      description: Any additional context, examples, or references.
+    validations:
+      required: false

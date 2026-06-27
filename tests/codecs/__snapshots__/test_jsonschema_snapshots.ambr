@@ -1,0 +1,206 @@
+# serializer version: 1
+# name: test_to_json_schema_snapshot[any_of]
+  dict({
+    'anyOf': list([
+      dict({
+        'type': 'integer',
+      }),
+      dict({
+        'type': 'string',
+      }),
+    ]),
+  })
+# ---
+# name: test_to_json_schema_snapshot[coerce]
+  dict({
+    'minimum': 0,
+    'type': 'integer',
+  })
+# ---
+# name: test_to_json_schema_snapshot[extra_and_type_keys]
+  dict({
+    'additionalProperties': dict({
+      'type': 'integer',
+    }),
+    'properties': dict({
+      'fixed': dict({
+        'type': 'boolean',
+      }),
+    }),
+    'type': 'object',
+  })
+# ---
+# name: test_to_json_schema_snapshot[length]
+  dict({
+    'maxLength': 20,
+    'minLength': 1,
+  })
+# ---
+# name: test_to_json_schema_snapshot[literal]
+  dict({
+    'const': 'on',
+  })
+# ---
+# name: test_to_json_schema_snapshot[markers]
+  dict({
+    'additionalProperties': False,
+    'properties': dict({
+      'name': dict({
+        'type': 'string',
+      }),
+      'note': dict({
+        'description': 'a note',
+        'type': 'string',
+      }),
+      'port': dict({
+        'default': 8080,
+        'type': 'integer',
+      }),
+    }),
+    'required': list([
+      'name',
+    ]),
+    'type': 'object',
+  })
+# ---
+# name: test_to_json_schema_snapshot[match]
+  dict({
+    'pattern': '^\\d+$',
+    'type': 'string',
+  })
+# ---
+# name: test_to_json_schema_snapshot[maybe]
+  dict({
+    'anyOf': list([
+      dict({
+        'type': 'null',
+      }),
+      dict({
+        'type': 'integer',
+      }),
+    ]),
+  })
+# ---
+# name: test_to_json_schema_snapshot[membership]
+  dict({
+    'enum': list([
+      'a',
+      'b',
+      'c',
+    ]),
+  })
+# ---
+# name: test_to_json_schema_snapshot[named]
+  dict({
+    'additionalProperties': False,
+    'properties': dict({
+      'flag': dict({
+        'type': 'boolean',
+      }),
+      'host': dict({
+        'format': 'uri',
+        'type': 'string',
+      }),
+      'mail': dict({
+        'format': 'email',
+        'type': 'string',
+      }),
+      'site': dict({
+        'format': 'uri',
+        'type': 'string',
+      }),
+    }),
+    'type': 'object',
+  })
+# ---
+# name: test_to_json_schema_snapshot[nested]
+  dict({
+    'additionalProperties': False,
+    'properties': dict({
+      'outer': dict({
+        'additionalProperties': False,
+        'properties': dict({
+          'inner': dict({
+            'type': 'integer',
+          }),
+        }),
+        'required': list([
+          'inner',
+        ]),
+        'type': 'object',
+      }),
+    }),
+    'required': list([
+      'outer',
+    ]),
+    'type': 'object',
+  })
+# ---
+# name: test_to_json_schema_snapshot[primitives]
+  dict({
+    'additionalProperties': False,
+    'properties': dict({
+      'b': dict({
+        'type': 'boolean',
+      }),
+      'f': dict({
+        'type': 'number',
+      }),
+      'i': dict({
+        'type': 'integer',
+      }),
+      'n': dict({
+        'type': 'null',
+      }),
+      's': dict({
+        'type': 'string',
+      }),
+    }),
+    'type': 'object',
+  })
+# ---
+# name: test_to_json_schema_snapshot[range_exclusive]
+  dict({
+    'exclusiveMaximum': 10,
+    'exclusiveMinimum': 0,
+  })
+# ---
+# name: test_to_json_schema_snapshot[range_inclusive]
+  dict({
+    'maximum': 10,
+    'minimum': 0,
+  })
+# ---
+# name: test_to_json_schema_snapshot[range_one_sided]
+  dict({
+    'maximum': 5,
+  })
+# ---
+# name: test_to_json_schema_snapshot[sequence_multi]
+  dict({
+    'items': dict({
+      'anyOf': list([
+        dict({
+          'type': 'integer',
+        }),
+        dict({
+          'type': 'string',
+        }),
+      ]),
+    }),
+    'type': 'array',
+  })
+# ---
+# name: test_to_json_schema_snapshot[sequence_single]
+  dict({
+    'items': dict({
+      'type': 'integer',
+    }),
+    'type': 'array',
+  })
+# ---
+# name: test_to_json_schema_snapshot[string_func]
+  dict({
+    'type': 'string',
+  })
+# ---

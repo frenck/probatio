@@ -1,0 +1,39 @@
+name: CodSpeed
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codspeed-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token CodSpeed mints (no CODSPEED_TOKEN secret)
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+      - name: Install the project
+        run: uv sync --locked --group codspeed
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3
+        with:
+          # Clear the global pytest addopts (-q --cov); coverage instrumentation
+          # would skew the benchmark timings.
+          run: uv run --no-sync pytest bench --codspeed --no-cov -o addopts=""

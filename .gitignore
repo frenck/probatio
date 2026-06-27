@@ -1,0 +1,74 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+sdist/
+.Python
+.installed.cfg
+
+# --- Python: tooling caches and coverage ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ty/
+.hypothesis/
+.cache/
+.codspeed/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.python-version
+
+# --- Virtual environments ---
+.venv/
+.venv-*/
+venv/
+ENV/
+env/
+
+# --- C extensions ---
+*.so
+*.pyd
+
+# --- Documentation site (Node / Astro) ---
+node_modules/
+.astro/
+docs/dist/
+
+# --- Tooling and agents ---
+.claude/
+.dccache
+
+# --- OS cruft ---
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- Editors ---
+.vscode/
+.idea/
+*.iml
+*.swp
+*~
+
+# --- Secrets and stray files ---
+.env
+*.orig
+*.rej
+
+# voluptuous's own test suite, copied in for the drop-in proof (BSD-licensed,
+# not vendored). See compat/voluptuous/README.md.
+compat/voluptuous/tests.py
