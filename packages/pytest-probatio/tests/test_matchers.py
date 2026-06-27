@@ -43,6 +43,21 @@ def test_le_operator_is_a_partial_match() -> None:
     assert Exact({"name": str}) <= {"name": "app", "extra": 1}
 
 
+def test_ge_operator_is_a_reversed_partial_match() -> None:
+    """Data on the left of <= reaches __ge__, still a partial match (extra keys allowed)."""
+    assert {"name": "app", "extra": 1} <= Exact({"name": str})
+
+
+def test_assertrepr_hook_explains_partial_match_operators() -> None:
+    """The hook renders explanations for the <= and >= operators, not just ==/!=."""
+    matcher = Exact({"port": Port()})
+    matcher <= {"port": "nope"}  # noqa: B015 - run the comparison to record errors
+    for op in ("<=", ">="):
+        lines = pytest_assertrepr_compare(op, matcher, {"port": "nope"})
+        assert lines is not None
+        assert any("data['port']" in line for line in lines)
+
+
 def test_matcher_records_errors_with_paths() -> None:
     """A failed comparison records probatio errors carrying the offending path."""
     matcher = Exact({"server": {"port": Port()}})
