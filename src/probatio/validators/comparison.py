@@ -115,7 +115,11 @@ class Contains(_SafeValidator):
         """Return the value if it contains the item, else ContainsInvalid."""
         try:
             present = self.item in value
-        except (TypeError, ArithmeticError) as exc:
+        except (TypeError, ArithmeticError, AttributeError) as exc:
+            # ``in`` calls the container's ``__contains__``, which can raise more
+            # than TypeError: an ``ipaddress`` network checks ``other._version``,
+            # so ``5 in ip_network(...)`` raises AttributeError. Treat any such
+            # mismatch as "not a collection that contains the item".
             message = self.msg or "value is not a collection"
             raise ContainsInvalid(message) from exc
         if not present:

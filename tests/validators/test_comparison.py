@@ -82,6 +82,15 @@ def test_contains_on_non_collection() -> None:
     assert isinstance(caught.value.errors[0], ContainsInvalid)
 
 
+def test_contains_when_membership_raises_attributeerror() -> None:
+    """Contains stays clean when ``__contains__`` itself errors (ip_network)."""
+    import ipaddress  # noqa: PLC0415
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Contains(5))(ipaddress.ip_network("10.0.0.0/8"))
+    assert isinstance(caught.value.errors[0], ContainsInvalid)
+
+
 def test_range_accepts_and_rejects() -> None:
     """Range passes values in bounds and rejects values outside them."""
     assert Schema(Range(min=0, max=10))(5) == 5
