@@ -26,11 +26,13 @@ from probatio import ALLOW_EXTRA, PREVENT_EXTRA, Invalid, MultipleInvalid, Schem
 def _compile(schema: typing.Any, extra: int) -> Schema:
     """Return ``schema`` as a ``Schema`` with the given extra-key policy.
 
-    A ready-made ``Schema`` is used as-is (its own ``extra`` is respected); anything
-    else is wrapped with the requested policy.
+    A ready-made ``Schema`` (you can build one once and reuse it across tests) is
+    rebuilt with the requested policy, its underlying schema and ``required`` flag
+    preserved, so ``Exact`` and ``Partial`` control extra keys the same way whether
+    they are given a raw shape or a ``Schema``.
     """
     if isinstance(schema, Schema):
-        return schema
+        return Schema(schema.schema, required=schema.required, extra=extra)
     return Schema(schema, extra=extra)
 
 

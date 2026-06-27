@@ -89,6 +89,22 @@ def test_list_users():
     assert list_users() == Exact({"users": [USER], "total": int})
 ```
 
+The shape can also be a pre-built `Schema`, so a schema you already use elsewhere
+(a production config schema, say) doubles as a test matcher. `Exact` and `Partial`
+still control whether extra keys are allowed:
+
+<!-- verify: skip -->
+
+```python
+from pytest_probatio import Exact, Partial
+from probatio import Schema
+
+USER = Schema({"id": int, "name": str})
+
+assert get_user(1) == Exact(USER)  # no extra keys
+assert get_user(1) == Partial(USER)  # extra keys allowed
+```
+
 A pytest fixture that returns the schema works too, if you would rather inject it
 than import a module-level constant.
 

@@ -28,6 +28,16 @@ def test_partial_allows_extra_keys() -> None:
     assert {"name": "app", "extra": 1} == Partial({"name": str})
 
 
+def test_accepts_a_prebuilt_schema() -> None:
+    """A ready-made Schema can be reused; Exact/Partial still govern extra keys."""
+    from probatio import Schema  # noqa: PLC0415
+
+    user = Schema({"id": int, "name": str})
+    assert {"id": 1, "name": "ada"} == Exact(user)
+    assert {"id": 1, "name": "ada", "extra": 1} != Exact(user)
+    assert {"id": 1, "name": "ada", "extra": 1} == Partial(user)
+
+
 def test_le_operator_is_a_partial_match() -> None:
     """The <= operator relaxes Exact to a partial match (extra keys allowed)."""
     assert Exact({"name": str}) <= {"name": "app", "extra": 1}
