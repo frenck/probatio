@@ -39,7 +39,9 @@ jobs:
           # job that pushes artifacts to PyPI.
           enable-cache: false
           python-version: "3.13"
-      - name: 🏗 Set package version
+      - name: 🏗 Set package versions
+        # Stamp both workspace packages with the release version, so probatio and
+        # its pytest-probatio companion always ship the same number.
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -47,30 +49,50 @@ jobs:
           version="${version,,}"
           version="${version#v}"
           uv version "${version}"
-      - name: 🏗 Build package
-        run: uv build
-      - name: 🧭 Locate the built wheel
+          uv version --package pytest-probatio "${version}"
+      - name: 🏗 Build packages
+        run: uv build --all-packages
+      - name: 🧭 Locate the built wheels
         run: |
-          wheel_path=$(ls dist/probatio-*-py3-none-any.whl)
-          echo "WHEEL_PATH=${wheel_path}" >> "${GITHUB_ENV}"
-      - name: 📝 Generate a CycloneDX SBOM
+          echo "WHEEL_PROBATIO=$(ls dist/probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
+          echo "WHEEL_PYTEST=$(ls dist/pytest_probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
+      - name: 📝 Generate a CycloneDX SBOM for probatio
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          file: ${{ env.WHEEL_PATH }}
+          file: ${{ env.WHEEL_PROBATIO }}
           format: cyclonedx-json
           output-file: probatio.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: 📝 Generate a CycloneDX SBOM for pytest-probatio
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: ${{ env.WHEEL_PYTEST }}
+          format: cyclonedx-json
+          output-file: pytest-probatio.cdx.json
           upload-artifact: false
           upload-release-assets: false
       - name: 📝 Attest build provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
           subject-path: "dist/*"
-      - name: 📝 Attest the SBOM against the built artifacts
+      - name: 📝 Attest the probatio SBOM against its wheel
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
-          subject-path: "dist/*"
+          subject-path: ${{ env.WHEEL_PROBATIO }}
           sbom-path: probatio.cdx.json
+      - name: 📝 Attest the pytest-probatio SBOM against its wheel
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: ${{ env.WHEEL_PYTEST }}
+          sbom-path: pytest-probatio.cdx.json
       - name: 🚀 Publish to PyPI
+        # Uploads every distribution in dist/, so both probatio and
+        # pytest-probatio. Each is a separate PyPI project, so BOTH must have a
+        # trusted publisher configured for this repository, workflow, and the
+        # `release` environment, or PyPI rejects the upload with a 403 (after the
+        # first project has already published). The pytest-probatio publisher can be
+        # registered as a pending publisher before its first release.
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           verbose: true

@@ -58,6 +58,13 @@ fast = ["orjson", "yamlrocks>=0.5.0"]
 yaml = ["PyYAML"]
 toml = ["tomli-w"]
 
+# The repository is a uv workspace: the core `probatio` package at the root, plus
+# separately published companion packages under `packages/`. They share one repo,
+# CI, and issue tracker, but each ships as its own distribution, so the core stays
+# dependency-free.
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/probatio"]
 
@@ -148,6 +155,18 @@ ignore = [
 # FBT003: hypothesis's assume(False) takes a positional boolean by design.
 # DTZ001: naive datetimes are intentional fixtures (coercion tests, not tz logic).
 "tests/**" = ["S101", "SLF001", "PLR2004", "ANN", "D", "PLR0911", "FBT003", "DTZ001"]
+# The pytest-probatio matcher tests compare data on the left of a schema
+# (`data == S(...)`), which is the point of the API, not a Yoda condition (SIM300);
+# the tests directory is a plain pytest layout with no __init__.py (INP001).
+"packages/*/tests/**" = [
+  "S101",
+  "SLF001",
+  "ANN",
+  "D",
+  "PLR2004",
+  "SIM300",
+  "INP001",
+]
 # Benchmarks print results, time tiny throwaway callables, and are a script
 # directory rather than an importable package.
 "bench/**" = ["T201", "S101", "ANN", "D", "INP001"]
@@ -220,7 +239,12 @@ fail_under = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov"
+# The pytest-probatio companion plugin (a workspace package) imports probatio at
+# plugin-load time, before pytest-cov starts, which would read probatio's
+# import-time code as uncovered. Disable it for the core suite; the package's own
+# tests run with `-o addopts=""`, so they still load it. The flag is a no-op when
+# the plugin is not installed.
+addopts = "-q --cov -p no:probatio"
 
 [tool.mypy]
 python_version = "3.13"
