@@ -60,6 +60,38 @@ data does not match the probatio schema (==):
 So a failing `assert response == Exact(...)` points at the exact offending value
 rather than just reporting that the two are not equal.
 
+## Reuse a schema across tests
+
+A schema is data, so define the expected shape once and reuse it like any other
+constant. Keep the plain schema (a dict, a `Schema`, a validator) at module level
+and wrap it in `Exact` or `Partial` at each assertion, which also lets the same
+shape compose into larger ones:
+
+<!-- verify: skip -->
+
+```python
+from pytest_probatio import Exact
+from probatio import Email
+
+USER = {"id": int, "name": str, "email": Email()}
+
+
+def test_create_user():
+    assert create_user("ada@example.com") == Exact(USER)
+
+
+def test_get_user():
+    assert get_user(1) == Exact(USER)
+
+
+def test_list_users():
+    # The same shape, composed into a bigger one.
+    assert list_users() == Exact({"users": [USER], "total": int})
+```
+
+A pytest fixture that returns the schema works too, if you would rather inject it
+than import a module-level constant.
+
 ## Why a separate package
 
 The core `probatio` library has no required dependencies. A pytest plugin needs
