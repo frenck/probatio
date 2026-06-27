@@ -140,6 +140,16 @@ def test_unrecognized_value_is_open() -> None:
     assert to_openapi(Schema(object())) == {}
 
 
+def test_signatureless_builtin_type_does_not_leak() -> None:
+    """A builtin type with no introspectable signature falls back, not crashes.
+
+    ``inspect.signature(bytes)`` raises ValueError; voluptuous-openapi leaks it.
+    Probatio must keep the codec leak-free and render an open schema instead. Found
+    by the atheris fuzz harness.
+    """
+    assert to_openapi(Schema(bytes)) == {}
+
+
 def test_merging_enums_with_unhashable_members_does_not_leak() -> None:
     """Same-typed enum branches with list members merge and dedup without a TypeError."""
     schema = Schema(probatio.Any(probatio.In([[1, 2]]), probatio.In([[1, 2], [3, 4]])))

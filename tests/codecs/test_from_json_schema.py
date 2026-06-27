@@ -666,3 +666,26 @@ def test_malformed_keyword_values_fail_closed(node: dict[str, object]) -> None:
     """
     with pytest.raises(SchemaError):
         from_json_schema(node)
+
+
+def test_non_string_format_is_ignored_not_a_leak() -> None:
+    """A malformed (non-string) ``format`` is treated as absent, not a TypeError.
+
+    ``_FROM_FORMATS.get(<dict>)`` would raise ``unhashable type``; the decoder
+    treats the bad hint as no format and still decodes a plain string. Found by the
+    atheris fuzz harness.
+    """
+    schema = from_json_schema({"type": "string", "format": {}})
+    assert schema("hello") == "hello"
+
+
+def test_structurally_malformed_schema_fails_closed() -> None:
+    """A malformed untrusted schema raises SchemaError, never a leaked TypeError.
+
+    Exhaustively type-checking every field is impractical, so the decoder fails
+    closed: a structural mismatch a specific check did not catch (a bool where an
+    array is expected) becomes a clean SchemaError. Found by the atheris fuzz
+    harness.
+    """
+    with pytest.raises(SchemaError, match="malformed"):
+        from_json_schema({"type": "array", "items": {"anyOf": True}})

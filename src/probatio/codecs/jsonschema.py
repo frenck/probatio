@@ -443,8 +443,22 @@ def from_openapi(schema: dict[str, Any]) -> Schema:
 
 
 def _decode(schema: dict[str, Any], *, openapi: bool) -> Schema:
-    """Run a decode from the root schema, wrapping the result in a Schema."""
-    node = _from_node(schema, _Decode(root=schema, openapi=openapi))
+    """Run a decode from the root schema, wrapping the result in a Schema.
+
+    The schema is untrusted, and exhaustively type-checking every field of an
+    arbitrary document is impractical, so the decode fails closed: a structural
+    mismatch a specific check did not already catch (a bool where a list was
+    expected, an unhashable ``format``, and the like) is converted to a clean
+    ``SchemaError`` rather than leaking the raw ``TypeError``/``AttributeError``.
+    A ``SchemaError`` a specific check raised keeps its own message.
+    """
+    try:
+        node = _from_node(schema, _Decode(root=schema, openapi=openapi))
+    except SchemaError:
+        raise
+    except (TypeError, AttributeError, KeyError, IndexError, ValueError) as exc:
+        message = f"could not decode the schema; it is malformed: {exc}"
+        raise SchemaError(message) from exc
     return node if isinstance(node, Schema) else Schema(node)
 
 
@@ -964,7 +978,10 @@ def _from_string(node: dict[str, Any]) -> Any:
     ``contentEncoding: base64`` becomes ``Base64`` (so a ``Base64`` round-trips);
     everything else stays a plain string with the length and pattern constraints.
     """
-    base = _FROM_FORMATS.get(node.get("format", ""), str)
+    # ``format`` comes from an untrusted document; a non-string value (a dict, say)
+    # is not a hashable lookup key and is not a known format, so treat it as absent.
+    fmt = node.get("format", "")
+    base = _FROM_FORMATS.get(fmt, str) if isinstance(fmt, str) else str
     if base is str and (
         node.get("contentEncoding") == "base64" or node.get("format") == "byte"
     ):

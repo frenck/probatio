@@ -34,6 +34,15 @@ def _reject_bool(value: typing.Any) -> typing.Any:
     return value
 
 
+# CPython's ``ipaddress`` parsers are fragile on hostile input: besides the
+# expected ValueError/TypeError, a crafted value can reach an IndexError (an empty
+# tuple) or an AttributeError (``'NoneType' object has no attribute 'isascii'`` from
+# the prefix parser). A safe validator may only raise ``Invalid``, so every parse
+# failure is funnelled through this tuple. The wrapped call is a single stdlib
+# function on the value, so this cannot mask a bug in probatio's own code.
+_IP_PARSE_ERRORS = (ValueError, TypeError, IndexError, AttributeError)
+
+
 class IPv4Address(_SafeValidator):
     """Validate an IPv4 address, returning an ``ipaddress.IPv4Address``."""
 
@@ -45,7 +54,7 @@ class IPv4Address(_SafeValidator):
         """Return the parsed address, else raise IpInvalid."""
         try:
             return ipaddress.IPv4Address(_reject_bool(value))
-        except (ValueError, TypeError) as exc:
+        except _IP_PARSE_ERRORS as exc:
             raise IpInvalid(self.msg or "expected an IPv4 address") from exc
 
 
@@ -60,7 +69,7 @@ class IPv6Address(_SafeValidator):
         """Return the parsed address, else raise IpInvalid."""
         try:
             return ipaddress.IPv6Address(_reject_bool(value))
-        except (ValueError, TypeError) as exc:
+        except _IP_PARSE_ERRORS as exc:
             raise IpInvalid(self.msg or "expected an IPv6 address") from exc
 
 
@@ -78,7 +87,7 @@ class IPAddress(_SafeValidator):
         """Return the parsed address (v4 or v6), else raise IpInvalid."""
         try:
             return ipaddress.ip_address(_reject_bool(value))
-        except (ValueError, TypeError) as exc:
+        except _IP_PARSE_ERRORS as exc:
             raise IpInvalid(self.msg or "expected an IP address") from exc
 
 
@@ -100,9 +109,7 @@ class IPNetwork(_SafeValidator):
         """Return the parsed network, else raise IpInvalid."""
         try:
             return ipaddress.ip_network(_reject_bool(value), strict=False)
-        except (ValueError, TypeError, IndexError) as exc:
-            # An empty tuple makes ``ip_network`` raise IndexError; treat it, like
-            # any malformed input, as a clean rejection.
+        except _IP_PARSE_ERRORS as exc:
             raise IpInvalid(self.msg or "expected a CIDR network") from exc
 
 

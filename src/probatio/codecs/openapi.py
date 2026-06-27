@@ -252,7 +252,10 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
             node if isroutine(node) or isinstance(node, type) else node.__call__
         )
         params = list(signature(node).parameters.keys())
-    except (TypeError, NameError):
+    except (TypeError, NameError, ValueError):
+        # ValueError: a builtin type with no introspectable signature (``bytes``,
+        # ``object``, ...). voluptuous-openapi leaks this; probatio falls back to an
+        # open schema rather than crash, keeping the codec leak-free.
         return {}
     hint = hints.get(params[0], Any) if params else Any
     if hint is Any or isinstance(hint, TypeVar):
