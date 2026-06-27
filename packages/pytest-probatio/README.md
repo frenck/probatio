@@ -22,7 +22,7 @@ When the data does not match, the failure lists each error by its path:
 
 ```
 data does not match the probatio schema (==):
-  data['port']: expected int
+  data['port']: expected a port number between 1 and 65535
 ```
 
 Install it alongside pytest; the plugin registers itself:

@@ -87,6 +87,12 @@ jobs:
           subject-path: ${{ env.WHEEL_PYTEST }}
           sbom-path: pytest-probatio.cdx.json
       - name: 🚀 Publish to PyPI
+        # Uploads every distribution in dist/, so both probatio and
+        # pytest-probatio. Each is a separate PyPI project, so BOTH must have a
+        # trusted publisher configured for this repository, workflow, and the
+        # `release` environment, or PyPI rejects the upload with a 403 (after the
+        # first project has already published). The pytest-probatio publisher can be
+        # registered as a pending publisher before its first release.
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           verbose: true

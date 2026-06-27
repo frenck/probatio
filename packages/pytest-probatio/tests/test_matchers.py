@@ -65,6 +65,17 @@ def test_assertrepr_hook_ignores_unrelated_comparisons() -> None:
     assert pytest_assertrepr_compare("==", 1, 2) is None
 
 
+def test_assertrepr_hook_explains_a_failed_negation() -> None:
+    """A failed `!=` (the data did match) gets a clear, non-contradictory message."""
+    matcher = Exact({"id": int})
+    matcher != {"id": 1}  # noqa: B015 - the data matches, so != fails; records no errors
+    lines = pytest_assertrepr_compare("!=", matcher, {"id": 1})
+    assert lines is not None
+    assert lines == [
+        "data matches the probatio schema, but the assertion (!=) required it not to"
+    ]
+
+
 def test_matcher_is_unhashable() -> None:
     """The matcher is not hashable, since it records mutable error state."""
     import pytest  # noqa: PLC0415

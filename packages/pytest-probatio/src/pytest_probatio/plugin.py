@@ -50,7 +50,7 @@ class _Matcher:
         """Build the strict and partial schemas; ``partial`` picks which ``==`` uses."""
         self._strict = _compile(schema, PREVENT_EXTRA)
         self._loose = _compile(schema, ALLOW_EXTRA)
-        # ``Partial`` validates loosely under ``==``; ``S``/``Exact`` validate strictly.
+        # ``Partial`` validates loosely under ``==``; ``Exact`` validates strictly.
         self._strict_eq = not partial
         self._errors: list[Invalid] = []
 
@@ -73,7 +73,7 @@ class _Matcher:
         return True
 
     def __eq__(self, data: object) -> bool:
-        """Whether ``data`` validates (strictly for ``S``/``Exact``, loosely for ``Partial``)."""
+        """Whether ``data`` validates (strictly for ``Exact``, loosely for ``Partial``)."""
         return self._run(data, self._strict if self._strict_eq else self._loose)
 
     def __ne__(self, data: object) -> bool:
@@ -136,9 +136,12 @@ def pytest_assertrepr_compare(
         matcher = right
     else:
         return None
-    lines = [f"data does not match the probatio schema ({op}):"]
     if not matcher.errors:
-        lines.append("  (the schema matched; the assertion was negated)")
+        # A negated comparison (``!=``) that failed because the data *did* match.
+        return [
+            f"data matches the probatio schema, but the assertion ({op}) required it not to"
+        ]
+    lines = [f"data does not match the probatio schema ({op}):"]
     lines.extend(
         f"  {_format_path(error.path)}: {error.error_message or str(error)}"
         for error in matcher.errors

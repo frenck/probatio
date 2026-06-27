@@ -54,7 +54,7 @@ its path through the data, using probatio's errors:
 
 ```text
 data does not match the probatio schema (==):
-  data['port']: expected int
+  data['port']: expected a port number between 1 and 65535
 ```
 
 So a failing `assert response == Exact(...)` points at the exact offending value
