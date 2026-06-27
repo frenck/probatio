@@ -7,6 +7,8 @@
 [![License][license-shield]](https://github.com/frenck/probatio/blob/main/LICENSE)
 
 [![Build Status][build-shield]][build]
+[![CodSpeed][codspeed-shield]][codspeed]
+[![OpenSSF Scorecard][scorecard-shield]][scorecard]
 
 Put your data to the proof.
 
@@ -193,6 +195,10 @@ SOFTWARE.
 
 [build-shield]: https://github.com/frenck/probatio/actions/workflows/tests.yaml/badge.svg
 [build]: https://github.com/frenck/probatio/actions/workflows/tests.yaml
+[codspeed-shield]: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
+[codspeed]: https://codspeed.io/frenck/probatio
+[scorecard-shield]: https://api.scorecard.dev/projects/github.com/frenck/probatio/badge
+[scorecard]: https://scorecard.dev/viewer/?uri=github.com/frenck/probatio
 [code-of-conduct]: https://github.com/frenck/probatio/blob/main/.github/CODE_OF_CONDUCT.md
 [contributing]: https://github.com/frenck/probatio/blob/main/.github/CONTRIBUTING.md
 [contributors]: https://github.com/frenck/probatio/graphs/contributors
