@@ -10,13 +10,18 @@
 default:
     @just --list
 
-# Install all development dependencies into the uv-managed environment.
+# Install all development dependencies into the uv-managed environment, including
+# every workspace package under packages/.
 setup:
-    uv sync
+    uv sync --all-packages
 
 # Run the test suite. Extra args pass through, e.g. `just test -k schema`.
 test *args:
     uv run --no-sync pytest {{args}}
+
+# Run the workspace packages' own suites (the core coverage gate does not apply).
+test-packages:
+    uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
 
 # Lint and format-check Python (read-only; use `just fmt` to fix).
 lint:
@@ -32,6 +37,7 @@ fmt:
 typecheck:
     uv run --no-sync mypy src/probatio
     uv run --no-sync ty check src/probatio
+    uv run --no-sync mypy packages/pytest-probatio/src
 
 # Spell-check the codebase (codespell; config in pyproject.toml).
 spellcheck:
@@ -101,9 +107,11 @@ docs:
 docs-dev:
     cd docs && npm ci && npm run dev
 
-# Run the full local gate (CI parity): all pre-commit hooks, the suite, and docs.
+# Run the full local gate (CI parity): all pre-commit hooks, the suite, the
+# workspace packages, and docs.
 check: precommit
     uv run --no-sync pytest -q
+    uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
     uv run --no-sync python docs/verify_examples.py
 
 # Remove build and tooling artifacts.

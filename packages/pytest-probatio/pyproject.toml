@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-probatio"
+description = "Use a probatio schema as a pytest assertion matcher"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Franck Nijhof", email = "opensource@frenck.dev" }]
+maintainers = [{ name = "Franck Nijhof", email = "opensource@frenck.dev" }]
+keywords = ["pytest", "probatio", "validation", "schema", "testing"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: Pytest",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Testing",
+  "Typing :: Typed",
+]
+# Stays 0.0.0 in development; the release workflow stamps the real version from
+# the git tag at publish time, the same as the core package.
+version = "0.0.0"
+dependencies = ["probatio", "pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/frenck/probatio"
+Repository = "https://github.com/frenck/probatio"
+Issues = "https://github.com/frenck/probatio/issues"
+
+# Register the plugin so pytest loads its assertion-explaining hook automatically.
+[project.entry-points.pytest11]
+probatio = "pytest_probatio.plugin"
+
+[tool.uv.sources]
+# Always build against the in-repo core, not a published release.
+probatio = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pytest_probatio"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/pytest_probatio", "tests", "pyproject.toml", "README.md", "LICENSE"]
+
+# Self-contained test config: this package is not held to the core's 100%-coverage
+# gate, so it runs its own plain pytest rather than inheriting the root addopts.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

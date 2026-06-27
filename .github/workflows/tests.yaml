@@ -35,9 +35,11 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python }}
       - name: 🏗 Install dependencies
-        run: uv sync --locked --group test
+        run: uv sync --locked --all-packages --group test
       - name: 🚀 Run pytest
         run: uv run --no-sync pytest --cov probatio tests
+      - name: 🧩 Run workspace package tests
+        run: uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
       - name: 📝 Verify documentation examples
         run: uv run --no-sync python docs/verify_examples.py
       - name: ⬆️ Upload coverage artifact
