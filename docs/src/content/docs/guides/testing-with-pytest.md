@@ -60,6 +60,13 @@ data does not match the probatio schema (==):
 So a failing `assert response == Exact(...)` points at the exact offending value
 rather than just reporting that the two are not equal.
 
+:::tip[GitHub annotations]
+The explanation is plain pytest assertion output, so it flows straight into
+[`pytest-github-actions-annotate-failures`](https://github.com/pytest-dev/pytest-github-actions-annotate-failures).
+Install that plugin in CI and a failed schema match becomes a GitHub annotation on
+the test, listing each offending field by its path, with no extra setup here.
+:::
+
 ## Reuse a schema across tests
 
 A schema is data, so define the expected shape once and assert it across as many
