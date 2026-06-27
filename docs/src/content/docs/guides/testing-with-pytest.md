@@ -62,51 +62,58 @@ rather than just reporting that the two are not equal.
 
 ## Reuse a schema across tests
 
-A schema is data, so define the expected shape once and reuse it like any other
-constant. Keep the plain schema (a dict, a `Schema`, a validator) at module level
-and wrap it in `Exact` or `Partial` at each assertion, which also lets the same
-shape compose into larger ones:
-
-<!-- verify: skip -->
-
-```python
-from pytest_probatio import Exact
-from probatio import Email
-
-USER = {"id": int, "name": str, "email": Email()}
-
-
-def test_create_user():
-    assert create_user("ada@example.com") == Exact(USER)
-
-
-def test_get_user():
-    assert get_user(1) == Exact(USER)
-
-
-def test_list_users():
-    # The same shape, composed into a bigger one.
-    assert list_users() == Exact({"users": [USER], "total": int})
-```
-
-The shape can also be a pre-built `Schema`, so a schema you already use elsewhere
-(a production config schema, say) doubles as a test matcher. `Exact` and `Partial`
-still control whether extra keys are allowed:
+A schema is data, so define the expected shape once and assert it across as many
+tests as you like. This is where the matcher earns its keep: one schema, many
+tests, and each failure still points at the offending field. A `Schema` you
+already use elsewhere (a production config or response schema) works as the
+matcher just as well as a fresh one.
 
 <!-- verify: skip -->
 
 ```python
 from pytest_probatio import Exact, Partial
-from probatio import Schema
+from probatio import Schema, Email, Range
 
-USER = Schema({"id": int, "name": str})
+# The shape of a user, defined once and shared by every test below.
+USER = Schema(
+    {
+        "id": Range(min=1),
+        "name": str,
+        "email": Email(),
+    }
+)
 
-assert get_user(1) == Exact(USER)  # no extra keys
-assert get_user(1) == Partial(USER)  # extra keys allowed
+
+def test_create_user_returns_the_created_user(api):
+    response = api.post("/users", json={"name": "Ada", "email": "ada@example.com"})
+    assert response.status_code == 201
+    assert response.json() == Exact(USER)
+
+
+def test_get_user_returns_the_user(api):
+    assert api.get("/users/1").json() == Exact(USER)
+
+
+def test_user_list_wraps_users_in_a_page(api):
+    # The same USER schema, composed into a larger shape.
+    page = Exact({"users": [USER], "total": Range(min=0)})
+    assert api.get("/users").json() == page
+
+
+def test_user_detail_may_carry_extra_fields(api):
+    # Partial: the response must contain a valid user; extra fields are allowed.
+    assert api.get("/users/1?expand=true").json() == Partial(USER)
 ```
 
-A pytest fixture that returns the schema works too, if you would rather inject it
-than import a module-level constant.
+Here `api` is your application's test client, an ordinary pytest fixture you
+provide (a `fixture` that returns the schema works the same way, if you would
+rather inject the schema than import a module-level constant). When a response is
+wrong, the failure names the exact field, even inside the composed list:
+
+```text
+data does not match the probatio schema (==):
+  data['users'][0]['email']: expected an email address
+```
 
 ## Why a separate package
 
