@@ -1,0 +1,78 @@
+---
+name: Fuzz
+
+# yamllint disable-line rule:truthy
+on:
+  # Fuzz only when code that can reach a harness actually changes; docs and badge
+  # PRs cannot, so they skip the run.
+  pull_request:
+    paths:
+      - "src/**"
+      - "fuzz/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/fuzz.yaml"
+  # A longer nightly sweep, where a regression has more time to surface.
+  schedule:
+    - cron: "0 4 * * *" # daily, 04:00 UTC
+  workflow_dispatch:
+
+# Cancel superseded runs for the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Run each atheris harness on a real Python 3.13 interpreter. The oss-fuzz path
+  # (ClusterFuzzLite) cannot: its base image ships Python 3.11, and probatio
+  # requires >=3.13, so the package will not install there. atheris itself runs
+  # fine on 3.13, which is also how the harnesses are fuzzed locally.
+  atheris:
+    name: Fuzz ${{ matrix.harness }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        harness:
+          - fuzz_schema
+          - fuzz_from_json_schema
+          - fuzz_serde
+          - fuzz_is_catastrophic
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up uv and Python 3.13
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: 🚀 Fuzz ${{ matrix.harness }}
+        # A short run per pull request to catch regressions; a longer one on the
+        # nightly schedule. atheris and the package are installed into an isolated
+        # ephemeral environment, so nothing here depends on the locked dev set. The
+        # workflow-controlled values go through env, not the run string directly.
+        env:
+          HARNESS: ${{ matrix.harness }}
+          MAX_TIME: ${{ github.event_name == 'pull_request' && 60 || 600 }}
+        run: >
+          uv run --no-project --isolated --python 3.13
+          --with 'atheris==3.1.0' --with-editable '.[fast,yaml,toml]'
+          python "fuzz/${HARNESS}.py"
+          -max_total_time="${MAX_TIME}"
+          -artifact_prefix=./
+      - name: ⬆️ Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crash-${{ matrix.harness }}
+          path: |
+            ./crash-*
+            ./oom-*
+            ./timeout-*
+            ./leak-*
+          if-no-files-found: ignore

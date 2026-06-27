@@ -5,23 +5,31 @@
 
 name: ClusterFuzzLite
 
+# Automatic triggers are disabled until oss-fuzz ships a Python 3.13 base image.
+#
+# ClusterFuzzLite builds in oss-fuzz's `base-builder-python` image, which ships
+# Python 3.11. Probatio requires Python >=3.13, so the package will not install in
+# the container and every fuzz build errors out. atheris is tied to the base
+# image's interpreter, so the container cannot be made to run 3.13.
+#
+# In the meantime the harnesses are fuzzed by the `Fuzz` workflow (fuzz.yaml),
+# which runs atheris directly on Python 3.13. This workflow stays for its
+# coverage-guided, corpus-persisting batch mode (an oss-fuzz feature the plain
+# atheris job lacks); restore the `pull_request` and `schedule` triggers below,
+# verifying with `workflow_dispatch` first, once a 3.13 base image is available.
+#
 # yamllint disable-line rule:truthy
 on:
-  # On pull requests, fuzz only when code that can affect the harnesses actually
-  # changes. Docs, badge, and dependency-only PRs cannot reach the decoder, so
-  # they skip the (slow) Docker build + fuzz run entirely.
-  pull_request:
-    paths:
-      - "src/**"
-      - "fuzz/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".clusterfuzzlite/**"
-      - ".github/workflows/clusterfuzzlite.yaml"
-  # The deep, coverage-guided fuzzing runs on a schedule against an accumulated
-  # corpus, where bugs actually surface; a short per-PR run cannot.
-  schedule:
-    - cron: "0 4 * * *" # daily, 04:00 UTC
+  # pull_request:
+  #   paths:
+  #     - "src/**"
+  #     - "fuzz/**"
+  #     - "pyproject.toml"
+  #     - "uv.lock"
+  #     - ".clusterfuzzlite/**"
+  #     - ".github/workflows/clusterfuzzlite.yaml"
+  # schedule:
+  #   - cron: "0 4 * * *" # daily, 04:00 UTC
   workflow_dispatch:
 
 # Cancel superseded runs for the same ref to save CI minutes.

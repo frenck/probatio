@@ -69,6 +69,12 @@ Desktop.ini
 *.orig
 *.rej
 
+# --- Fuzzing crash artifacts (libFuzzer/atheris) ---
+crash-*
+oom-*
+timeout-*
+leak-*
+
 # voluptuous's own test suite, copied in for the drop-in proof (BSD-licensed,
 # not vendored). See compat/voluptuous/README.md.
 compat/voluptuous/tests.py

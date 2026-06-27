@@ -64,6 +64,20 @@ codspeed:
 examples:
     uv run --no-sync python docs/verify_examples.py
 
+# Fuzz the atheris harnesses (each for `seconds`, default 30). Runs on an isolated
+# Python 3.13 env: atheris has no 3.14 wheel, and the oss-fuzz CI image is 3.11, so
+# this is the path that actually exercises the harnesses. A crash fails the recipe
+# and leaves a gitignored crash-* file to reproduce.
+fuzz seconds='30':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for harness in fuzz/fuzz_*.py; do
+      echo "=== ${harness} ({{seconds}}s) ==="
+      uv run --no-project --isolated --python 3.13 \
+        --with 'atheris==3.1.0' --with-editable '.[fast,yaml,toml]' \
+        python "${harness}" -max_total_time={{seconds}} -artifact_prefix=./
+    done
+
 # Run Home Assistant's config_validation suite against probatio (set HOME_ASSISTANT_CORE to a core checkout).
 ha-proof:
     #!/usr/bin/env bash

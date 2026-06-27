@@ -73,6 +73,22 @@ def test_ip_network_rejects_a_bad_value() -> None:
         Schema(IPNetwork())("nope")
 
 
+@pytest.mark.parametrize(
+    "validator",
+    [IPNetwork, IPAddress, IPv4Address, IPv6Address],
+)
+def test_ip_validators_do_not_leak_on_hostile_input(validator: type) -> None:
+    """A crafted value makes ``ipaddress`` raise odd errors; only Invalid may escape.
+
+    ``ip_network('a/\\x00')`` reaches an ``AttributeError`` ('NoneType' has no
+    attribute 'isascii') deep in CPython's prefix parser. A safe validator must turn
+    that into ``Invalid``, not leak it. Found by the atheris fuzz harness.
+    """
+    for hostile in ("1.2.3.4/\x00", "::/\x00", "a\x00b", "/", "1/2/3"):
+        with pytest.raises(MultipleInvalid):
+            Schema(validator())(hostile)
+
+
 def test_hostname_accepts_a_single_label() -> None:
     """A bare label like localhost is a valid hostname."""
     assert Schema(Hostname())("localhost") == "localhost"
