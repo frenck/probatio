@@ -123,7 +123,31 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return _oa_mapping(node, custom, version, additional)
     if isinstance(node, list | tuple | set | frozenset):
         return _oa_sequence(node, custom, version)
+    generic = _oa_generic(node, custom, version)
+    if generic is not None:
+        return generic
     return _oa_leaf(node, custom, version)
+
+
+def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
+    """Render a parameterized ``list``/``set``/``tuple``/``dict``, or None.
+
+    Mirrors voluptuous-openapi: a parameterized sequence describes its items by
+    the first type argument only (``tuple[int, str]`` becomes an array of int);
+    a ``dict[K, V]`` becomes an object whose ``additionalProperties`` come from
+    the ``{K: V}`` mapping, with ``V`` being ``Any`` or a ``TypeVar`` meaning an
+    open object. Anything else (a bare type, ``frozenset[int]``) returns None.
+    """
+    origin = get_origin(node)
+    args = get_args(node)
+    if origin in (list, set, tuple) and args:
+        return _oa_sequence([args[0]], custom, version)
+    if origin is dict and len(args) == 2:
+        key_type, value_type = args
+        if value_type is Any or isinstance(value_type, TypeVar):
+            return _oa_type(dict, version)
+        return _oa_mapping({key_type: value_type}, custom, version, None)
+    return None
 
 
 def _oa_mapping(
