@@ -22,6 +22,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from probatio import (
+    AtLeastOne,
+    AtMostOne,
     Boolean,
     Capitalize,
     Check,
@@ -31,6 +33,7 @@ from probatio import (
     Email,
     EndsWith,
     Equal,
+    ExactlyOne,
     ExactSequence,
     FqdnUrl,
     Immutable,
@@ -64,6 +67,8 @@ from probatio.validators._base import _SafeValidator
 # instantiated with no arguments. A new subclass that needs arguments and is not
 # listed here trips ``test_every_safe_validator_subclass_is_covered``.
 _NEEDS_ARGS: dict[str, _SafeValidator] = {
+    "AtLeastOne": AtLeastOne("a", "b"),
+    "AtMostOne": AtMostOne("a", "b"),
     "Check": Check(lambda _value: True, "bad"),
     "Coerce": Coerce(int),
     "Contains": Contains(1),
@@ -71,6 +76,7 @@ _NEEDS_ARGS: dict[str, _SafeValidator] = {
     "EndsWith": EndsWith("z"),
     "Equal": Equal(1),
     "ExactSequence": ExactSequence([int, str]),
+    "ExactlyOne": ExactlyOne("a", "b"),
     "Immutable": Immutable("a"),
     "In": In([1, 2, 3]),
     "Literal": Literal("x"),

@@ -9,7 +9,8 @@ they are used after a dict schema with ``All``:
 absence) of a trigger; ``RequiredIf`` requires keys when one or more fields hold a
 given value; ``Check`` runs an arbitrary predicate over the value with a paired
 message. The first three take a ``mode`` of ``"any"`` or ``"all"`` to combine
-several triggers or conditions.
+several triggers or conditions. ``AtLeastOne``, ``AtMostOne``, and ``ExactlyOne``
+are the key-group presence rules: how many of a set of keys may or must appear.
 """
 
 from __future__ import annotations
@@ -17,7 +18,12 @@ from __future__ import annotations
 import typing
 from collections.abc import Mapping
 
-from probatio.error import Invalid, RequiredFieldInvalid, SchemaError
+from probatio.error import (
+    ExclusiveInvalid,
+    Invalid,
+    RequiredFieldInvalid,
+    SchemaError,
+)
 from probatio.validators._base import _SafeValidator
 
 _MODES = ("any", "all")
@@ -55,6 +61,26 @@ def _join(keys: tuple[typing.Any, ...], mode: str) -> str:
         return repr(keys[0])
     joined = ", ".join(repr(key) for key in keys)
     return f"{mode} of [{joined}]"
+
+
+def _require_keys(keys: tuple[typing.Any, ...]) -> tuple[typing.Any, ...]:
+    """Reject an empty key list for a key-group validator."""
+    if not keys:
+        message = "needs at least one key"
+        raise SchemaError(message)
+    return keys
+
+
+def _key_list(keys: tuple[typing.Any, ...]) -> str:
+    """Render a key list for a message: ``'a', 'b', 'c'``."""
+    return ", ".join(repr(key) for key in keys)
+
+
+def _present(
+    value: Mapping[typing.Any, typing.Any], keys: tuple[typing.Any, ...]
+) -> list[typing.Any]:
+    """Return the named keys that are present in the mapping, in the given order."""
+    return [key for key in keys if key in value]
 
 
 class RequiredWith(_SafeValidator):
@@ -229,4 +255,84 @@ class Check(_SafeValidator):
             raise Invalid(self.msg) from exc
         if not holds:
             raise Invalid(self.msg)
+        return value
+
+
+class AtLeastOne(_SafeValidator):
+    """Require at least one of the named keys to be present in the mapping.
+
+    ``AtLeastOne("host", "url")``: the mapping must contain ``host`` or ``url``, or
+    both. A dict-level rule (voluptuous lacks it; Home Assistant rolled its own
+    ``has_at_least_one_key``), used after a dict schema with ``All``. The value
+    passes through unchanged, and a non-mapping is left alone.
+    """
+
+    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
+        """Store the keys, at least one of which must be present."""
+        self.keys = _require_keys(keys)
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the mapping, raising if none of the keys are present."""
+        if isinstance(value, Mapping) and not _present(value, self.keys):
+            message = self.msg or f"at least one of {_key_list(self.keys)} is required"
+            raise RequiredFieldInvalid(message)
+        return value
+
+
+class AtMostOne(_SafeValidator):
+    """Allow at most one of the named keys to be present in the mapping.
+
+    ``AtMostOne("include", "exclude")``: at most one of ``include``/``exclude`` may
+    appear; both together fail. A dict-level rule, used after a dict schema with
+    ``All``. The value passes through unchanged, and a non-mapping is left alone.
+    """
+
+    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
+        """Store the keys, at most one of which may be present."""
+        self.keys = _require_keys(keys)
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the mapping, raising if more than one of the keys is present."""
+        if isinstance(value, Mapping):
+            present = _present(value, self.keys)
+            if len(present) > 1:
+                message = self.msg or (
+                    f"at most one of {_key_list(self.keys)} is allowed, "
+                    f"got {_key_list(tuple(present))}"
+                )
+                raise ExclusiveInvalid(message)
+        return value
+
+
+class ExactlyOne(_SafeValidator):
+    """Require exactly one of the named keys to be present in the mapping.
+
+    ``ExactlyOne("token", "password")``: one of the keys must appear, and only one.
+    None is too few, two or more is too many. A dict-level rule, used after a dict
+    schema with ``All``. The value passes through unchanged, and a non-mapping is
+    left alone.
+    """
+
+    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
+        """Store the keys, exactly one of which must be present."""
+        self.keys = _require_keys(keys)
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the mapping, raising if not exactly one of the keys is present."""
+        if isinstance(value, Mapping):
+            present = _present(value, self.keys)
+            if not present:
+                message = (
+                    self.msg or f"exactly one of {_key_list(self.keys)} is required"
+                )
+                raise RequiredFieldInvalid(message)
+            if len(present) > 1:
+                message = self.msg or (
+                    f"exactly one of {_key_list(self.keys)} is allowed, "
+                    f"got {_key_list(tuple(present))}"
+                )
+                raise ExclusiveInvalid(message)
         return value

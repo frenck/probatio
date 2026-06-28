@@ -466,6 +466,21 @@ schema = Schema(
 schema({"start": 1, "end": 2})  # unchanged
 ```
 
+`AtLeastOne`, `AtMostOne`, and `ExactlyOne` are the key-group presence rules: how
+many of a set of keys may or must appear. `AtLeastOne("host", "url")` requires one
+of the keys (or both); `AtMostOne("include", "exclude")` allows one at most;
+`ExactlyOne("token", "password")` requires one and only one. They are the
+dict-level form of `Inclusive`/`Exclusive`, handy when the constraint reads more
+naturally as a standalone check than as a marker on each key.
+
+```python
+from probatio import Schema, All, AtLeastOne, AtMostOne, ExactlyOne
+
+Schema(All(dict, AtLeastOne("host", "url")))({"host": "nas"})       # unchanged
+Schema(All(dict, AtMostOne("include", "exclude")))({"include": 1})  # unchanged
+Schema(All(dict, ExactlyOne("token", "password")))({"token": "t"})  # unchanged
+```
+
 ## Transition validators
 
 When you validate an update, some fields must not change. `Immutable` and
