@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from "astro/config";
+import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 
 import rehypeProbatio from "./src/plugins/rehype-probatio.mjs";
@@ -8,7 +9,7 @@ import rehypeProbatio from "./src/plugins/rehype-probatio.mjs";
 export default defineConfig({
   site: "https://probatio.frenck.dev",
   markdown: {
-    rehypePlugins: [rehypeProbatio],
+    processor: unified({ rehypePlugins: [rehypeProbatio] }),
   },
   integrations: [
     starlight({
