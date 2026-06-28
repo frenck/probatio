@@ -343,9 +343,43 @@ class ScalarInvalid(Invalid):
 
 
 class CoerceInvalid(Invalid):
-    """A value could not be coerced to the requested type."""
+    """A value could not be coerced to the requested type.
+
+    Carries ``candidates``: when the target is an ``Enum`` with string values, the
+    close matches among them, so a caller can render (or has already rendered) a
+    "did you mean ...?" hint. The list is empty for any other coercion.
+    """
 
     default_code = "coerce"
+
+    def __init__(
+        self,
+        message: str,
+        path: list[Any] | None = None,
+        error_message: str | None = None,
+        error_type: str | None = None,
+        *,
+        candidates: list[str] | None = None,
+        code: str | None = None,
+        context: dict[str, Any] | None = None,
+        translation_key: str | None = None,
+        placeholders: dict[str, Any] | None = None,
+    ) -> None:
+        """Create the error, recording any close-match suggestions."""
+        self.candidates: list[str] = list(candidates) if candidates else []
+        merged = dict(context) if context else {}
+        if self.candidates:
+            merged.setdefault("candidates", self.candidates)
+        super().__init__(
+            message,
+            path,
+            error_message,
+            error_type,
+            code=code,
+            context=merged or None,
+            translation_key=translation_key,
+            placeholders=placeholders,
+        )
 
 
 class EnumInvalid(Invalid):

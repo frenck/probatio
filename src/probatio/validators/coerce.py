@@ -5,8 +5,9 @@ from __future__ import annotations
 import enum
 import typing
 from decimal import Decimal, InvalidOperation
+from difflib import get_close_matches
 
-from probatio.error import BooleanInvalid, CoerceInvalid, Invalid
+from probatio.error import BooleanInvalid, CoerceInvalid, Invalid, _format_candidates
 from probatio.validators._base import _SafeValidator
 from probatio.validators.decorators import message
 
@@ -38,7 +39,14 @@ class Coerce(_SafeValidator):
         try:
             return self.type(value)
         except (ValueError, TypeError, ArithmeticError) as exc:
-            raise CoerceInvalid(self.msg or self._default_message()) from exc
+            candidates = self._suggest(value)
+            if self.msg is not None:
+                message = self.msg
+            else:
+                message = self._default_message()
+                if candidates:
+                    message += f", did you mean {_format_candidates(candidates)}?"
+            raise CoerceInvalid(message, candidates=candidates) from exc
 
     def _default_message(self) -> str:
         """Build the failure message, listing an enum's values (like voluptuous)."""
@@ -47,6 +55,20 @@ class Coerce(_SafeValidator):
             values = ", ".join(repr(member.value) for member in self.type)
             message = f"{message} or one of {values}"
         return message
+
+    def _suggest(self, value: typing.Any) -> list[str]:
+        """Close string enum values for a string input, for a 'did you mean ...?' hint.
+
+        Matches the member values (what ``Coerce(enum)`` actually accepts, since it
+        coerces with ``enum(value)``), not the names, so a suggestion always names a
+        value that would validate. Only string values are eligible.
+        """
+        if not isinstance(value, str):
+            return []
+        if not (isinstance(self.type, type) and issubclass(self.type, enum.Enum)):
+            return []
+        pool = [member.value for member in self.type if isinstance(member.value, str)]
+        return get_close_matches(value, pool)
 
 
 @message("expected boolean", cls=BooleanInvalid)

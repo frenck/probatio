@@ -94,13 +94,15 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `ValueInvalid` (`value`): a validator rejected the value.
 - `ScalarInvalid` (`not_valid`): the value does not match a scalar literal.
 - `LiteralInvalid` (`not_valid`): the value does not match a `Literal`.
-- `CoerceInvalid` (`coerce`): a value could not be coerced to the requested type.
+- `CoerceInvalid` (`coerce`): a value could not be coerced to the requested type;
+  for an `Enum` with string values, carries `candidates`, the close matches.
 - `AnyInvalid` (`no_match`): the value matched none of the candidates.
 - `AllInvalid` (`all`): the value failed one of a chain of validators.
 - `MatchInvalid` (`match`): the value does not match the expected pattern.
 - `RangeInvalid` (`range`): the value falls outside the allowed range.
 - `LengthInvalid` (`length`): the value's length falls outside the allowed bounds.
-- `InInvalid` (`not_in_list`): the value is not a member of the allowed set.
+- `InInvalid` (`not_in_list`): the value is not a member of the allowed set;
+  carries `candidates`, the close matches among string members.
 - `NotInInvalid` (`in_list`): the value is a member of a disallowed set.
 - `ContainsInvalid` (`contains`): the collection does not contain the required
   element.
