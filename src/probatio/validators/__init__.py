@@ -46,7 +46,7 @@ from probatio.validators.conditional import (
     RequiredWithout,
 )
 from probatio.validators.decorators import message, raises, truth, validate
-from probatio.validators.encoding import Base64, Hex, JSONString, YAMLString
+from probatio.validators.encoding import Base64, Hex, HexInt, JSONString, YAMLString
 from probatio.validators.formats import E164, IBAN, CreditCard, DataURI
 from probatio.validators.identifiers import ULID, UUID, MacAddress
 from probatio.validators.network import (
@@ -158,6 +158,7 @@ __all__ = [
     "FqdnUrl",
     "Hex",
     "HexColor",
+    "HexInt",
     "Hostname",
     "IPAddress",
     "IPNetwork",

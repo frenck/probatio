@@ -14,7 +14,13 @@ import binascii
 import json
 import typing
 
-from probatio.error import JsonInvalid, SchemaError, ValueInvalid, YamlInvalid
+from probatio.error import (
+    CoerceInvalid,
+    JsonInvalid,
+    SchemaError,
+    ValueInvalid,
+    YamlInvalid,
+)
 from probatio.schema import compile_schema
 from probatio.serde import _optional, load_yaml
 from probatio.validators._base import _SafeValidator
@@ -59,6 +65,42 @@ class Hex(_SafeValidator):
         except ValueError as exc:
             raise ValueInvalid(self.msg or "expected a hex string", code="hex") from exc
         return value
+
+
+class HexInt(_SafeValidator):
+    """Parse a hexadecimal integer to an ``int``.
+
+    Accepts an ``int`` (returned unchanged) or a string read base 16 (a leading
+    ``0x`` is optional), so ``"0x1A"``, ``"1a"``, and ``26`` all yield ``26``. A
+    ``bool`` is rejected (it is an ``int`` subclass, but never a hex integer
+    anyone meant to write), and anything else raises ``CoerceInvalid``, so the
+    result is always an ``int``. To render an ``int`` back as a hex string, use a
+    coercion (``Coerce(lambda value: format(value, "#x"))``); that is output
+    formatting, not validation.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def _error(self) -> CoerceInvalid:
+        """Build the coercion error for a value that is not a hex integer."""
+        return CoerceInvalid(
+            self.msg or "expected a hexadecimal integer", code="hex_int"
+        )
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value parsed as a base-16 integer, else raise CoerceInvalid."""
+        if isinstance(value, bool):
+            raise self._error()
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value, 16)
+            except ValueError as exc:
+                raise self._error() from exc
+        raise self._error()
 
 
 class JSONString(_SafeValidator):

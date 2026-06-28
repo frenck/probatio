@@ -47,6 +47,7 @@ from probatio.validators import (
     FqdnUrl,
     Hex,
     HexColor,
+    HexInt,
     Hostname,
     In,
     IPAddress,
@@ -307,7 +308,9 @@ def _serialize_typed(node: Any, custom: Any) -> dict[str, Any] | None:
         }
     if isinstance(node, Secret):
         return _serialize_value(node.schema, custom)
-    if isinstance(node, MultipleOf | Duration | EnsureList | NonEmpty | Sorted):
+    if isinstance(
+        node, MultipleOf | Duration | EnsureList | NonEmpty | Sorted | HexInt
+    ):
         return {}
     return None
 

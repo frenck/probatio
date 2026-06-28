@@ -7,13 +7,14 @@ import pytest
 from probatio import (
     Base64,
     Hex,
+    HexInt,
     JSONString,
     MultipleInvalid,
     Schema,
     SchemaError,
     YAMLString,
 )
-from probatio.error import JsonInvalid, ValueInvalid, YamlInvalid
+from probatio.error import CoerceInvalid, JsonInvalid, ValueInvalid, YamlInvalid
 from probatio.serde import _optional
 
 
@@ -84,3 +85,27 @@ def test_hex_accepts_and_rejects() -> None:
     assert isinstance(caught.value.errors[0], ValueInvalid)
     with pytest.raises(MultipleInvalid):
         Schema(Hex())(5)
+
+
+def test_hex_int_parses_strings_and_ints() -> None:
+    """HexInt reads a hex string (with or without 0x) or an int, returning an int."""
+    schema = Schema(HexInt())
+    assert schema("0x1A") == 26
+    assert schema("1a") == 26
+    assert schema(26) == 26
+    assert schema("-ff") == -255
+
+
+@pytest.mark.parametrize("value", [True, "zz", "", 1.5, None])
+def test_hex_int_rejects_non_hex_integers(value: object) -> None:
+    """A bool, a non-hex string, or a non-integer value raises CoerceInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(HexInt())(value)
+    assert isinstance(caught.value.errors[0], CoerceInvalid)
+
+
+def test_hex_int_custom_message() -> None:
+    """A custom message replaces the default on a parse failure."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(HexInt(msg="not a register"))("nope")
+    assert caught.value.errors[0].error_message == "not a register"

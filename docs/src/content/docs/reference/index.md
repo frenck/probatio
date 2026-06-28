@@ -288,6 +288,8 @@ coerce to their natural Python object; the format checks pass the string through
   backend), optionally validating the decoded value.
 - `Base64(msg=None)`, `Hex(msg=None)`: validate a Base64 or hexadecimal string,
   returning it unchanged.
+- `HexInt(msg=None)`: parse a hexadecimal integer (a string like `"0x1A"` or `"1a"`,
+  or an `int`) to an `int`.
 - `CreditCard(normalize=True, msg=None)`: a credit card number that passes the Luhn
   checksum (12 to 19 digits, spaces or hyphens allowed). Normalized to bare digits
   by default; `normalize=False` returns the value unchanged.
