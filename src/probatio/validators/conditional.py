@@ -9,8 +9,11 @@ they are used after a dict schema with ``All``:
 absence) of a trigger; ``RequiredIf`` requires keys when one or more fields hold a
 given value; ``Check`` runs an arbitrary predicate over the value with a paired
 message. The first three take a ``mode`` of ``"any"`` or ``"all"`` to combine
-several triggers or conditions. ``AtLeastOne``, ``AtMostOne``, and ``ExactlyOne``
-are the key-group presence rules: how many of a set of keys may or must appear.
+several triggers or conditions. ``AtLeastOne``, ``AtMostOne``, ``ExactlyOne``, and
+``AllOrNone`` are the key-group presence rules: how many of a set of keys may or
+must appear. Unlike the conditional rules, they reject a non-mapping by default
+(``require_mapping=True``), matching what Home Assistant and ESPHome expect; pass
+``require_mapping=False`` to leave a non-mapping untouched inside a pipeline.
 """
 
 from __future__ import annotations
@@ -19,8 +22,11 @@ import typing
 from collections.abc import Mapping
 
 from probatio.error import (
+    DictInvalid,
     ExclusiveInvalid,
+    InclusiveInvalid,
     Invalid,
+    MultipleInvalid,
     RequiredFieldInvalid,
     SchemaError,
 )
@@ -258,81 +264,136 @@ class Check(_SafeValidator):
         return value
 
 
-class AtLeastOne(_SafeValidator):
+class _KeyGroup(_SafeValidator):
+    """Shared base for the key-presence rules over a mapping.
+
+    Each rule names a set of keys and constrains how many of them may or must
+    appear. By default a non-mapping value is rejected (``require_mapping``),
+    matching what Home Assistant and ESPHome expect from these rules; pass
+    ``require_mapping=False`` to leave a non-mapping untouched, so the rule can sit
+    inside a larger pipeline that type-checks elsewhere.
+    """
+
+    def __init__(
+        self,
+        *keys: typing.Any,
+        msg: str | None = None,
+        require_mapping: bool = True,
+    ) -> None:
+        """Store the keys, the optional message, and the non-mapping policy."""
+        self.keys = _require_keys(keys)
+        self.msg = msg
+        self.require_mapping = require_mapping
+
+    def _mapping(self, value: typing.Any) -> Mapping[typing.Any, typing.Any] | None:
+        """Return the value as a mapping, or None to pass a non-mapping through.
+
+        Raises ``DictInvalid`` for a non-mapping when ``require_mapping`` is set,
+        using the same wording the dict schema itself uses.
+        """
+        if isinstance(value, Mapping):
+            return value
+        if self.require_mapping:
+            message = "expected a dictionary"
+            raise DictInvalid(message)
+        return None
+
+
+class AtLeastOne(_KeyGroup):
     """Require at least one of the named keys to be present in the mapping.
 
     ``AtLeastOne("host", "url")``: the mapping must contain ``host`` or ``url``, or
     both. A dict-level rule (voluptuous lacks it; Home Assistant rolled its own
-    ``has_at_least_one_key``), used after a dict schema with ``All``. The value
-    passes through unchanged, and a non-mapping is left alone.
+    ``has_at_least_one_key``), used on its own or after a dict schema with ``All``.
+    A non-mapping is rejected unless ``require_mapping=False``.
     """
-
-    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
-        """Store the keys, at least one of which must be present."""
-        self.keys = _require_keys(keys)
-        self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the mapping, raising if none of the keys are present."""
-        if isinstance(value, Mapping) and not _present(value, self.keys):
+        mapping = self._mapping(value)
+        if mapping is not None and not _present(mapping, self.keys):
             message = self.msg or f"at least one of {_key_list(self.keys)} is required"
             raise RequiredFieldInvalid(message)
         return value
 
 
-class AtMostOne(_SafeValidator):
+class AtMostOne(_KeyGroup):
     """Allow at most one of the named keys to be present in the mapping.
 
     ``AtMostOne("include", "exclude")``: at most one of ``include``/``exclude`` may
-    appear; both together fail. A dict-level rule, used after a dict schema with
-    ``All``. The value passes through unchanged, and a non-mapping is left alone.
+    appear; both together fail. A dict-level rule, used on its own or after a dict
+    schema with ``All``. When more than one is present, each offending key is
+    reported with its own path, so an editor can point at every one. A non-mapping
+    is rejected unless ``require_mapping=False``.
     """
 
-    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
-        """Store the keys, at most one of which may be present."""
-        self.keys = _require_keys(keys)
-        self.msg = msg
-
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the mapping, raising if more than one of the keys is present."""
-        if isinstance(value, Mapping):
-            present = _present(value, self.keys)
+        """Return the mapping, raising one error per key when more than one appears."""
+        mapping = self._mapping(value)
+        if mapping is not None:
+            present = _present(mapping, self.keys)
             if len(present) > 1:
-                message = self.msg or (
-                    f"at most one of {_key_list(self.keys)} is allowed, "
-                    f"got {_key_list(tuple(present))}"
+                message = (
+                    self.msg or f"at most one of {_key_list(self.keys)} is allowed"
                 )
-                raise ExclusiveInvalid(message)
+                raise MultipleInvalid(
+                    [ExclusiveInvalid(message, path=[key]) for key in present]
+                )
         return value
 
 
-class ExactlyOne(_SafeValidator):
+class ExactlyOne(_KeyGroup):
     """Require exactly one of the named keys to be present in the mapping.
 
     ``ExactlyOne("token", "password")``: one of the keys must appear, and only one.
-    None is too few, two or more is too many. A dict-level rule, used after a dict
-    schema with ``All``. The value passes through unchanged, and a non-mapping is
-    left alone.
+    None is too few, two or more is too many. A dict-level rule, used on its own or
+    after a dict schema with ``All``. Too many keys are reported one per offending
+    key with its path; none present is a single pathless error, as there is no
+    specific key to blame. A non-mapping is rejected unless ``require_mapping=False``.
     """
-
-    def __init__(self, *keys: typing.Any, msg: str | None = None) -> None:
-        """Store the keys, exactly one of which must be present."""
-        self.keys = _require_keys(keys)
-        self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the mapping, raising if not exactly one of the keys is present."""
-        if isinstance(value, Mapping):
-            present = _present(value, self.keys)
+        mapping = self._mapping(value)
+        if mapping is not None:
+            present = _present(mapping, self.keys)
             if not present:
                 message = (
                     self.msg or f"exactly one of {_key_list(self.keys)} is required"
                 )
                 raise RequiredFieldInvalid(message)
             if len(present) > 1:
-                message = self.msg or (
-                    f"exactly one of {_key_list(self.keys)} is allowed, "
-                    f"got {_key_list(tuple(present))}"
+                message = (
+                    self.msg or f"exactly one of {_key_list(self.keys)} is allowed"
                 )
-                raise ExclusiveInvalid(message)
+                raise MultipleInvalid(
+                    [ExclusiveInvalid(message, path=[key]) for key in present]
+                )
+        return value
+
+
+class AllOrNone(_KeyGroup):
+    """Require the named keys to be present together, or none of them.
+
+    ``AllOrNone("lat", "lon")``: either both ``lat`` and ``lon`` appear, or neither
+    does; one without the other fails. The dict-level form of ``Inclusive`` (and
+    ESPHome's ``has_none_or_all_keys``), used on its own or after a dict schema with
+    ``All``. When some but not all appear, each missing key is reported with its own
+    path. A non-mapping is rejected unless ``require_mapping=False``.
+    """
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the mapping, raising if some but not all of the keys are present."""
+        mapping = self._mapping(value)
+        if mapping is not None:
+            present = _present(mapping, self.keys)
+            if present and len(present) != len(self.keys):
+                missing = [key for key in self.keys if key not in mapping]
+                message = (
+                    self.msg
+                    or f"either none or all of {_key_list(self.keys)} are required"
+                )
+                raise MultipleInvalid(
+                    [InclusiveInvalid(message, path=[key]) for key in missing]
+                )
         return value

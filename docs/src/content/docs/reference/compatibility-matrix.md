@@ -221,10 +221,11 @@ carries forward an upstream request.
   whole mapping (used after a dict schema with `All`), for conditional requirements
   (on a key's presence, absence, or value, combined with an any/all mode) and an
   arbitrary predicate. voluptuous has no equivalent.
-- `AtLeastOne`, `AtMostOne`, `ExactlyOne`: key-group presence rules over a mapping,
-  for how many of a set of keys may or must appear. The dict-level form of
-  `Inclusive`/`Exclusive`. Home Assistant rolls its own `has_at_least_one_key`;
-  voluptuous has no equivalent.
+- `AtLeastOne`, `AtMostOne`, `ExactlyOne`, `AllOrNone`: key-group presence rules
+  over a mapping, for how many of a set of keys may or must appear. The dict-level
+  form of `Inclusive`/`Exclusive`. They reject a non-mapping by default
+  (`require_mapping=False` to opt out). Home Assistant and ESPHome roll their own
+  `has_at_least_one_key`/`has_none_or_all_keys`; voluptuous has no equivalent.
 - `Immutable`, `WriteOnce`: transition rules that compare new data against its
   previous value (passed as the call's `context`), rejecting a change to an
   immutable field or a second write to a write-once one. voluptuous has no

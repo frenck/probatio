@@ -22,6 +22,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from probatio import (
+    AllOrNone,
     AtLeastOne,
     AtMostOne,
     Boolean,
@@ -67,6 +68,7 @@ from probatio.validators._base import _SafeValidator
 # instantiated with no arguments. A new subclass that needs arguments and is not
 # listed here trips ``test_every_safe_validator_subclass_is_covered``.
 _NEEDS_ARGS: dict[str, _SafeValidator] = {
+    "AllOrNone": AllOrNone("a", "b"),
     "AtLeastOne": AtLeastOne("a", "b"),
     "AtMostOne": AtMostOne("a", "b"),
     "Check": Check(lambda _value: True, "bad"),
