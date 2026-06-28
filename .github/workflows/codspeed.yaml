@@ -32,7 +32,7 @@ jobs:
       - name: Install the project
         run: uv sync --locked --group codspeed
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3
+        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3.8.1
         with:
           # Clear the global pytest addopts (-q --cov); coverage instrumentation
           # would skew the benchmark timings.
