@@ -9,8 +9,10 @@ import pytest
 from probatio import (
     ALLOW_EXTRA,
     REMOVE_EXTRA,
+    UNDEFINED,
     Any,
     Coerce,
+    Exclusive,
     Extra,
     ExtraKeysInvalid,
     Invalid,
@@ -106,6 +108,43 @@ def test_required_default_is_applied_without_error() -> None:
     """A Required key with a default fills in rather than failing."""
     schema = Schema({Required("port", default=80): int})
     assert schema({}) == {"port": 80}
+
+
+def test_default_factory_returning_undefined_leaves_key_absent() -> None:
+    """A default callable returning UNDEFINED declines, so the key stays absent."""
+    schema = Schema({Optional("speed", default=lambda: UNDEFINED): int})
+    assert schema({}) == {}
+
+
+def test_default_factory_returning_value_still_applies() -> None:
+    """A default callable returning a value still fills that value in."""
+    schema = Schema({Optional("speed", default=lambda: 80): int})
+    assert schema({}) == {"speed": 80}
+
+
+def test_default_factory_decline_does_not_affect_a_provided_value() -> None:
+    """A provided value is validated normally, even when the default would decline."""
+    schema = Schema({Optional("speed", default=lambda: UNDEFINED): int})
+    assert schema({"speed": 5}) == {"speed": 5}
+
+
+def test_required_default_factory_that_declines_reports_missing() -> None:
+    """A Required default that declines leaves the key missing, so it is reported."""
+    schema = Schema({Required("speed", default=lambda: UNDEFINED): int})
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({})
+    assert caught.value.errors[0].path == ["speed"]
+
+
+def test_exclusive_group_default_factory_that_declines_falls_through() -> None:
+    """An exclusive member whose default declines lets the next member's apply."""
+    schema = Schema(
+        {
+            Exclusive("a", "group", default=lambda: UNDEFINED): int,
+            Exclusive("b", "group", default=lambda: 7): int,
+        },
+    )
+    assert schema({}) == {"b": 7}
 
 
 def test_prevent_extra_is_the_default() -> None:
