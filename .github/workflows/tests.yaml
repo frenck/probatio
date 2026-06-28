@@ -37,7 +37,9 @@ jobs:
       - name: 🏗 Install dependencies
         run: uv sync --locked --all-packages --group test
       - name: 🚀 Run pytest
-        run: uv run --no-sync pytest --cov probatio tests
+        run: >
+          uv run --no-sync pytest --cov probatio tests
+          --junitxml=junit.xml -o junit_family=legacy
       - name: 🧩 Run workspace package tests
         run: uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
       - name: 📝 Verify documentation examples
@@ -48,6 +50,13 @@ jobs:
           name: coverage-${{ matrix.python }}
           include-hidden-files: true
           path: .coverage
+      - name: 🧪 Upload test results to Codecov
+        # Runs even when the suite failed, so the failed and flaky tests reach
+        # Codecov's test analytics.
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   coverage:
     name: Coverage
