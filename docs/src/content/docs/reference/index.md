@@ -406,8 +406,9 @@ overflowing the stack.
 
 ## Dataclasses
 
-Probatio builds a schema from a dataclass, driven by its field annotations (see
-the [dataclasses guide](/guides/dataclasses/)):
+Probatio builds a schema from a dataclass or a `TypedDict`, driven by its field
+annotations (see the [dataclasses guide](/guides/dataclasses/) and the [TypedDicts
+guide](/guides/typeddict/)):
 
 - `DataclassSchema(dataclass_type, additional_constraints=None, *, required=False, extra=PREVENT_EXTRA)`: a `Schema` that validates a mapping and constructs an instance of `dataclass_type`.
 - `create_dataclass_schema(dataclass_type, additional_constraints=None, *, required=False, extra=PREVENT_EXTRA)`: the functional form, returning the same `Schema`.

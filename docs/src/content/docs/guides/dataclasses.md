@@ -1,6 +1,6 @@
 ---
-title: Schemas from dataclasses and TypedDicts
-description: Generate a validating schema straight from a dataclass or a TypedDict, with the field annotations driving the validators.
+title: Schemas from dataclasses
+description: Generate a validating schema straight from a dataclass, with the field annotations driving the validators.
 ---
 
 If your data already has a dataclass, you should not have to write the schema
@@ -9,6 +9,10 @@ annotations: it validates a plain mapping and hands you back a constructed
 instance. This is the same idea as voluptuous [PR #533](https://github.com/alecthomas/voluptuous/pull/533), with a richer type
 mapping (Probatio descends into element types instead of stopping at the
 container).
+
+The same engine reads a `TypedDict`. If your shape is a dict rather than a
+constructed object, see [Schemas from TypedDicts](/guides/typeddict/); this page is
+about dataclasses.
 
 ## The basics
 
@@ -281,34 +285,9 @@ trying every member, so it still fails cleanly rather than silently.
 
 ## From a TypedDict
 
-`TypedDictSchema` does the same for a `TypedDict`, sharing the annotation mapping
-above. The difference is the output: a `TypedDict` is a plain dict at runtime, so
-the validated mapping comes back unchanged, with nothing constructed. The schema
-is generic in the `TypedDict`, so the result is typed as that `TypedDict`: your
-type checker sees the real keys, at no runtime cost.
-
-```python
-from typing import TypedDict
-
-from probatio import TypedDictSchema
-
-
-class Config(TypedDict):
-    port: int
-    host: str
-
-
-schema = TypedDictSchema(Config)
-schema({"port": 8080, "host": "nas"})  # {'port': 8080, 'host': 'nas'}, typed as Config
-```
-
-A field in the TypedDict's required keys is required, the rest optional;
-`total=False` and `Required`/`NotRequired` are honored, and the keys are closed
-(an unknown key is rejected, like the default dict schema). Nested TypedDicts,
-recursive ones, `additional_constraints`, and `Annotated` inline validators all
-work the same as for a dataclass. Since the result is just the validated dict,
-`result["port"]` access keeps working, so it layers types onto dict-shaped data
-without changing how that data is used.
+The same engine builds a schema from a `TypedDict`. Because that is a different
+tool with a different result (the validated dict, not a constructed instance), it
+has its own page: [Schemas from TypedDicts](/guides/typeddict/).
 
 ## Limits
 
