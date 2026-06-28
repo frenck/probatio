@@ -25,6 +25,7 @@ from probatio.error import (
     SchemaError,
     SequenceTypeInvalid,
     TypeInvalid,
+    _format_candidates,
 )
 from probatio.markers import UNDEFINED, Undefined, VirtualPathComponent
 
@@ -34,14 +35,6 @@ ALLOW_EXTRA = 1  # keep them as-is
 REMOVE_EXTRA = 2  # drop them from the result
 
 type CompiledSchema = Callable[[Any], Any]
-
-
-def _format_candidates(names: list[str]) -> str:
-    """Render close-match key names: ``'a'``, ``'a' or 'b'``, ``'a', 'b' or 'c'``."""
-    quoted = [repr(name) for name in names]
-    if len(quoted) == 1:
-        return quoted[0]
-    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
 
 
 def _type_error(expected: str, path: list[Any], error_type: str | None) -> TypeInvalid:
