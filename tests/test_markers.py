@@ -51,6 +51,18 @@ def test_description_is_writable() -> None:
     assert marker.description == "the friendly name"
 
 
+def test_description_holds_structured_data() -> None:
+    """description may hold any value, not only a string (voluptuous parity).
+
+    Home Assistant stuffs a dict like ``{"suggested_value": ...}`` into a marker's
+    description, so the type must stay as permissive as voluptuous left it.
+    """
+    marker = Optional("name", description={"suggested_value": 42})
+    assert marker.description == {"suggested_value": 42}
+    marker.description = {"suggested_value": "later"}
+    assert marker.description["suggested_value"] == "later"
+
+
 def test_copy_yields_an_independent_marker() -> None:
     """copy.copy gives an equal but separate marker that can be mutated."""
     marker = Optional("name")

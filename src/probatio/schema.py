@@ -410,7 +410,7 @@ class Schema:
 
     def extend(
         self,
-        schema: dict[Any, Any] | Schema,
+        schema: Schemable,
         required: bool | None = None,  # noqa: FBT001
         extra: int | None = None,
     ) -> Schema:
