@@ -127,7 +127,7 @@ class Marker:
         self,
         schema: Any,
         msg: str | None = None,
-        description: str | None = None,
+        description: Any | None = None,
     ) -> None:
         """Wrap ``schema`` (the key), with an optional message and description."""
         self.schema = schema
@@ -169,7 +169,7 @@ class Required(Marker):
         schema: Any,
         msg: str | None = None,
         default: Any = UNDEFINED,
-        description: str | None = None,
+        description: Any | None = None,
     ) -> None:
         """Mark ``schema`` required, with an optional default and metadata."""
         super().__init__(schema, msg, description)
@@ -184,7 +184,7 @@ class Optional(Marker):
         schema: Any,
         msg: str | None = None,
         default: Any = UNDEFINED,
-        description: str | None = None,
+        description: Any | None = None,
     ) -> None:
         """Mark ``schema`` optional, with an optional default and metadata."""
         super().__init__(schema, msg, description)
@@ -214,7 +214,7 @@ class Alias(Marker):
         required: bool = False,
         default: Any = UNDEFINED,
         msg: str | None = None,
-        description: str | None = None,
+        description: Any | None = None,
     ) -> None:
         """Wrap ``schema`` (the canonical name) with extra accepted ``aliases``."""
         if not aliases:
@@ -244,7 +244,7 @@ class Inclusive(Optional):
         group_of_inclusion: str,
         msg: str | None = None,
         default: Any = UNDEFINED,
-        description: str | None = None,
+        description: Any | None = None,
     ) -> None:
         """Mark ``schema`` co-dependent on the other keys in its group."""
         super().__init__(schema, msg, default, description)
@@ -267,7 +267,7 @@ class Exclusive(Optional):
         schema: Any,
         group_of_exclusion: str,
         msg: str | None = None,
-        description: str | None = None,
+        description: Any | None = None,
         *,
         required: bool = False,
         default: Any = UNDEFINED,
