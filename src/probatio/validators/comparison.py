@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import typing
+from difflib import get_close_matches
 
 from probatio.error import (
     ContainsInvalid,
@@ -14,8 +16,12 @@ from probatio.error import (
     NotInInvalid,
     RangeInvalid,
     SchemaError,
+    _format_candidates,
 )
 from probatio.validators._base import _SafeValidator
+
+# Collapses each run of whitespace to a single normalization character.
+_WHITESPACE = re.compile(r"\s+")
 
 # A percentage runs from 0 to 100.
 _MIN_PERCENT = 0
@@ -400,31 +406,78 @@ class Length(_SafeValidator):
 
 
 class In(_SafeValidator):
-    """Require the value to be a member of a container."""
+    """Require the value to be a member of a container.
 
-    def __init__(self, container: typing.Any, msg: str | None = None) -> None:
-        """Store the container (read as ``.container``) and an optional message."""
+    ``fold_case=True`` matches case-insensitively, and ``space`` collapses each run
+    of whitespace in a string value to the given character (``space=" "`` to
+    normalize spacing, ``space="_"`` so ``"front door"`` matches ``"front_door"``).
+    When either normalizes the value, the normalized value is returned, the way
+    a coercing membership check does; otherwise the value is returned unchanged.
+
+    On a miss the error suggests the closest allowed members (``did you mean ...?``)
+    when both the value and the members are strings, and carries them on the error's
+    ``candidates``, mirroring the unknown-key hint a mapping schema gives.
+    """
+
+    def __init__(
+        self,
+        container: typing.Any,
+        msg: str | None = None,
+        *,
+        fold_case: bool = False,
+        space: str | None = None,
+    ) -> None:
+        """Store the container (read as ``.container``), message, and normalization."""
         self.container = container
         self.msg = msg
+        self.fold_case = fold_case
+        self.space = space
 
     def __repr__(self) -> str:
         """Render as a constructor call, matching voluptuous."""
         return f"In({self.container!r})"
 
+    def _normalize(self, value: typing.Any) -> typing.Any:
+        """Apply the space and case normalization to a string, else pass through."""
+        if not isinstance(value, str):
+            return value
+        if self.space is not None:
+            value = _WHITESPACE.sub(self.space, value)
+        if self.fold_case:
+            value = value.casefold()
+        return value
+
+    def _contains(self, candidate: typing.Any) -> bool:
+        """Whether the normalized candidate is a member, normalizing members to match."""
+        if not self.fold_case and self.space is None:
+            return candidate in self.container
+        return any(candidate == self._normalize(member) for member in self.container)
+
+    def _suggest(self, value: typing.Any) -> list[str]:
+        """Close string members for a string value, for a 'did you mean ...?' hint."""
+        if not isinstance(value, str):
+            return []
+        pool = [member for member in self.container if isinstance(member, str)]
+        return get_close_matches(value, pool)
+
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the value if it is in the container, else raise InInvalid."""
+        """Return the (normalized) value if it is in the container, else raise."""
+        candidate = self._normalize(value)
         try:
-            present = value in self.container
+            present = self._contains(candidate)
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "value is not allowed"
             raise InInvalid(message) from exc
         if not present:
-            message = (
-                self.msg
-                or f"value must be one of {_sorted_for_message(self.container)}"
-            )
-            raise InInvalid(message)
-        return value
+            candidates = self._suggest(value)
+            if self.msg is not None:
+                message = self.msg
+            else:
+                message = f"value must be one of {_sorted_for_message(self.container)}"
+                if candidates:
+                    message += f", did you mean {_format_candidates(candidates)}?"
+            raise InInvalid(message, candidates=candidates)
+        return candidate
 
 
 class NotIn(_SafeValidator):

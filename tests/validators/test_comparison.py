@@ -164,6 +164,61 @@ def test_in_exposes_its_container() -> None:
     assert In([1, 2]).container == [1, 2]
 
 
+def test_in_suggests_close_members_on_a_miss() -> None:
+    """A missed string value suggests the closest members and carries candidates."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In(["auto", "manual"]))("atuo")
+    error = caught.value.errors[0]
+    assert isinstance(error, InInvalid)
+    assert error.candidates == ["auto"]
+    assert "did you mean 'auto'?" in error.error_message
+
+
+def test_in_offers_no_suggestion_when_nothing_is_close() -> None:
+    """A miss with no close member has empty candidates and no hint."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In(["auto", "manual"]))("zzzzz")
+    error = caught.value.errors[0]
+    assert error.candidates == []
+    assert "did you mean" not in error.error_message
+
+
+def test_in_has_no_suggestions_for_non_string_members() -> None:
+    """A non-string container yields no suggestions (difflib is string-only)."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In([1, 2, 3]))(9)
+    assert caught.value.errors[0].candidates == []
+
+
+def test_in_custom_message_wins_but_keeps_candidates() -> None:
+    """A custom message replaces the text, yet the candidates are still recorded."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In(["auto"], msg="bad mode"))("atuo")
+    error = caught.value.errors[0]
+    assert error.error_message == "bad mode"
+    assert error.candidates == ["auto"]
+
+
+def test_in_fold_case_matches_and_returns_the_normalized_value() -> None:
+    """fold_case matches case-insensitively and returns the folded value."""
+    schema = Schema(In(["Auto", "Manual"], fold_case=True))
+    assert schema("auto") == "auto"
+    assert schema("MANUAL") == "manual"
+    with pytest.raises(MultipleInvalid):
+        schema("nope")
+
+
+def test_in_space_normalizes_whitespace_runs() -> None:
+    """space collapses each whitespace run to the given character before matching."""
+    assert Schema(In(["a b"], space=" "))("a   b") == "a b"
+    assert Schema(In(["front_door"], space="_"))("front door") == "front_door"
+
+
+def test_in_normalization_leaves_a_non_string_value_alone() -> None:
+    """A non-string value is matched as-is even with normalization enabled."""
+    assert Schema(In([1, 2, 3], fold_case=True, space="_"))(2) == 2
+
+
 def test_not_in_membership() -> None:
     """NotIn rejects values that are in the container."""
     assert Schema(NotIn(["a"]))("b") == "b"

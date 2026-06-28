@@ -26,6 +26,14 @@ from typing import Any, cast
 _MAX_PATH_SEGMENT_LENGTH = 500
 
 
+def _format_candidates(names: list[str]) -> str:
+    """Render close-match names: ``'a'``, ``'a' or 'b'``, ``'a', 'b' or 'c'``."""
+    quoted = [repr(name) for name in names]
+    if len(quoted) == 1:
+        return quoted[0]
+    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
 @dataclass(frozen=True)
 class Location:
     """A source location for a value: its line, column, and file when known.
@@ -383,9 +391,44 @@ class LengthInvalid(Invalid):
 
 
 class InInvalid(Invalid):
-    """The value is not a member of the allowed set."""
+    """The value is not a member of the allowed set.
+
+    Carries ``candidates``: the close matches among the allowed string members, so
+    a caller can render (or has already rendered) a "did you mean ...?" hint
+    without recomputing it. The list is empty when nothing was close enough or the
+    members are not strings.
+    """
 
     default_code = "not_in_list"
+
+    def __init__(
+        self,
+        message: str,
+        path: list[Any] | None = None,
+        error_message: str | None = None,
+        error_type: str | None = None,
+        *,
+        candidates: list[str] | None = None,
+        code: str | None = None,
+        context: dict[str, Any] | None = None,
+        translation_key: str | None = None,
+        placeholders: dict[str, Any] | None = None,
+    ) -> None:
+        """Create the error, recording any close-match suggestions."""
+        self.candidates: list[str] = list(candidates) if candidates else []
+        merged = dict(context) if context else {}
+        if self.candidates:
+            merged.setdefault("candidates", self.candidates)
+        super().__init__(
+            message,
+            path,
+            error_message,
+            error_type,
+            code=code,
+            context=merged or None,
+            translation_key=translation_key,
+            placeholders=placeholders,
+        )
 
 
 class NotInInvalid(Invalid):
