@@ -90,6 +90,20 @@ def test_self_inside_all_chains_recursion_with_another_schema() -> None:
         schema({"follow": {"number": 1, "extra": "no"}})
 
 
+def test_self_detection_short_circuits_for_a_trailing_callable() -> None:
+    """Once Self is found, a callable value compiled afterwards skips the re-check.
+
+    The Self in the first branch flips the recursive flag during compile, so a
+    later callable value (``str.strip``) does not re-walk for Self.
+    """
+    schema = Schema({"next": Any(Self, None), "tag": str.strip})
+    assert schema._uses_self is True
+    assert schema({"next": {"next": None, "tag": " a "}, "tag": " b "}) == {
+        "next": {"next": None, "tag": "a"},
+        "tag": "b",
+    }
+
+
 def test_self_in_a_combinator_called_outside_a_schema_is_an_error() -> None:
     """A combinator holding Self, called on its own, has no schema to resolve to."""
     with pytest.raises(SchemaError):

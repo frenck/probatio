@@ -115,15 +115,18 @@ def test_validate_config_reject(benchmark: Any) -> None:
     assert benchmark(run) == 2
 
 
-LEAF_HEAVY = probatio.Schema(
-    {
+def _leaf_heavy_schema() -> dict[Any, Any]:
+    """A wide mapping of built-in leaf validators, fresh each call."""
+    return {
         probatio.Required("email"): probatio.Email(),
         probatio.Required("ip"): probatio.IPv4Address(),
         probatio.Required("host"): probatio.Hostname(),
         probatio.Required("code"): probatio.Match(r"^[A-Z]{3}$"),
         probatio.Required("slug"): probatio.Slug(),
-    },
-)
+    }
+
+
+LEAF_HEAVY = probatio.Schema(_leaf_heavy_schema())
 LEAF_HEAVY_PAYLOAD = {
     "email": "user@example.com",
     "ip": "192.168.1.1",
@@ -139,8 +142,9 @@ def test_validate_leaf_heavy(benchmark: Any) -> None:
     assert result["email"] == "user@example.com"
 
 
-NESTED = probatio.Schema(
-    {
+def _nested_schema() -> dict[Any, Any]:
+    """A nested mapping (sub-mapping and a list), fresh each call."""
+    return {
         probatio.Required("entity_id"): str,
         probatio.Optional("data", default=dict): {
             probatio.Optional("brightness"): probatio.All(
@@ -151,8 +155,10 @@ NESTED = probatio.Schema(
                 probatio.All(probatio.Coerce(int), probatio.Range(min=0, max=255)),
             ],
         },
-    },
-)
+    }
+
+
+NESTED = probatio.Schema(_nested_schema())
 NESTED_PAYLOAD = {
     "entity_id": "light.kitchen",
     "data": {"brightness": "200", "rgb": [255, 0, 0]},
@@ -163,3 +169,55 @@ def test_validate_nested(benchmark: Any) -> None:
     """Validate a nested mapping (recursing into a sub-mapping and a list)."""
     result = benchmark(NESTED, NESTED_PAYLOAD)
     assert result["data"]["brightness"] == 200
+
+
+def _combinator_schema() -> dict[Any, Any]:
+    """A combinator-heavy mapping (All/Any/Union nesting), fresh each call."""
+    return {
+        probatio.Required("mode"): probatio.Any("auto", "manual", "off"),
+        probatio.Required("level"): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=0, max=10)
+        ),
+        probatio.Optional("value"): probatio.Any(
+            probatio.All(str, probatio.Length(min=1)),
+            probatio.All(probatio.Coerce(int), probatio.Range(min=0)),
+            None,
+        ),
+        probatio.Optional("kind"): probatio.Union(int, str, float),
+    }
+
+
+def _deep_schema(depth: int) -> dict[Any, Any]:
+    """A mapping nested ``depth`` levels deep, fresh each call.
+
+    Construction cost grows with depth and tree size, so a deep schema is where
+    the compile walk actually shows up; a flat schema barely exercises it.
+    """
+    node: dict[Any, Any] = {probatio.Required("leaf"): int}
+    for _ in range(depth):
+        node = {probatio.Required("value"): int, probatio.Optional("child"): node}
+    return node
+
+
+def test_compile_nested(benchmark: Any) -> None:
+    """Compile a nested schema from scratch (recursive compile over a sub-mapping)."""
+    result = benchmark(lambda: probatio.Schema(_nested_schema()))
+    assert isinstance(result, probatio.Schema)
+
+
+def test_compile_leaf_heavy(benchmark: Any) -> None:
+    """Compile a wide, many-key mapping from scratch."""
+    result = benchmark(lambda: probatio.Schema(_leaf_heavy_schema()))
+    assert isinstance(result, probatio.Schema)
+
+
+def test_compile_combinators(benchmark: Any) -> None:
+    """Compile a combinator-heavy schema (All/Any/Union nesting) from scratch."""
+    result = benchmark(lambda: probatio.Schema(_combinator_schema()))
+    assert isinstance(result, probatio.Schema)
+
+
+def test_compile_deep(benchmark: Any) -> None:
+    """Compile a deeply nested schema, where construction cost actually lives."""
+    result = benchmark(lambda: probatio.Schema(_deep_schema(16)))
+    assert isinstance(result, probatio.Schema)
