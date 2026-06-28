@@ -36,7 +36,7 @@ would want from a library that loads untrusted config. See
 [Why trust it](#why-trust-it).
 
 Probatio is pure Python: no compiler, no build step, no native extension.
-Install it and import it. Requires Python 3.13 or newer.
+Install it and import it. Requires Python 3.12 or newer.
 
 ## Installation
 
@@ -215,7 +215,7 @@ SOFTWARE.
 [maintenance-shield]: https://img.shields.io/maintenance/yes/2026.svg
 [project-stage-shield]: https://img.shields.io/badge/project%20stage-experimental-yellow.svg
 [pypi]: https://pypi.org/project/probatio/
-[python-versions-shield]: https://img.shields.io/badge/python-3.13_%7C_3.14-blue?logo=python&logoColor=white
+[python-versions-shield]: https://img.shields.io/badge/python-3.12_%7C_3.13_%7C_3.14_%7C_3.15-blue?logo=python&logoColor=white
 [releases-shield]: https://img.shields.io/github/release/frenck/probatio.svg
 [releases]: https://github.com/frenck/probatio/releases
 [semver]: http://semver.org/spec/v2.0.0.html
