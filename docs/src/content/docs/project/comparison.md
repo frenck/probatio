@@ -79,8 +79,8 @@ read a JSON Schema into a Probatio schema and write one back out, for the
 constructs that map cleanly between the two.
 
 :::tip
-See [JSON Schema and OpenAPI](/guides/json-schema-and-openapi/) for
-`from_json_schema` and `to_json_schema`, and for which constructs round-trip.
+See [JSON Schema](/guides/json-schema/) for `from_json_schema` and
+`to_json_schema`, and for which constructs round-trip.
 :::
 
 ## attrs and cattrs

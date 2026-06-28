@@ -7,6 +7,10 @@ import rehypeProbatio from "./src/plugins/rehype-probatio.mjs";
 // https://astro.build/config
 export default defineConfig({
   site: "https://probatio.frenck.dev",
+  // The combined "JSON Schema and OpenAPI" guide was split into three pages.
+  redirects: {
+    "/guides/json-schema-and-openapi/": "/guides/json-schema/",
+  },
   markdown: {
     rehypePlugins: [rehypeProbatio],
   },
@@ -101,10 +105,9 @@ export default defineConfig({
             { label: "Custom validators", slug: "guides/custom-validators" },
             { label: "Recursive schemas", slug: "guides/recursive-schemas" },
             { label: "Schemas from dataclasses", slug: "guides/dataclasses" },
-            {
-              label: "JSON Schema and OpenAPI",
-              slug: "guides/json-schema-and-openapi",
-            },
+            { label: "JSON Schema", slug: "guides/json-schema" },
+            { label: "OpenAPI", slug: "guides/openapi" },
+            { label: "Field lists", slug: "guides/field-lists" },
             {
               label: "Testing with pytest-probatio",
               slug: "guides/testing-with-pytest",
