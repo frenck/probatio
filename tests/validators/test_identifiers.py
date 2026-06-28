@@ -58,6 +58,31 @@ def test_mac_address_rejects_invalid(value: object) -> None:
     assert isinstance(caught.value.errors[0], MacAddressInvalid)
 
 
+def test_mac_address_upper_and_separator() -> None:
+    """upper and separator control the normalized output."""
+    assert Schema(MacAddress(upper=True))("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF"
+    assert Schema(MacAddress(separator="-"))("aabbccddeeff") == "aa-bb-cc-dd-ee-ff"
+    assert Schema(MacAddress(separator=""))("AA:BB:CC:DD:EE:FF") == "aabbccddeeff"
+    assert (
+        Schema(MacAddress(upper=True, separator="-"))("aabbccddeeff")
+        == "AA-BB-CC-DD-EE-FF"
+    )
+
+
+def test_mac_address_normalize_false_returns_input_unchanged() -> None:
+    """normalize=False validates but returns the original string verbatim."""
+    assert (
+        Schema(MacAddress(normalize=False))("AA-bb-CC-dd-EE-ff") == "AA-bb-CC-dd-EE-ff"
+    )
+
+
+def test_mac_address_normalize_false_still_validates() -> None:
+    """normalize=False still rejects a malformed MAC."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(MacAddress(normalize=False))("nope")
+    assert isinstance(caught.value.errors[0], MacAddressInvalid)
+
+
 def test_custom_messages() -> None:
     """A custom message replaces the default on failure."""
     with pytest.raises(MultipleInvalid) as caught:

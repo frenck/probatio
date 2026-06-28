@@ -17,11 +17,11 @@ from probatio.error import MultipleInvalid
 
 
 def test_credit_card_accepts_a_luhn_valid_number() -> None:
-    """A Luhn-valid number passes, with or without grouping separators."""
+    """A Luhn-valid number passes; grouping separators are stripped by default."""
     schema = Schema(CreditCard())
     assert schema("4242424242424242") == "4242424242424242"
-    assert schema("4242 4242 4242 4242") == "4242 4242 4242 4242"
-    assert schema("5555-5555-5555-4444") == "5555-5555-5555-4444"
+    assert schema("4242 4242 4242 4242") == "4242424242424242"
+    assert schema("5555-5555-5555-4444") == "5555555555554444"
 
 
 @pytest.mark.parametrize(
@@ -42,10 +42,11 @@ def test_credit_card_rejects_invalid(value: object) -> None:
 
 
 def test_iban_accepts_a_checksum_valid_value() -> None:
-    """A mod-97-valid IBAN passes, with or without spaces."""
+    """A mod-97-valid IBAN passes; spaces are stripped and it is upper-cased."""
     schema = Schema(IBAN())
     assert schema("DE89370400440532013000") == "DE89370400440532013000"
-    assert schema("GB82 WEST 1234 5698 7654 32") == "GB82 WEST 1234 5698 7654 32"
+    assert schema("GB82 WEST 1234 5698 7654 32") == "GB82WEST12345698765432"
+    assert schema("gb82 west 1234 5698 7654 32") == "GB82WEST12345698765432"
 
 
 @pytest.mark.parametrize(
@@ -98,10 +99,11 @@ def test_data_uri_rejects_invalid(value: object) -> None:
 
 
 def test_e164_accepts_valid_numbers() -> None:
-    """A leading + and 2 to 15 digits with no leading zero validates."""
+    """A leading + and 2 to 15 digits validates; grouping is stripped by default."""
     schema = Schema(E164())
     assert schema("+14155552671") == "+14155552671"
     assert schema("+442071838750") == "+442071838750"
+    assert schema("+1 (415) 555-2671") == "+14155552671"
 
 
 @pytest.mark.parametrize(
@@ -119,6 +121,26 @@ def test_e164_rejects_invalid(value: object) -> None:
     """A leading zero, missing plus, wrong length, non-digit, or type is rejected."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(E164())(value)
+    assert caught.value.errors[0].code == "e164"
+
+
+def test_normalize_false_returns_input_unchanged() -> None:
+    """normalize=False validates but returns the original string verbatim."""
+    assert (
+        Schema(CreditCard(normalize=False))("4242 4242 4242 4242")
+        == "4242 4242 4242 4242"
+    )
+    assert (
+        Schema(IBAN(normalize=False))("gb82 west 1234 5698 7654 32")
+        == "gb82 west 1234 5698 7654 32"
+    )
+    assert Schema(E164(normalize=False))("+14155552671") == "+14155552671"
+
+
+def test_e164_normalize_false_rejects_grouped_input() -> None:
+    """normalize=False keeps E164 strict: grouping characters are rejected."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(E164(normalize=False))("+1 (415) 555-2671")
     assert caught.value.errors[0].code == "e164"
 
 
