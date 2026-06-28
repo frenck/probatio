@@ -19,6 +19,7 @@ from probatio import (
 from probatio.error import SchemaError
 from probatio.markers import Forbidden
 from probatio.validators import (
+    All,
     Base64,
     Contains,
     ExactSequence,
@@ -689,3 +690,91 @@ def test_structurally_malformed_schema_fails_closed() -> None:
     """
     with pytest.raises(SchemaError, match="malformed"):
         from_json_schema({"type": "array", "items": {"anyOf": True}})
+
+
+def test_plain_contains_matches_a_subschema_not_membership() -> None:
+    """Plain ``contains`` requires an element matching the subschema, not equality.
+
+    JSON Schema ``contains`` is satisfied when at least one element validates
+    against the subschema, so ``{"contains": {"type": "integer"}}`` accepts a list
+    that holds any integer. Decoding it to probatio's ``Contains`` (a literal
+    membership test) would wrongly reject such a list.
+    """
+    schema = from_json_schema({"contains": {"type": "integer"}})
+    assert schema(["a", 1]) == ["a", 1]
+    with pytest.raises(Invalid):
+        schema(["a", "b"])
+
+
+def test_allof_keeps_a_sibling_constraint() -> None:
+    """A keyword beside ``allOf`` is enforced too, not dropped (fail closed)."""
+    schema = from_json_schema({"allOf": [{"type": "integer"}], "minimum": 5})
+    assert schema(7) == 7
+    with pytest.raises(Invalid):
+        schema(3)  # below the sibling minimum
+
+
+def test_not_keeps_a_sibling_constraint() -> None:
+    """A keyword beside ``not`` is enforced too, not dropped (fail closed)."""
+    schema = from_json_schema({"not": {"type": "string"}, "minimum": 5})
+    assert schema(7) == 7
+    with pytest.raises(Invalid):
+        schema(3)  # below the sibling minimum
+
+
+def test_anyof_keeps_a_sibling_type() -> None:
+    """A ``type`` beside ``anyOf`` is enforced too, not dropped (fail closed)."""
+    schema = from_json_schema(
+        {"anyOf": [{"minimum": 0}, {"minimum": 100}], "type": "integer"},
+    )
+    assert schema(5) == 5
+    with pytest.raises(Invalid):
+        schema("5")  # the sibling type rejects a string
+
+
+def test_unique_items_under_array_type() -> None:
+    """uniqueItems is honored under an explicit array type, not only typeless."""
+    schema = from_json_schema({"type": "array", "uniqueItems": True})
+    assert schema([1, 2]) == [1, 2]
+    with pytest.raises(Invalid):
+        schema([1, 1])
+
+
+def test_unique_array_round_trips_through_the_codec() -> None:
+    """All([int], Unique()) survives encode then decode and still rejects duplicates."""
+    schema = from_json_schema(to_json_schema(Schema(All([int], Unique()))))
+    assert schema([1, 2]) == [1, 2]
+    with pytest.raises(Invalid):
+        schema([1, 1])
+
+
+def test_array_length_round_trips_as_item_count() -> None:
+    """An array length encodes as minItems/maxItems and decodes back enforcing it."""
+    schema = from_json_schema(to_json_schema(Schema(All([int], Length(min=2)))))
+    assert schema([1, 2]) == [1, 2]
+    with pytest.raises(Invalid):
+        schema([1])  # below the array length
+
+
+def test_unrecognized_type_accepts_anything() -> None:
+    """An unknown ``type`` value is ignored, leaving an accept-anything schema."""
+    schema = from_json_schema({"type": "nonsense"})
+    assert schema("x") == "x"
+    assert schema(5) == 5
+
+
+def test_unrecognized_type_still_honors_a_constraint() -> None:
+    """An unknown ``type`` does not swallow a sibling constraint keyword."""
+    schema = from_json_schema({"type": "nonsense", "minimum": 5})
+    assert schema(7) == 7
+    with pytest.raises(Invalid):
+        schema(3)  # the sibling minimum still applies
+
+
+def test_object_length_round_trips_as_property_count() -> None:
+    """An object length encodes as min/maxProperties and decodes back enforcing it."""
+    source = {"type": "object", "additionalProperties": True, "minProperties": 2}
+    schema = from_json_schema(to_json_schema(from_json_schema(source)))
+    assert schema({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+    with pytest.raises(Invalid):
+        schema({"a": 1})  # below the property count

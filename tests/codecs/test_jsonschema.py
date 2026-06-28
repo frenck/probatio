@@ -270,6 +270,36 @@ def test_contains_exports_contains() -> None:
     assert to_json_schema(Schema(Contains(5))) == {"contains": {"const": 5}}
 
 
+def test_array_length_exports_item_count() -> None:
+    """A Length guarding an array exports minItems/maxItems, not the string form."""
+    assert to_json_schema(Schema(All([int], Length(min=1, max=2)))) == {
+        "type": "array",
+        "items": {"type": "integer"},
+        "minItems": 1,
+        "maxItems": 2,
+    }
+
+
+def test_object_length_exports_property_count() -> None:
+    """A Length guarding an object exports minProperties/maxProperties."""
+    assert to_json_schema(Schema(All({Required("a"): int}, Length(min=2)))) == {
+        "type": "object",
+        "properties": {"a": {"type": "integer"}},
+        "additionalProperties": False,
+        "required": ["a"],
+        "minProperties": 2,
+    }
+
+
+def test_string_length_keeps_the_string_form() -> None:
+    """A Length guarding a string still exports minLength/maxLength."""
+    assert to_json_schema(Schema(All(str, Length(min=1, max=5)))) == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 5,
+    }
+
+
 def test_date_exports_date_format() -> None:
     """Date with the default ISO format exports format date."""
     assert to_json_schema(Schema(Date())) == {"type": "string", "format": "date"}
