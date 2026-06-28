@@ -539,6 +539,14 @@ class Schema:
         if isinstance(schema, list | tuple | set | frozenset):
             return self._compile_sequence(schema)
         if callable(schema):
+            # A combinator compiles its branches at construction with the strict
+            # default extra. When this schema sets a different policy, rebind the
+            # combinator so the policy reaches dict schemas nested inside it
+            # (matching voluptuous), on a copy so the shared instance is untouched.
+            if self.extra != PREVENT_EXTRA:
+                rebind = getattr(schema, "__probatio_with_extra__", None)
+                if rebind is not None:
+                    schema = rebind(self.extra)
             # probatio's own validators always raise Invalid (never leak a
             # ValueError), so they can be called directly. Arbitrary callables go
             # through the guard that turns a ValueError into an Invalid.
@@ -756,7 +764,11 @@ class Schema:
         return validate
 
 
-def compile_schema(schema: Any, required: bool = False) -> CompiledSchema:  # noqa: FBT001, FBT002
+def compile_schema(
+    schema: Any,
+    required: bool = False,  # noqa: FBT001, FBT002
+    extra: int = PREVENT_EXTRA,
+) -> CompiledSchema:
     """Compile a schemable into its raw validating callable.
 
     The compiler service the combinators use to compile their sub-schemas without
@@ -765,12 +777,15 @@ def compile_schema(schema: Any, required: bool = False) -> CompiledSchema:  # no
     (that is ``Schema.__call__``'s job, which the structural validators compose).
 
     ``required`` propagates into mapping sub-schemas, the way voluptuous applies a
-    combinator's ``required`` to the schemas it wraps.
+    combinator's ``required`` to the schemas it wraps. ``extra`` is the enclosing
+    schema's extra-key policy, propagated into dict schemas nested in the
+    combinator (also matching voluptuous); it defaults to ``PREVENT_EXTRA``, so a
+    combinator built on its own keeps the strict default.
     """
     # Flag the compile so a ``Self`` wrapped here (``Any(Self, ...)``) is deferred
     # to validation time rather than rejected as a bare ``Schema(Self)`` would be.
     token = _COMPILING_FOR_COMBINATOR.set(True)
     try:
-        return Schema(schema, required=required)._compiled  # noqa: SLF001
+        return Schema(schema, required=required, extra=extra)._compiled  # noqa: SLF001
     finally:
         _COMPILING_FOR_COMBINATOR.reset(token)

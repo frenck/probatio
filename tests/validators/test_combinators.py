@@ -5,13 +5,18 @@ from __future__ import annotations
 import pytest
 
 from probatio import (
+    ALLOW_EXTRA,
+    PREVENT_EXTRA,
+    REMOVE_EXTRA,
     All,
     And,
     Any,
     Coerce,
+    Invalid,
     MultipleInvalid,
     Or,
     Range,
+    Required,
     Schema,
     SomeOf,
     Switch,
@@ -220,3 +225,53 @@ def test_any_of_literals_lists_the_values() -> None:
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "expected 'a' or 'b'"
+
+
+def test_allow_extra_propagates_into_any_branch_dicts() -> None:
+    """A Schema's ALLOW_EXTRA reaches dict branches nested in Any (voluptuous parity)."""
+    schema = Schema(
+        Any(
+            {Required("write"): int},
+            {Required("state"): int},
+            msg="at least one",
+        ),
+        extra=ALLOW_EXTRA,
+    )
+    data = {"write": 1, "state": 2, "passive": []}
+    assert schema(data) == data
+
+
+def test_allow_extra_propagates_into_all_branch_dicts() -> None:
+    """ALLOW_EXTRA reaches dict schemas nested in All too."""
+    schema = Schema(All({Required("a"): int}), extra=ALLOW_EXTRA)
+    assert schema({"a": 1, "extra": 9}) == {"a": 1, "extra": 9}
+
+
+def test_allow_extra_propagates_into_someof_and_union() -> None:
+    """ALLOW_EXTRA reaches dict schemas nested in SomeOf and Union."""
+    some = Schema(SomeOf([{Required("a"): int}], min_valid=1), extra=ALLOW_EXTRA)
+    assert some({"a": 1, "x": 2}) == {"a": 1, "x": 2}
+    union = Schema(Union({"kind": "a", "v": int}), extra=ALLOW_EXTRA)
+    assert union({"kind": "a", "v": 1, "x": 2}) == {"kind": "a", "v": 1, "x": 2}
+
+
+def test_remove_extra_propagates_into_any_branch_dicts() -> None:
+    """REMOVE_EXTRA reaches dict branches nested in Any, dropping unknown keys."""
+    schema = Schema(Any({Required("a"): int}), extra=REMOVE_EXTRA)
+    assert schema({"a": 1, "junk": 9}) == {"a": 1}
+
+
+def test_default_still_rejects_extra_in_a_combinator_branch() -> None:
+    """With the default PREVENT_EXTRA, an unknown key in an Any branch still rejects."""
+    schema = Schema(Any({Required("a"): int}))
+    with pytest.raises(MultipleInvalid):
+        schema({"a": 1, "junk": 9})
+
+
+def test_extra_rebind_does_not_mutate_a_shared_combinator() -> None:
+    """Wrapping a combinator with ALLOW_EXTRA must not change it for another schema."""
+    shared = Any({Required("a"): int})
+    assert Schema(shared, extra=ALLOW_EXTRA)({"a": 1, "x": 2}) == {"a": 1, "x": 2}
+    # The same instance, used strictly elsewhere, still rejects the extra key.
+    with pytest.raises(Invalid):
+        Schema(shared, extra=PREVENT_EXTRA)({"a": 1, "x": 2})
