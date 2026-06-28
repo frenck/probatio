@@ -134,6 +134,51 @@ def test_coerce_enum_custom_message_does_not_append_values() -> None:
     assert str(caught.value.errors[0]) == "bad color"
 
 
+def test_coerce_enum_suggests_a_close_value() -> None:
+    """A near-miss against an enum's string values gets a 'did you mean ...?' hint."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Color))("gren")
+    error = caught.value.errors[0]
+    assert isinstance(error, CoerceInvalid)
+    assert error.candidates == ["green"]
+    assert "did you mean 'green'?" in error.error_message
+
+
+def test_coerce_enum_no_suggestion_when_nothing_is_close() -> None:
+    """A far-off value gets no hint and no candidates, matching the value listing."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Color))("purple")
+    error = caught.value.errors[0]
+    assert error.candidates == []
+    assert "did you mean" not in error.error_message
+
+
+def test_coerce_enum_custom_message_keeps_candidates() -> None:
+    """A custom message wins the text, yet the close matches are still recorded."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Color, msg="bad color"))("gren")
+    assert caught.value.errors[0].candidates == ["green"]
+
+
+def test_coerce_int_enum_has_no_suggestions() -> None:
+    """An IntEnum has non-string values, so difflib offers nothing."""
+
+    class _Size(enum.IntEnum):
+        SMALL = 1
+        LARGE = 2
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Size))("small")
+    assert caught.value.errors[0].candidates == []
+
+
+def test_coerce_non_enum_failure_has_no_candidates() -> None:
+    """A plain coercion failure carries an empty candidates list."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(int))("abc")
+    assert caught.value.errors[0].candidates == []
+
+
 def test_boolean_truthy_and_falsy_strings() -> None:
     """Boolean reads common truthy and falsy strings."""
     assert Schema(Boolean())("yes") is True
