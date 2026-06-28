@@ -295,10 +295,13 @@ class Schema:
         self.schema = schema
         self.required = required
         self.extra = extra
-        # Whether ``Self`` appears anywhere in the definition. Only then does
-        # validation record an active root (a contextvar that is not free), so a
-        # non-recursive schema, the common case, skips that cost entirely.
-        self._uses_self = _schema_uses_self(schema)
+        # Whether ``Self`` appears anywhere in the definition. This is discovered
+        # during the compile walk below (set on the first ``Self`` reached, and on
+        # a combinator/wrapper branch that holds one), so the tree is walked once,
+        # not a second time by a standalone pre-pass. Only a recursive schema then
+        # records an active root when validated, a contextvar that is not free, so
+        # a non-recursive schema, the common case, skips that cost entirely.
+        self._uses_self = False
         # Mark self as the root while compiling, so a ``Self`` inside this schema
         # resolves here. Tokens nest correctly, so a nested Schema restores the
         # outer root on exit.
@@ -528,6 +531,7 @@ class Schema:
     def _compile(self, schema: Any) -> CompiledSchema:  # noqa: PLR0911
         """Dispatch a schema node to the right compiler for its kind."""
         if schema is Self:
+            self._uses_self = True
             return self._compile_self()
         if isinstance(schema, type):
             return self._compile_type(schema)
@@ -547,6 +551,12 @@ class Schema:
                 rebind = getattr(schema, "__probatio_with_extra__", None)
                 if rebind is not None:
                     schema = rebind(self.extra)
+            # A combinator or wrapper compiled its own branches at construction, so
+            # the compile walk never descends into them; detect a ``Self`` nested in
+            # one on the branch node itself. Cheap for a plain callable (it has no
+            # ``validators``/``validator`` to walk) and skipped once a Self is found.
+            if not self._uses_self:
+                self._uses_self = _schema_uses_self(schema)
             # probatio's own validators always raise Invalid (never leak a
             # ValueError), so they can be called directly. Arbitrary callables go
             # through the guard that turns a ValueError into an Invalid.
@@ -615,24 +625,37 @@ class Schema:
                 remove=False,
                 is_literal=False,
             )
-        if isinstance(key, Marker):
+        is_marker = isinstance(key, Marker)
+        if is_marker:
+            # Classify the marker's kind once, then reuse the flags below rather
+            # than re-running overlapping isinstance checks per attribute. Subtypes
+            # are honored (Inclusive and Exclusive are Optional), so the dispatch
+            # stays correct for a custom marker subclass too.
+            is_required = isinstance(key, Required)
+            is_optional = isinstance(key, Optional)
+            is_alias = isinstance(key, Alias)
+            is_remove = isinstance(key, Remove)
+            is_forbidden = isinstance(key, Forbidden)
+            is_exclusive = isinstance(key, Exclusive)
+            is_inclusive = isinstance(key, Inclusive)
             key_schema = key.schema
             default = (
-                key.default
-                if isinstance(key, Required | Optional | Alias)
-                else UNDEFINED
+                key.default if (is_required or is_optional or is_alias) else UNDEFINED
             )
             # An Alias carries its own required flag and is self-contained, so a
             # schema-wide ``required`` does not force it (like Optional).
             required = (
-                isinstance(key, Required)
-                or (isinstance(key, Alias) and key.required)
+                is_required
+                or (is_alias and key.required)
                 or (
                     self.required
-                    and not isinstance(key, Optional | Remove | Forbidden | Alias)
+                    and not (is_optional or is_remove or is_forbidden or is_alias)
                 )
             )
         else:
+            # A literal key is none of the marker kinds, so skip those checks.
+            is_required = is_optional = is_alias = is_remove = False
+            is_forbidden = is_exclusive = is_inclusive = False
             key_schema = key
             default = UNDEFINED
             required = self.required
@@ -645,19 +668,13 @@ class Schema:
             check_value=check_value,
             required=required,
             default=default,
-            remove=isinstance(key, Remove),
-            forbidden=isinstance(key, Forbidden),
+            remove=is_remove,
+            forbidden=is_forbidden,
             is_literal=is_literal,
-            exclusive_group=(
-                key.group_of_exclusion if isinstance(key, Exclusive) else None
-            ),
-            exclusive_required=(
-                key.group_required if isinstance(key, Exclusive) else False
-            ),
-            inclusive_group=(
-                key.group_of_inclusion if isinstance(key, Inclusive) else None
-            ),
-            msg=key.msg if isinstance(key, Marker) else None,
+            exclusive_group=(key.group_of_exclusion if is_exclusive else None),
+            exclusive_required=(key.group_required if is_exclusive else False),
+            inclusive_group=(key.group_of_inclusion if is_inclusive else None),
+            msg=key.msg if is_marker else None,
             value_type=getattr(check_value, "checked_type", None),
             key_type=getattr(check_key, "checked_type", None),
             complex_keys=(
@@ -665,11 +682,10 @@ class Schema:
                 # failure can report "at least one of [...] is required". Read by
                 # attribute to avoid importing Any (circular with combinators).
                 list(key_schema.validators)
-                if isinstance(key, Required)
-                and getattr(key_schema, "is_complex_key", False)
+                if is_required and getattr(key_schema, "is_complex_key", False)
                 else None
             ),
-            alias_input_names=key.input_names if isinstance(key, Alias) else (),
+            alias_input_names=key.input_names if is_alias else (),
         )
 
     def _compile_self(self) -> CompiledSchema:

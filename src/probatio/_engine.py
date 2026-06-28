@@ -100,57 +100,76 @@ class _MappingValidator:
         self._candidates = candidates
         self._extra = extra
         self._invalid_msg = invalid_msg
-        # Literal keys are matched by an exact dict lookup (the common, fast
-        # path); only keys not found that way fall back to the validator keys
-        # (types and callables), which must be tried one by one. A literal lookup
-        # also naturally gives literal keys precedence over validator keys.
+        # Everything the validator needs is derived from the candidate list in one
+        # pass; the structures below were six separate walks, but each candidate's
+        # attributes are read once here instead. What each piece is:
+        #
+        # ``_literal``: literal keys matched by an exact dict lookup (the common,
+        #   fast path); a key not found there falls back to the validator keys
+        #   (types and callables) tried one by one, so literals take precedence.
+        # ``_literal_fast``: a flat tuple per literal key that is neither Forbidden
+        #   nor Remove (the overwhelming case), holding exactly what the per-key
+        #   validation loop reads (position, inlined value type, value check) so it
+        #   skips the forbidden/remove branches.
+        # ``_key_names``: the literal string keys a caller could legitimately give,
+        #   the pool for "did you mean ...?" on an unknown key (Remove/Forbidden
+        #   excluded; suggesting a dropped or must-be-absent key would be wrong).
+        # ``_finalizers``: the candidates that can apply a default or report a
+        #   missing required key; a mapping of purely optional keys needs none, so
+        #   it skips seen-tracking and finalization entirely.
+        # ``exclusive``/``inclusive``: group member lists, built once so a grouped
+        #   validation does not rebuild them per call.
         self._literal: dict[Any, tuple[int, _Candidate]] = {}
         self._validators: list[tuple[int, _Candidate]] = []
+        self._literal_fast: dict[Any, tuple[int, type | None, CompiledSchema]] = {}
+        self._key_names: list[Any] = []
+        self._finalizers: list[tuple[int, _Candidate]] = []
+        exclusive: dict[str, list[int]] = defaultdict(list)
+        inclusive: dict[str, list[int]] = defaultdict(list)
+        alias_candidates: list[_Candidate] = []
         for index, candidate in enumerate(candidates):
+            key = candidate.key_schema
             if candidate.is_literal:
-                self._literal[candidate.key_schema] = (index, candidate)
+                self._literal[key] = (index, candidate)
+                if not candidate.forbidden and not candidate.remove:
+                    self._literal_fast[key] = (
+                        index,
+                        candidate.value_type,
+                        candidate.check_value,
+                    )
+                    if isinstance(key, str):
+                        self._key_names.append(key)
             else:
                 self._validators.append((index, candidate))
-        # A derived index for the hot path. A literal key that is neither
-        # Forbidden nor Remove (the overwhelming common case) maps to a flat
-        # tuple of exactly what the per-key loop needs: its position (for the
-        # seen flags), the inlined value type if any, and its value check. The
-        # loop reads that tuple instead of a ``_Candidate`` property and skips
-        # the forbidden/remove branches entirely. Forbidden and Remove literal
-        # keys are absent here and take the slower branch via ``_literal``.
-        self._literal_fast: dict[Any, tuple[int, type | None, CompiledSchema]] = {
-            candidate.key_schema: (
-                index,
-                candidate.value_type,
-                candidate.check_value,
-            )
-            for index, candidate in enumerate(candidates)
-            if candidate.is_literal and not candidate.forbidden and not candidate.remove
-        }
-        # The pool for "did you mean ...?" suggestions on an unknown key: the
-        # literal string keys a caller could legitimately provide. Remove and
-        # Forbidden keys are excluded; suggesting a key that gets dropped, or one
-        # that must be absent, would be wrong.
-        self._key_names = [
-            candidate.key_schema
-            for candidate in candidates
-            if candidate.is_literal
-            and isinstance(candidate.key_schema, str)
-            and not candidate.remove
-            and not candidate.forbidden
-        ]
-        # Alias keys (rare) are resolved in a pre-pass that renames each accepted
-        # input name to the candidate's canonical key, so the candidate machinery
-        # below never sees the aliases. ``_alias_lookup`` maps an input name to its
-        # canonical and its rank (declaration order, for first-present-wins);
-        # ``_alias_claimed`` is every name an alias spec owns, so a leftover one
-        # (a superseded alias, or a canonical under accept_canonical=False) is
-        # dropped rather than passed through as an unknown key.
+            if candidate.exclusive_group is not None:
+                exclusive[candidate.exclusive_group].append(index)
+            if candidate.inclusive_group is not None:
+                inclusive[candidate.inclusive_group].append(index)
+            if candidate.required or (
+                candidate.is_literal
+                and not isinstance(candidate.default, Undefined)
+                # An Exclusive member's default is group-level: it fills in only
+                # when the whole group is empty, applied in the group pass, not
+                # here where it would fire whenever this one key is absent.
+                and candidate.exclusive_group is None
+            ):
+                self._finalizers.append((index, candidate))
+            if candidate.alias_input_names:
+                alias_candidates.append(candidate)
+        self._exclusive_groups = list(exclusive.items())
+        self._inclusive_groups = list(inclusive.items())
+        self._has_groups = bool(self._exclusive_groups or self._inclusive_groups)
+        self._track_seen = bool(self._finalizers) or self._has_groups
+        # Alias keys (rare) rename each accepted input name to the candidate's
+        # canonical key in a pre-pass, so the candidate machinery never sees them.
+        # ``_alias_lookup`` maps an input name to its canonical and rank (declaration
+        # order, first-present-wins); ``_alias_claimed`` is every name an alias spec
+        # owns, so a leftover one (a superseded alias, or a canonical under
+        # accept_canonical=False) is dropped rather than passed through as unknown.
+        # The collision checks need the full ``_literal`` map, so they run here.
         self._alias_lookup: dict[Any, tuple[Any, int]] = {}
         self._alias_claimed: set[Any] = set()
-        for candidate in candidates:
-            if not candidate.alias_input_names:
-                continue
+        for candidate in alias_candidates:
             canonical = candidate.key_schema
             self._alias_claimed.add(canonical)
             for rank, name in enumerate(candidate.alias_input_names):
@@ -162,37 +181,6 @@ class _MappingValidator:
                     raise SchemaError(message)
                 self._alias_lookup[name] = (canonical, rank)
                 self._alias_claimed.add(name)
-        # Group checking is only needed when Exclusive/Inclusive markers are
-        # present, which is rare. The member lists are built once here, so a
-        # validation with groups does not rebuild them every call.
-        exclusive: dict[str, list[int]] = defaultdict(list)
-        inclusive: dict[str, list[int]] = defaultdict(list)
-        for index, candidate in enumerate(candidates):
-            if candidate.exclusive_group is not None:
-                exclusive[candidate.exclusive_group].append(index)
-            if candidate.inclusive_group is not None:
-                inclusive[candidate.inclusive_group].append(index)
-        self._exclusive_groups = list(exclusive.items())
-        self._inclusive_groups = list(inclusive.items())
-        self._has_groups = bool(self._exclusive_groups or self._inclusive_groups)
-        # The only candidates that need a post-pass are those that can apply a
-        # default or report a missing required key. Mappings of purely optional
-        # keys (common for nested option dicts) need none of it, so they skip
-        # tracking which keys were seen and the finalization pass altogether.
-        self._finalizers = [
-            (index, candidate)
-            for index, candidate in enumerate(candidates)
-            if candidate.required
-            or (
-                candidate.is_literal
-                and not isinstance(candidate.default, Undefined)
-                # An Exclusive member's default is group-level: it fills in only
-                # when the whole group is empty, applied in the group pass, not
-                # here where it would fire whenever this one key is absent.
-                and candidate.exclusive_group is None
-            )
-        ]
-        self._track_seen = bool(self._finalizers) or self._has_groups
 
     def __call__(self, data: Any) -> dict[Any, Any]:  # noqa: PLR0912
         """Validate the mapping, gathering every error into one MultipleInvalid."""
