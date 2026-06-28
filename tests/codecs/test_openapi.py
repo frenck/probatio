@@ -22,6 +22,7 @@ from probatio import (
     UUID,
     Alpha,
     Base64,
+    Date,
     Fqdn,
     Hostname,
     IPAddress,
@@ -293,6 +294,11 @@ def test_bare_callable_with_unresolvable_annotation_is_open_schema() -> None:
 def test_new_validators_to_openapi(validator: object, expected: dict) -> None:
     """The probatio-only validators render their OpenAPI fragment (no oracle)."""
     assert to_openapi(Schema(validator)) == expected
+
+
+def test_date_is_not_exported_as_datetime() -> None:
+    """Date (a Datetime subclass) exports format date, not date-time."""
+    assert to_openapi(Schema(Date())) == {"type": "string", "format": "date"}
 
 
 def test_new_string_validators_to_openapi() -> None:
