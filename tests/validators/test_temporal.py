@@ -14,6 +14,7 @@ from probatio import (
     Date,
     Datetime,
     Duration,
+    Epoch,
     MultipleInvalid,
     Schema,
     Time,
@@ -23,6 +24,8 @@ from probatio.error import (
     DateInvalid,
     DatetimeInvalid,
     DurationInvalid,
+    EpochInvalid,
+    SchemaError,
     TimeInvalid,
     TimeZoneInvalid,
 )
@@ -214,3 +217,44 @@ def test_timezone_rejects_invalid(value: object) -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(TimeZone())(value)
     assert isinstance(caught.value.errors[0], TimeZoneInvalid)
+
+
+def test_epoch_seconds_returns_aware_utc_datetime() -> None:
+    """Epoch reads a seconds count into a timezone-aware UTC datetime."""
+    result = Schema(Epoch())(1719571800)
+    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+    assert result.tzinfo is datetime.UTC
+
+
+def test_epoch_milliseconds_unit() -> None:
+    """With unit=milliseconds, the count is read as milliseconds since the epoch."""
+    result = Schema(Epoch(unit="milliseconds"))(1719571800000)
+    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+
+
+def test_epoch_accepts_a_float() -> None:
+    """A float epoch keeps sub-second precision."""
+    result = Schema(Epoch())(1719571800.5)
+    assert result.microsecond == 500000
+
+
+@pytest.mark.parametrize(
+    "value", [True, "1719571800", float("nan"), float("inf"), 10**30]
+)
+def test_epoch_rejects_bad_values(value: object) -> None:
+    """A bool, a string, NaN, infinity, or an out-of-range value raises EpochInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Epoch())(value)
+    assert isinstance(caught.value.errors[0], EpochInvalid)
+
+
+def test_epoch_rejects_an_unknown_unit_at_construction() -> None:
+    """An unsupported unit is a schema error, raised when the validator is built."""
+    with pytest.raises(SchemaError):
+        Epoch(unit="nanoseconds")
+
+
+def test_epoch_repr() -> None:
+    """Epoch renders as a constructor call showing its unit."""
+    assert repr(Epoch()) == "Epoch(unit=seconds)"
+    assert repr(Epoch(unit="milliseconds")) == "Epoch(unit=milliseconds)"

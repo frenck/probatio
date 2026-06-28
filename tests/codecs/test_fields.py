@@ -24,6 +24,7 @@ from probatio import (
     Base64,
     Duration,
     EnsureList,
+    Epoch,
     IPAddress,
     MultipleOf,
     NonEmpty,
@@ -89,6 +90,11 @@ def test_as_parser_with_format_serializes_the_format() -> None:
         "type": "datetime",
         "format": "%d-%m-%Y",
     }
+
+
+def test_epoch_serializes_as_an_integer_field() -> None:
+    """Epoch takes an integer timestamp on the wire, so it serializes as integer."""
+    assert serialize(Schema(Epoch())) == {"type": "integer"}
 
 
 def test_bare_key_is_not_optional() -> None:

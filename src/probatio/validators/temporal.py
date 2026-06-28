@@ -1,13 +1,13 @@
-"""Date, time, datetime, duration, and time-zone validators.
+"""Date, time, datetime, duration, time-zone, and epoch validators.
 
 ``Datetime``/``Date``/``Time`` validate a string against a ``strptime`` format and
 return it unchanged, matching voluptuous's string-in, string-out behavior.
 ``AsDatetime``/``AsDate``/``AsTime`` are the object-returning siblings: they parse
 ISO 8601 out of the box (or a ``format=`` you pass) and hand back the parsed
-``datetime``/``date``/``time`` instead of the original string. ``Duration`` and
-``TimeZone`` are probatio additions that coerce to a Python object
-(``datetime.timedelta`` and ``zoneinfo.ZoneInfo``), since that typed value is the
-point.
+``datetime``/``date``/``time`` instead of the original string. ``Duration``,
+``TimeZone``, and ``Epoch`` are probatio additions that coerce to a Python object
+(``datetime.timedelta``, ``zoneinfo.ZoneInfo``, and a UTC ``datetime`` from a Unix
+timestamp), since that typed value is the point.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from probatio.error import (
     DateInvalid,
     DatetimeInvalid,
     DurationInvalid,
+    EpochInvalid,
+    SchemaError,
     TimeInvalid,
     TimeZoneInvalid,
 )
@@ -27,6 +29,9 @@ from probatio.validators._base import _SafeValidator
 
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
+
+# How many epoch sub-units make one second, per accepted ``Epoch`` unit.
+_EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}
 
 
 def _format_message(kind: str, fmt: str | None) -> str:
@@ -276,3 +281,40 @@ class TimeZone(_SafeValidator):
             # ZoneInfoNotFoundError is a KeyError; a bad path is a ValueError; a
             # non-string is a TypeError; a tuple trips the weak-cache RuntimeError.
             raise TimeZoneInvalid(self.msg or "expected an IANA time zone") from exc
+
+
+class Epoch(_SafeValidator):
+    """Parse a Unix timestamp into a timezone-aware ``datetime.datetime`` in UTC.
+
+    Accepts an ``int`` or ``float`` count since the epoch (1970-01-01 UTC),
+    ``unit="seconds"`` by default or ``unit="milliseconds"``. The result is always
+    aware and in UTC: a naive, local result would depend on the host's time zone,
+    so the same input would validate to different moments on different machines. A
+    ``bool``, a string, or an out-of-range or NaN value is rejected.
+    """
+
+    def __init__(self, unit: str = "seconds", msg: str | None = None) -> None:
+        """Store the unit (``seconds`` or ``milliseconds``) and an optional message."""
+        if unit not in _EPOCH_DIVISORS:
+            options = ", ".join(sorted(_EPOCH_DIVISORS))
+            message = f"unit must be one of {options}, got {unit!r}"
+            raise SchemaError(message)
+        self.unit = unit
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call, matching the temporal validators."""
+        return f"Epoch(unit={self.unit})"
+
+    def __call__(self, value: typing.Any) -> datetime.datetime:
+        """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            # A bool is an int, but "true seconds since the epoch" is never meant.
+            raise EpochInvalid(self.msg or "expected a Unix timestamp")
+        try:
+            seconds = value / _EPOCH_DIVISORS[self.unit]
+            return datetime.datetime.fromtimestamp(seconds, tz=datetime.UTC)
+        except (OverflowError, OSError, ValueError) as exc:
+            # A huge value overflows (OverflowError/OSError); ``float('nan')`` and
+            # ``float('inf')`` raise ValueError/OverflowError out of fromtimestamp.
+            raise EpochInvalid(self.msg or "expected a Unix timestamp") from exc

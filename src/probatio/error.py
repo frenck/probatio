@@ -526,6 +526,12 @@ class TimeZoneInvalid(Invalid):
     default_code = "time_zone"
 
 
+class EpochInvalid(Invalid):
+    """The value is not a valid Unix epoch timestamp."""
+
+    default_code = "epoch"
+
+
 class IpInvalid(Invalid):
     """The value is not a valid IP address or network."""
 

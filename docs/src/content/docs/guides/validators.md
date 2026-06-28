@@ -282,6 +282,21 @@ Parsing uses the standard library on purpose: a faster backend like ciso8601
 accepts a different set of strings and returns a different `tzinfo` type, which
 would make validation depend on what happens to be installed.
 
+`Epoch` reads a Unix timestamp (an `int` or `float`) into a timezone-aware UTC
+`datetime`. It takes `unit="seconds"` by default or `unit="milliseconds"`. The
+result is always UTC: a naive, local datetime would depend on the host's time
+zone, so the same input would validate to a different moment on a different
+machine.
+
+```python
+from probatio import Schema, Epoch
+
+Schema(Epoch())(1719571800)
+# datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.timezone.utc)
+Schema(Epoch(unit="milliseconds"))(1719571800000)
+# datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.timezone.utc)
+```
+
 ## Network and identifiers
 
 These have no voluptuous equivalent; they are Probatio additions. The typed ones

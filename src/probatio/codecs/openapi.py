@@ -35,6 +35,7 @@ from probatio.validators import (
     Date,
     Datetime,
     Email,
+    Epoch,
     FqdnUrl,
     In,
     Length,
@@ -291,6 +292,9 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return {"type": "string", "format": "date"}
     if isinstance(node, Datetime | AsDatetime):
         return {"type": "string", "format": "date-time"}
+    if isinstance(node, Epoch):
+        # A Unix timestamp is an integer on the wire; the datetime is internal.
+        return {"type": "integer"}
     if isinstance(node, Match):
         return {"pattern": node.pattern.pattern}
     if isinstance(node, In):

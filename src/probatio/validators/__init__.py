@@ -107,6 +107,7 @@ from probatio.validators.temporal import (
     Date,
     Datetime,
     Duration,
+    Epoch,
     Time,
     TimeZone,
 )
@@ -144,6 +145,7 @@ __all__ = [
     "Email",
     "EndsWith",
     "EnsureList",
+    "Epoch",
     "Equal",
     "ExactSequence",
     "Fqdn",
