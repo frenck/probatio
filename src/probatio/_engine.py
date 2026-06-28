@@ -160,13 +160,19 @@ class _MappingValidator:
         self._inclusive_groups = list(inclusive.items())
         self._has_groups = bool(self._exclusive_groups or self._inclusive_groups)
         self._track_seen = bool(self._finalizers) or self._has_groups
-        # Alias keys (rare) rename each accepted input name to the candidate's
-        # canonical key in a pre-pass, so the candidate machinery never sees them.
-        # ``_alias_lookup`` maps an input name to its canonical and rank (declaration
-        # order, first-present-wins); ``_alias_claimed`` is every name an alias spec
-        # owns, so a leftover one (a superseded alias, or a canonical under
-        # accept_canonical=False) is dropped rather than passed through as unknown.
-        # The collision checks need the full ``_literal`` map, so they run here.
+        self._build_alias_index(alias_candidates)
+
+    def _build_alias_index(self, alias_candidates: list[_Candidate]) -> None:
+        """Map each alias input name to its canonical key (rare; needs the literals).
+
+        An accepted input name is renamed to the candidate's canonical key in a
+        pre-pass, so the candidate machinery never sees the aliases.
+        ``_alias_lookup`` maps an input name to its canonical and rank (declaration
+        order, first-present-wins); ``_alias_claimed`` is every name an alias spec
+        owns, so a leftover one (a superseded alias, or a canonical under
+        ``accept_canonical=False``) is dropped rather than passed through as an
+        unknown key. The collision checks need the full ``_literal`` map.
+        """
         self._alias_lookup: dict[Any, tuple[Any, int]] = {}
         self._alias_claimed: set[Any] = set()
         for candidate in alias_candidates:
