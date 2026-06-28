@@ -195,6 +195,8 @@ carries forward an upstream request.
   instead of passing it through. ISO 8601 by default (standard library only, for
   deterministic results), or a `strptime` format. `AsDatetime` can require a
   timezone-aware result.
+- `Epoch`: parse a Unix timestamp (seconds or milliseconds) into a
+  timezone-aware UTC `datetime`. Common in APIs and device payloads.
 - `EnsureList`, `Slug`, `Positive`, `Negative`, `NonNegative`, `MultipleOf`,
   `Percentage`: list-wrapping, slug format, sign conveniences, integer-multiple,
   and a 0 to 100 percentage. Common config helpers.

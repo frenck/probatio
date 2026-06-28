@@ -38,6 +38,7 @@ from probatio.validators import (
     Duration,
     EndsWith,
     EnsureList,
+    Epoch,
     Fqdn,
     Hex,
     HexColor,
@@ -248,4 +249,7 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:
         if node.format is not None:
             field["format"] = node.format
         return field
+    if isinstance(node, Epoch):
+        # A Unix timestamp arrives as an integer; the datetime is internal.
+        return {"type": "integer"}
     return None

@@ -223,6 +223,8 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
   mapping) to a `timedelta`.
 - `TimeZone(msg=None)`: validate an IANA zone name, returned as
   `zoneinfo.ZoneInfo`.
+- `Epoch(unit="seconds", msg=None)`: parse a Unix timestamp (`int` or `float`,
+  `unit="seconds"` or `"milliseconds"`) into a timezone-aware UTC `datetime`.
 
 </details>
 

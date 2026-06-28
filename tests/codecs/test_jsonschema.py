@@ -22,6 +22,7 @@ from probatio import (
     Date,
     Datetime,
     Email,
+    Epoch,
     Equal,
     ExactSequence,
     Extra,
@@ -337,6 +338,7 @@ def test_as_datetime_round_trips_to_the_string_datetime() -> None:
         (Port(), {"type": "integer", "minimum": 1, "maximum": 65535}),
         (Percentage(), {"type": "number", "minimum": 0, "maximum": 100}),
         (MultipleOf(5), {"multipleOf": 5}),
+        (Epoch(), {"type": "integer"}),
     ],
 )
 def test_new_validators_export(validator: object, expected: dict) -> None:

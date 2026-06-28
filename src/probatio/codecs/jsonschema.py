@@ -37,6 +37,7 @@ from probatio.validators import (
     Date,
     Datetime,
     Email,
+    Epoch,
     Equal,
     ExactSequence,
     FqdnUrl,
@@ -255,6 +256,9 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     temporal = _convert_temporal_node(node)
     if temporal is not None:
         return temporal
+    if isinstance(node, Epoch):
+        # A Unix timestamp is an integer on the wire; the datetime is internal.
+        return {"type": "integer"}
     if isinstance(node, Unique):
         return {"uniqueItems": True}
     if isinstance(node, Contains):
