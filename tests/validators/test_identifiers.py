@@ -71,7 +71,9 @@ def test_mac_address_upper_and_separator() -> None:
 
 def test_mac_address_normalize_false_returns_input_unchanged() -> None:
     """normalize=False validates but returns the original string verbatim."""
-    assert Schema(MacAddress(normalize=False))("AA-bb-CC-dd-EE-ff") == "AA-bb-CC-dd-EE-ff"
+    assert (
+        Schema(MacAddress(normalize=False))("AA-bb-CC-dd-EE-ff") == "AA-bb-CC-dd-EE-ff"
+    )
 
 
 def test_mac_address_normalize_false_still_validates() -> None:
