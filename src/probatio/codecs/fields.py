@@ -25,6 +25,9 @@ from probatio.validators import (
     All,
     Alpha,
     Alphanumeric,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Base64,
     ByteLength,
     Clamp,
@@ -238,4 +241,11 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:
         return bounds
     if isinstance(node, Datetime):
         return {"type": "datetime", "format": node.format}
+    if isinstance(node, AsDatetime | AsDate | AsTime):
+        # Same field shape as Datetime; the ISO default carries no strptime
+        # format, so only attach one when the parser was given an explicit format.
+        field: dict[str, Any] = {"type": "datetime"}
+        if node.format is not None:
+            field["format"] = node.format
+        return field
     return None

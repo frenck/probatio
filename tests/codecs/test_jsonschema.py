@@ -11,6 +11,9 @@ from probatio import (
     All,
     Alpha,
     Any,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Base64,
     Boolean,
     ByteLength,
@@ -288,6 +291,32 @@ def test_temporal_custom_format_drops_the_format() -> None:
 def test_datetime_round_trips_through_the_decoder() -> None:
     """to_json_schema(Datetime()) decodes back into a Datetime (no asymmetry)."""
     decoded = from_json_schema(to_json_schema(Schema(Datetime()))).schema
+    assert isinstance(decoded, Datetime)
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        (AsDate(), {"type": "string", "format": "date"}),
+        (AsTime(), {"type": "string", "format": "time"}),
+        (AsDatetime(), {"type": "string", "format": "date-time"}),
+    ],
+)
+def test_as_parsers_export_like_their_string_siblings(
+    validator: object, expected: dict
+) -> None:
+    """The object-returning As* parsers export the same string schema as Date/Time."""
+    assert to_json_schema(Schema(validator)) == expected
+
+
+def test_as_parser_custom_format_drops_the_format() -> None:
+    """An As* parser with a custom format has no JSON Schema equivalent: a string."""
+    assert to_json_schema(Schema(AsDate(format="%d-%m-%Y"))) == {"type": "string"}
+
+
+def test_as_datetime_round_trips_to_the_string_datetime() -> None:
+    """AsDatetime encodes to date-time, which decodes back to the string Datetime."""
+    decoded = from_json_schema(to_json_schema(Schema(AsDatetime()))).schema
     assert isinstance(decoded, Datetime)
 
 

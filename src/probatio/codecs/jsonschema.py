@@ -26,6 +26,9 @@ from probatio.schema import ALLOW_EXTRA, Schema, recursion_guard
 from probatio.validators import (
     UUID,
     All,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Base64,
     Boolean,
     Capitalize,
@@ -249,13 +252,9 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
         return {"type": "string", "pattern": node.pattern.pattern}
     if isinstance(node, Maybe):
         return {"anyOf": [{"type": "null"}, _child(node.validator)]}
-    # Date and Time both subclass Datetime, so they have to be matched first.
-    if isinstance(node, Date):
-        return _convert_temporal(node, "date")
-    if isinstance(node, Time):
-        return _convert_temporal(node, "time")
-    if isinstance(node, Datetime):
-        return _convert_temporal(node, "date-time")
+    temporal = _convert_temporal_node(node)
+    if temporal is not None:
+        return temporal
     if isinstance(node, Unique):
         return {"uniqueItems": True}
     if isinstance(node, Contains):
@@ -322,16 +321,35 @@ def _convert_length(node: Length) -> dict[str, Any]:
     return result
 
 
-def _convert_temporal(node: Datetime, json_format: str) -> dict[str, Any]:
-    """Render a Date/Datetime as a string, with a ``format`` when it is ISO.
+def _convert_temporal_node(node: Any) -> dict[str, Any] | None:
+    """Render any date/time validator (string or As* parser), or None if not one.
 
-    The ``format`` keyword only carries meaning for the default ISO format; a
-    custom ``strptime`` pattern has no JSON Schema equivalent, so the result is a
-    plain string in that case. This makes ``Datetime()`` round-trip with the
-    decoder, which reads ``format: date-time`` back into a ``Datetime``.
+    Date and Time subclass Datetime, so they are matched first. The As* parsers
+    are not subclasses, but describe the same string on the wire, so they map to
+    the same ``format``.
+    """
+    if isinstance(node, Date | AsDate):
+        return _convert_temporal(node, "date")
+    if isinstance(node, Time | AsTime):
+        return _convert_temporal(node, "time")
+    if isinstance(node, Datetime | AsDatetime):
+        return _convert_temporal(node, "date-time")
+    return None
+
+
+def _convert_temporal(node: Any, json_format: str) -> dict[str, Any]:
+    """Render a Date/Datetime (or its As* parser) as a string, format when ISO.
+
+    The ``format`` keyword only carries meaning for the ISO form; a custom
+    ``strptime`` pattern has no JSON Schema equivalent, so the result is a plain
+    string in that case. This makes ``Datetime()`` round-trip with the decoder,
+    which reads ``format: date-time`` back into a ``Datetime``. The string
+    validators mark ISO with their ``DEFAULT_FORMAT``; the ``As*`` parsers use
+    ``format=None``, so comparing against ``DEFAULT_FORMAT`` (absent, so ``None``)
+    covers both.
     """
     result: dict[str, Any] = {"type": "string"}
-    if node.format == node.DEFAULT_FORMAT:
+    if node.format == getattr(node, "DEFAULT_FORMAT", None):
         result["format"] = json_format
     return result
 

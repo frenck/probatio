@@ -2,9 +2,12 @@
 
 ``Datetime``/``Date``/``Time`` validate a string against a ``strptime`` format and
 return it unchanged, matching voluptuous's string-in, string-out behavior.
-``Duration`` and ``TimeZone`` are probatio additions that coerce to a Python
-object (``datetime.timedelta`` and ``zoneinfo.ZoneInfo``), since that typed value
-is the point.
+``AsDatetime``/``AsDate``/``AsTime`` are the object-returning siblings: they parse
+ISO 8601 out of the box (or a ``format=`` you pass) and hand back the parsed
+``datetime``/``date``/``time`` instead of the original string. ``Duration`` and
+``TimeZone`` are probatio additions that coerce to a Python object
+(``datetime.timedelta`` and ``zoneinfo.ZoneInfo``), since that typed value is the
+point.
 """
 
 from __future__ import annotations
@@ -24,6 +27,13 @@ from probatio.validators._base import _SafeValidator
 
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
+
+
+def _format_message(kind: str, fmt: str | None) -> str:
+    """Build the parse-failure message for an ``As*`` validator."""
+    if fmt is None:
+        return f"expected an ISO 8601 {kind}"
+    return f"value does not match expected format {fmt}"
 
 
 class Datetime(_SafeValidator):
@@ -82,6 +92,113 @@ class Time(Datetime):
             message = self.msg or f"value does not match expected format {self.format}"
             raise TimeInvalid(message) from exc
         return value
+
+
+class AsDatetime(_SafeValidator):
+    """Parse a string into a ``datetime.datetime``.
+
+    Parses ISO 8601 by default, accepting anything ``datetime.fromisoformat``
+    accepts on this Python (the ``T`` or space separator, a ``Z`` or ``+HH:MM``
+    offset, fractional seconds). Pass ``format=`` to parse a specific ``strptime``
+    layout instead. Returns the parsed ``datetime.datetime``, not the original
+    string. Set ``require_timezone`` to reject a naive result (one without
+    ``tzinfo``); the ISO default reads the offset, so this needs no extra format.
+
+    Parsing uses the standard library only, on purpose: a faster backend like
+    ciso8601 accepts a different set of strings and returns a different ``tzinfo``
+    type, which would make validation depend on what is installed.
+    """
+
+    def __init__(
+        self,
+        format: str | None = None,
+        *,
+        require_timezone: bool = False,
+        msg: str | None = None,
+    ) -> None:
+        """Store the optional strptime format, the tz requirement, and a message."""
+        self.format = format
+        self.require_timezone = require_timezone
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call, matching the temporal validators."""
+        return (
+            f"{type(self).__name__}(format={self.format}, "
+            f"require_timezone={self.require_timezone!r})"
+        )
+
+    def __call__(self, value: typing.Any) -> datetime.datetime:
+        """Return the parsed datetime, else raise DatetimeInvalid."""
+        try:
+            if self.format is None:
+                parsed = datetime.datetime.fromisoformat(value)
+            else:
+                parsed = datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+        except (TypeError, ValueError) as exc:
+            message = self.msg or _format_message("datetime", self.format)
+            raise DatetimeInvalid(message) from exc
+        if self.require_timezone and parsed.tzinfo is None:
+            raise DatetimeInvalid(self.msg or "expected a timezone-aware datetime")
+        return parsed
+
+
+class AsDate(_SafeValidator):
+    """Parse a string into a ``datetime.date``.
+
+    The object-returning sibling of ``Date``: it returns the parsed
+    ``datetime.date`` instead of the original string. Parses ISO 8601
+    (``YYYY-MM-DD``) by default; pass ``format=`` for a specific ``strptime``
+    layout.
+    """
+
+    def __init__(self, format: str | None = None, msg: str | None = None) -> None:
+        """Store the optional strptime format (read as ``.format``) and a message."""
+        self.format = format
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call, matching the temporal validators."""
+        return f"{type(self).__name__}(format={self.format})"
+
+    def __call__(self, value: typing.Any) -> datetime.date:
+        """Return the parsed date, else raise DateInvalid."""
+        try:
+            if self.format is None:
+                return datetime.date.fromisoformat(value)
+            return datetime.datetime.strptime(value, self.format).date()  # noqa: DTZ007
+        except (TypeError, ValueError) as exc:
+            message = self.msg or _format_message("date", self.format)
+            raise DateInvalid(message) from exc
+
+
+class AsTime(_SafeValidator):
+    """Parse a string into a ``datetime.time``.
+
+    The object-returning sibling of ``Time``: it returns the parsed
+    ``datetime.time`` instead of the original string. Parses ISO 8601
+    (``HH:MM[:SS]``) by default; pass ``format=`` for a specific ``strptime``
+    layout.
+    """
+
+    def __init__(self, format: str | None = None, msg: str | None = None) -> None:
+        """Store the optional strptime format (read as ``.format``) and a message."""
+        self.format = format
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call, matching the temporal validators."""
+        return f"{type(self).__name__}(format={self.format})"
+
+    def __call__(self, value: typing.Any) -> datetime.time:
+        """Return the parsed time, else raise TimeInvalid."""
+        try:
+            if self.format is None:
+                return datetime.time.fromisoformat(value)
+            return datetime.datetime.strptime(value, self.format).time()  # noqa: DTZ007
+        except (TypeError, ValueError) as exc:
+            message = self.msg or _format_message("time", self.format)
+            raise TimeInvalid(message) from exc
 
 
 class Duration(_SafeValidator):

@@ -7,7 +7,18 @@ import zoneinfo
 
 import pytest
 
-from probatio import Date, Datetime, Duration, MultipleInvalid, Schema, Time, TimeZone
+from probatio import (
+    AsDate,
+    AsDatetime,
+    AsTime,
+    Date,
+    Datetime,
+    Duration,
+    MultipleInvalid,
+    Schema,
+    Time,
+    TimeZone,
+)
 from probatio.error import (
     DateInvalid,
     DatetimeInvalid,
@@ -59,6 +70,77 @@ def test_time_rejects_a_bad_value() -> None:
     """A non-time value raises TimeInvalid."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Time())("25:99:99")
+    assert isinstance(caught.value.errors[0], TimeInvalid)
+
+
+def test_asdatetime_parses_iso_8601_by_default() -> None:
+    """AsDatetime parses ISO 8601 out of the box, offset and all, no format needed."""
+    result = Schema(AsDatetime())("2026-06-28T12:30:00+02:00")
+    assert result == datetime.datetime(
+        2026, 6, 28, 12, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+    )
+
+
+def test_asdatetime_honors_a_custom_format() -> None:
+    """A strptime format overrides the ISO default."""
+    result = Schema(AsDatetime(format="%Y-%m-%d %H:%M"))("2026-06-28 12:30")
+    assert result == datetime.datetime(2026, 6, 28, 12, 30)
+
+
+def test_asdatetime_rejects_a_bad_value() -> None:
+    """A string that is not a datetime raises DatetimeInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDatetime())("not a datetime")
+    assert isinstance(caught.value.errors[0], DatetimeInvalid)
+
+
+def test_asdatetime_require_timezone_accepts_aware_iso() -> None:
+    """With require_timezone, an ISO offset (here Z) yields an aware datetime."""
+    result = Schema(AsDatetime(require_timezone=True))("2026-06-28T12:30:00Z")
+    assert result.tzinfo is not None
+
+
+def test_asdatetime_require_timezone_rejects_naive() -> None:
+    """With require_timezone, a naive parse is rejected, not returned."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDatetime(require_timezone=True))("2026-06-28T12:30:00")
+    assert isinstance(caught.value.errors[0], DatetimeInvalid)
+
+
+def test_asdate_returns_a_date_object() -> None:
+    """AsDate parses ISO 8601 and returns a date, not the string."""
+    assert Schema(AsDate())("2026-06-28") == datetime.date(2026, 6, 28)
+
+
+def test_asdate_honors_a_custom_format() -> None:
+    """AsDate honors a strptime format and rejects a value that does not match it."""
+    assert Schema(AsDate(format="%d/%m/%Y"))("28/06/2026") == datetime.date(2026, 6, 28)
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDate(format="%d/%m/%Y"))("2026-06-28")
+    assert isinstance(caught.value.errors[0], DateInvalid)
+
+
+def test_asdate_rejects_a_bad_value() -> None:
+    """A non-date string raises DateInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDate())("2026-13-99")
+    assert isinstance(caught.value.errors[0], DateInvalid)
+
+
+def test_astime_returns_a_time_object() -> None:
+    """AsTime parses ISO 8601 and returns a time, not the string."""
+    assert Schema(AsTime())("14:30:00") == datetime.time(14, 30)
+
+
+def test_astime_honors_a_custom_format() -> None:
+    """A strptime format overrides the ISO default for AsTime."""
+    assert Schema(AsTime(format="%H.%M"))("14.30") == datetime.time(14, 30)
+
+
+def test_astime_rejects_a_bad_value() -> None:
+    """A non-time string raises TimeInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsTime())("25:99:99")
     assert isinstance(caught.value.errors[0], TimeInvalid)
 
 

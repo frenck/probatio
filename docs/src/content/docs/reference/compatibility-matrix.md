@@ -190,6 +190,11 @@ carries forward an upstream request.
 - `Time`, `Duration`, `TimeZone`: time-of-day (the sibling of `Date`/`Datetime`),
   duration parsing to `timedelta`, and an IANA zone to `zoneinfo.ZoneInfo`. `Time`
   is voluptuous [issue #335](https://github.com/alecthomas/voluptuous/issues/335); the others recur across ecosystems.
+- `AsDatetime`, `AsDate`, `AsTime`: the object-returning siblings of
+  `Datetime`/`Date`/`Time`, parsing the string to a `datetime`/`date`/`time`
+  instead of passing it through. ISO 8601 by default (standard library only, for
+  deterministic results), or a `strptime` format. `AsDatetime` can require a
+  timezone-aware result.
 - `EnsureList`, `Slug`, `Positive`, `Negative`, `NonNegative`, `MultipleOf`,
   `Percentage`: list-wrapping, slug format, sign conveniences, integer-multiple,
   and a 0 to 100 percentage. Common config helpers.

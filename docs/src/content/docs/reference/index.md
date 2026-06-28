@@ -212,6 +212,13 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 - `Date(format=None, msg=None)`: validate a date string (default `%Y-%m-%d`).
 - `Time(format=None, msg=None)`: validate a time-of-day string (default
   `%H:%M:%S`).
+- `AsDatetime(format=None, require_timezone=False, msg=None)`: parse a string to a
+  `datetime.datetime`. ISO 8601 by default, or a `strptime` `format=`. With
+  `require_timezone`, a naive result is rejected.
+- `AsDate(format=None, msg=None)`: parse a string to a `datetime.date` (ISO 8601 by
+  default, or a `strptime` `format=`).
+- `AsTime(format=None, msg=None)`: parse a string to a `datetime.time` (ISO 8601 by
+  default, or a `strptime` `format=`).
 - `Duration(msg=None)`: parse a duration (timedelta, seconds, `H:MM[:SS]`, or a
   mapping) to a `timedelta`.
 - `TimeZone(msg=None)`: validate an IANA zone name, returned as

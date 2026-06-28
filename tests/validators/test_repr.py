@@ -5,6 +5,9 @@ from __future__ import annotations
 from probatio import (
     All,
     Any,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Clamp,
     Coerce,
     Contains,
@@ -79,6 +82,14 @@ def test_temporal_repr() -> None:
     assert repr(Date()) == "Date(format=%Y-%m-%d)"
     assert repr(Datetime()) == "Datetime(format=%Y-%m-%dT%H:%M:%S.%fZ)"
     assert repr(Time()) == "Time(format=%H:%M:%S)"
+
+
+def test_as_temporal_repr() -> None:
+    """The object-returning As* parsers show their format (and tz requirement)."""
+    assert repr(AsDatetime()) == "AsDatetime(format=None, require_timezone=False)"
+    assert repr(AsDate()) == "AsDate(format=None)"
+    assert repr(AsTime()) == "AsTime(format=None)"
+    assert repr(AsDate(format="%d/%m/%Y")) == "AsDate(format=%d/%m/%Y)"
 
 
 def test_exact_sequence_repr() -> None:

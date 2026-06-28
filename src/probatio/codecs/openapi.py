@@ -25,6 +25,9 @@ from probatio.markers import Marker, Optional, Required, Undefined
 from probatio.schema import ALLOW_EXTRA, Schema
 from probatio.validators import (
     All,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Base64,
     Capitalize,
     Clamp,
@@ -280,12 +283,13 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return _oa_range(node)
     if isinstance(node, Length):
         return _oa_length(node)
-    # Date and Time subclass Datetime, so they must be matched before it.
-    if isinstance(node, Time):
+    # Date and Time subclass Datetime, so they must be matched before it. The As*
+    # parsers are not subclasses, but describe the same string on the wire.
+    if isinstance(node, Time | AsTime):
         return {"type": "string", "format": "time"}
-    if isinstance(node, Date):
+    if isinstance(node, Date | AsDate):
         return {"type": "string", "format": "date"}
-    if isinstance(node, Datetime):
+    if isinstance(node, Datetime | AsDatetime):
         return {"type": "string", "format": "date-time"}
     if isinstance(node, Match):
         return {"pattern": node.pattern.pattern}
