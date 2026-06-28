@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 from decimal import Decimal
 
 import pytest
@@ -103,6 +104,34 @@ def test_coerce_failure_is_reported() -> None:
 def test_coerce_exposes_its_type() -> None:
     """Coerce keeps its target type for introspection."""
     assert Coerce(int).type is int
+
+
+class _Color(enum.Enum):
+    """A small enum for the Coerce-of-enum message tests."""
+
+    RED = "red"
+    GREEN = "green"
+    BLUE = "blue"
+
+
+def test_coerce_enum_message_lists_the_values() -> None:
+    """Coercing to an enum names the valid values, matching voluptuous."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Color))("purple")
+    with pytest.raises(voluptuous.MultipleInvalid) as oracle:
+        voluptuous.Schema(voluptuous.Coerce(_Color))("purple")
+    assert (
+        str(caught.value.errors[0])
+        == "expected _Color or one of 'red', 'green', 'blue'"
+    )
+    assert str(caught.value.errors[0]) == str(oracle.value.errors[0])
+
+
+def test_coerce_enum_custom_message_does_not_append_values() -> None:
+    """A custom message replaces the default; the values are not appended."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Coerce(_Color, msg="bad color"))("purple")
+    assert str(caught.value.errors[0]) == "bad color"
 
 
 def test_boolean_truthy_and_falsy_strings() -> None:

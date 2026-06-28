@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import enum
 import typing
 from decimal import Decimal, InvalidOperation
 
@@ -37,8 +38,15 @@ class Coerce(_SafeValidator):
         try:
             return self.type(value)
         except (ValueError, TypeError, ArithmeticError) as exc:
-            message = self.msg or f"expected {self.type_name}"
-            raise CoerceInvalid(message) from exc
+            raise CoerceInvalid(self.msg or self._default_message()) from exc
+
+    def _default_message(self) -> str:
+        """Build the failure message, listing an enum's values (like voluptuous)."""
+        message = f"expected {self.type_name}"
+        if isinstance(self.type, type) and issubclass(self.type, enum.Enum):
+            values = ", ".join(repr(member.value) for member in self.type)
+            message = f"{message} or one of {values}"
+        return message
 
 
 @message("expected boolean", cls=BooleanInvalid)
