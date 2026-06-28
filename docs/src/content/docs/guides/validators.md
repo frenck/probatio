@@ -258,6 +258,30 @@ Schema(Duration())(90)                 # datetime.timedelta(seconds=90)
 Schema(TimeZone())("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
 ```
 
+`AsDatetime`, `AsDate`, and `AsTime` are the object-returning siblings of
+`Datetime`, `Date`, and `Time`. They return the parsed `datetime`, `date`, or
+`time` instead of the original string, and they parse ISO 8601 out of the box, so
+no `format=` is needed for the common case. Pass `format=` to parse a specific
+`strptime` layout instead. `AsDatetime` takes `require_timezone=True` to reject a
+naive result; the ISO default reads the offset, so that needs no extra format.
+
+```python
+from probatio import Schema, AsDatetime, AsDate, AsTime
+
+Schema(AsDate())("2026-06-25")                    # datetime.date(2026, 6, 25)
+Schema(AsTime())("14:30:00")                      # datetime.time(14, 30)
+Schema(AsDatetime())("2026-06-25T10:30:00+02:00")
+# datetime.datetime(2026, 6, 25, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(seconds=7200)))
+Schema(AsDatetime(format="%d/%m/%Y %H:%M"))("25/06/2026 10:30")
+# datetime.datetime(2026, 6, 25, 10, 30)
+```
+
+Reach for these when the next step wants a real object instead of a string;
+`Datetime`/`Date`/`Time` stay string-in, string-out for voluptuous compatibility.
+Parsing uses the standard library on purpose: a faster backend like ciso8601
+accepts a different set of strings and returns a different `tzinfo` type, which
+would make validation depend on what happens to be installed.
+
 ## Network and identifiers
 
 These have no voluptuous equivalent; they are Probatio additions. The typed ones

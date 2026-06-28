@@ -18,6 +18,9 @@ import probatio
 from probatio import (
     UNSUPPORTED,
     Alpha,
+    AsDate,
+    AsDatetime,
+    AsTime,
     Base64,
     Duration,
     EnsureList,
@@ -71,6 +74,21 @@ def test_datetime_matches() -> None:
     assert serialize(Schema(probatio.Datetime())) == voluptuous_serialize.convert(
         voluptuous.Schema(voluptuous.Datetime()),
     )
+
+
+def test_as_parsers_serialize_as_datetime_fields() -> None:
+    """The As* parsers serialize as a datetime field; ISO carries no strptime format."""
+    assert serialize(Schema(AsDate())) == {"type": "datetime"}
+    assert serialize(Schema(AsTime())) == {"type": "datetime"}
+    assert serialize(Schema(AsDatetime())) == {"type": "datetime"}
+
+
+def test_as_parser_with_format_serializes_the_format() -> None:
+    """An explicit strptime format is carried into the serialized datetime field."""
+    assert serialize(Schema(AsDate(format="%d-%m-%Y"))) == {
+        "type": "datetime",
+        "format": "%d-%m-%Y",
+    }
 
 
 def test_bare_key_is_not_optional() -> None:
