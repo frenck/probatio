@@ -29,6 +29,7 @@ from probatio.validators import (
     Capitalize,
     Clamp,
     Coerce,
+    Date,
     Datetime,
     Email,
     FqdnUrl,
@@ -279,9 +280,11 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return _oa_range(node)
     if isinstance(node, Length):
         return _oa_length(node)
-    # Time subclasses Datetime, so it must be matched before the Datetime branch.
+    # Date and Time subclass Datetime, so they must be matched before it.
     if isinstance(node, Time):
         return {"type": "string", "format": "time"}
+    if isinstance(node, Date):
+        return {"type": "string", "format": "date"}
     if isinstance(node, Datetime):
         return {"type": "string", "format": "date-time"}
     if isinstance(node, Match):
