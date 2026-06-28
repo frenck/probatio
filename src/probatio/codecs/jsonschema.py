@@ -223,8 +223,31 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
         merged: dict[str, Any] = {}
         for validator in node.validators:
             merged.update(_child(validator))
-        return merged
+        return _retarget_length(merged)
     return _convert_constraint(node)
+
+
+# JSON Schema spells "length" three ways depending on the type: minLength for a
+# string, minItems for an array, minProperties for an object. A Length validator
+# always renders the string form, so an All that pins an array or object length
+# has to move the bounds onto the matching keyword.
+_LENGTH_KEYS_BY_TYPE: dict[str, tuple[str, str]] = {
+    "array": ("minItems", "maxItems"),
+    "object": ("minProperties", "maxProperties"),
+}
+
+
+def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
+    """Move a merged Length's string-length keys onto the array/object keyword."""
+    keys = _LENGTH_KEYS_BY_TYPE.get(merged.get("type", ""))
+    if keys is None:
+        return merged
+    min_key, max_key = keys
+    if "minLength" in merged:
+        merged[min_key] = merged.pop("minLength")
+    if "maxLength" in merged:
+        merged[max_key] = merged.pop("maxLength")
+    return merged
 
 
 def _convert_equality(node: Any) -> dict[str, Any] | None:
@@ -516,31 +539,60 @@ def _build_node(node: Any, ctx: _Decode) -> Any:
         )
         raise SchemaError(message)
     _reject_unsupported(node)
-    # The core dispatch is kept inline (not a helper) so a deeply nested schema
-    # does not spend an extra stack frame per level, which would let Python's
-    # recursion limit fire before the explicit depth guard in _from_node.
-    if "$ref" in node:
-        result = _from_ref(node["$ref"], ctx)
-    elif "const" in node:
-        result = _from_const(node["const"])
-    elif "enum" in node:
-        result = _from_enum(node["enum"])
-    elif "not" in node:
-        result = _Not(_from_node(node["not"], ctx))
-    elif "anyOf" in node:
-        result = _from_combinator(node["anyOf"], "anyOf", AnyValidator, ctx)
-    elif "oneOf" in node:
-        result = _from_oneof(node["oneOf"], ctx)
-    elif "allOf" in node:
-        result = _from_combinator(node["allOf"], "allOf", All, ctx)
+    facets = _collect_facets(node, ctx)
+    if not facets:
+        result: Any = object
+    elif len(facets) == 1:
+        result = facets[0]
     else:
-        result = _from_typed(node, ctx)
+        result = All(*facets)
     if node.get("writeOnly") is True:
         # JSON Schema's secret marker round-trips back into a Secret.
         result = Secret(result)
     if ctx.openapi and node.get("nullable") is True:
         result = Maybe(result)
     return result
+
+
+def _collect_facets(node: dict[str, Any], ctx: _Decode) -> list[Any]:
+    """Collect every facet of a node, to be ANDed together.
+
+    A JSON Schema object's keywords are conjunctive: a value must satisfy every
+    facet present (a combinator AND a sibling ``type`` AND any constraint). The
+    old decoder picked a single branch and silently dropped the rest, which would
+    widen an untrusted schema (accept data the author meant to forbid).
+    """
+    facets: list[Any] = []
+    if "$ref" in node:
+        facets.append(_from_ref(node["$ref"], ctx))
+    if "const" in node:
+        facets.append(_from_const(node["const"]))
+    elif "enum" in node:
+        facets.append(_from_enum(node["enum"]))
+    if "not" in node:
+        facets.append(_Not(_from_node(node["not"], ctx)))
+    if "allOf" in node:
+        facets.append(_from_combinator(node["allOf"], "allOf", All, ctx))
+    if "anyOf" in node:
+        facets.append(_from_combinator(node["anyOf"], "anyOf", AnyValidator, ctx))
+    if "oneOf" in node:
+        facets.append(_from_oneof(node["oneOf"], ctx))
+    typed = _typed_facet(node, ctx)
+    if typed is not None:
+        facets.append(typed)
+    return facets
+
+
+def _typed_facet(node: dict[str, Any], ctx: _Decode) -> Any:
+    """Return the ``type``-based or standalone-constraint facet of a node, or None.
+
+    None means a node carries neither a ``type`` nor a recognized constraint
+    keyword, so a node that is only a combinator (an ``allOf`` with no sibling
+    assertions) does not pick up a redundant accept-anything facet.
+    """
+    if "type" in node:
+        return _from_typed(node, ctx)
+    return _combine_constraints(node, ctx)
 
 
 # Restrictive keywords probatio does not implement. Silently ignoring one would
@@ -708,10 +760,11 @@ def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
     if json_type in ("integer", "number"):
         base = int if json_type == "integer" else AnyValidator(int, float)
         return _from_number(node, base=base)
-    # No recognized type keyword: honor any constraint keywords on their own, so a
-    # typeless schema like {"minimum": 1} or {"uniqueItems": true} round-trips back
-    # into the matching validator instead of dropping the constraint.
-    return _from_typeless(node, ctx)
+    # An unrecognized type keyword: ignore it and honor any constraint keywords on
+    # their own, so the type does not swallow the rest of the schema. A node with
+    # no constraint accepts any value.
+    combined = _combine_constraints(node, ctx)
+    return object if combined is None else combined
 
 
 def _from_type_list(node: dict[str, Any], types: list[str], ctx: _Decode) -> Any:
@@ -728,18 +781,18 @@ _NUMERIC_BOUND_KEYS = frozenset(
 )
 
 
-def _from_typeless(node: dict[str, Any], ctx: _Decode) -> Any:
-    """Build a validator from a typeless schema's standalone constraint keywords.
+def _combine_constraints(node: dict[str, Any], ctx: _Decode) -> Any:
+    """Combine a node's standalone constraint keywords into one validator, or None.
 
     With no ``type``, a JSON Schema still carries meaning through keywords like
     ``minimum``, ``minLength``, ``multipleOf``, ``uniqueItems``, and ``contains``.
     Each becomes its matching validator so the encoder's typeless output (a bare
-    ``Range``, ``Length``, ``MultipleOf``, ``Unique``, or ``Contains``) round-trips.
-    A schema with no recognized keyword accepts any value.
+    ``Range``, ``Length``, ``MultipleOf``, ``Unique``, or ``ContainsCount``) round
+    trips. None means the node carries no recognized constraint.
     """
     constraints = _from_constraints(node, ctx)
     if not constraints:
-        return object
+        return None
     if len(constraints) == 1:
         return constraints[0]
     return All(*constraints)
@@ -859,10 +912,12 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     max_items = _item_count(node, "maxItems")
     bounded = min_items is not None or max_items is not None
     has_contains = "contains" in node
+    has_unique = node.get("uniqueItems") is True
     if items is None:
-        # No item schema: any list. Length and contains still apply, so a
-        # constrained array accepts any element ([object]) but must satisfy them.
-        if not bounded and not has_contains:
+        # No item schema: any list. Length, uniqueItems, and contains still apply,
+        # so a constrained array accepts any element ([object]) but must satisfy
+        # them.
+        if not bounded and not has_contains and not has_unique:
             return list
         sequence: Any = [object]
     elif isinstance(items, dict) and "anyOf" in items:
@@ -872,6 +927,8 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     constraints: list[Any] = []
     if bounded:
         constraints.append(Length(min=min_items, max=max_items))
+    if has_unique:
+        constraints.append(Unique())
     if has_contains:
         constraints.append(_from_contains(node, ctx))
     if constraints:
@@ -882,15 +939,15 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
 def _from_contains(node: dict[str, Any], ctx: _Decode) -> Any:
     """Build a contains check, honoring ``minContains``/``maxContains`` counts.
 
-    Plain ``contains`` requires at least one matching item (the spec default of
-    ``minContains: 1``). When a count bound is present, a counting validator
-    enforces how many items must match.
+    JSON Schema ``contains`` requires at least one element to match a subschema
+    (the spec default of ``minContains: 1``); a count bound sets how many. This
+    is schema-matching, not membership, so it must not decode to probatio's
+    ``Contains`` (which tests whether a literal value is an element). The
+    counting validator carries the right semantics for the plain case too.
     """
     item = _from_node(node["contains"], ctx)
     min_count = _item_count(node, "minContains")
     max_count = _item_count(node, "maxContains")
-    if min_count is None and max_count is None:
-        return Contains(item)
     return _ContainsCount(item, 1 if min_count is None else min_count, max_count)
 
 
