@@ -481,18 +481,27 @@ class _MappingValidator:
             if seen[index]:
                 continue
             if not isinstance(candidate.default, Undefined):
-                # The default is validated through the value schema, the way
-                # voluptuous does: a default is coerced (``default="1"`` through
-                # ``Coerce(int)`` yields ``1``) and a default that fails its
-                # schema is reported, not stored raw.
-                self._store(
-                    candidate.key_schema,
-                    candidate.default(),
-                    candidate.check_value,
-                    out,
-                    errors,
-                )
-            elif candidate.complex_keys is not None:
+                default = candidate.default()
+                if not isinstance(default, Undefined):
+                    # The default is validated through the value schema, the way
+                    # voluptuous does: a default is coerced (``default="1"``
+                    # through ``Coerce(int)`` yields ``1``) and a default that
+                    # fails its schema is reported, not stored raw.
+                    self._store(
+                        candidate.key_schema,
+                        default,
+                        candidate.check_value,
+                        out,
+                        errors,
+                    )
+                    continue
+                # A default callable may return ``UNDEFINED`` to decline at
+                # validation time, meaning "no default this run". The key is then
+                # treated as if it had no default: an Optional is left absent, a
+                # Required still reports the missing key below.
+                if not candidate.required:
+                    continue
+            if candidate.complex_keys is not None:
                 # Required(Any("a", "b")): at least one of the listed keys must be
                 # present (voluptuous 0.16.0). A custom marker msg still wins.
                 message = (
@@ -503,8 +512,9 @@ class _MappingValidator:
                     RequiredFieldInvalid(message, path=[candidate.key_schema]),
                 )
             else:
-                # A finalizer with no default is, by construction, a required key.
-                # A Required marker's own ``msg`` wins, matching voluptuous.
+                # A finalizer reaching here is required and unfilled: it had no
+                # default, or its default callable declined. A Required marker's
+                # own ``msg`` wins, matching voluptuous.
                 errors.append(
                     RequiredFieldInvalid(
                         candidate.msg or "required key not provided",
@@ -528,14 +538,19 @@ class _MappingValidator:
         for index in members:
             candidate = self._candidates[index]
             if not isinstance(candidate.default, Undefined):
-                self._store(
-                    candidate.key_schema,
-                    candidate.default(),
-                    candidate.check_value,
-                    out,
-                    errors,
-                )
-                return
+                default = candidate.default()
+                if not isinstance(default, Undefined):
+                    self._store(
+                        candidate.key_schema,
+                        default,
+                        candidate.check_value,
+                        out,
+                        errors,
+                    )
+                    return
+                # This member's default declined (returned ``UNDEFINED``): it does
+                # not fill the group, so try the next member, then the
+                # ``required`` check below.
         if any(self._candidates[index].exclusive_required for index in members):
             keys = [self._candidates[index].key_schema for index in members]
             message = f"exactly one of {keys} is required"

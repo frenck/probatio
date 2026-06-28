@@ -61,6 +61,31 @@ schema = Schema(
 schema({})  # {'port': 8080, 'tags': []}
 ```
 
+A callable default may return `UNDEFINED` to decline: the key is then left absent,
+exactly as if it had no default. This is useful for a default that depends on
+runtime context (the active platform, which plugins are loaded), where sometimes
+no value should be supplied:
+
+```python
+from probatio import Schema, Optional, UNDEFINED
+
+context = {"fast": True}
+
+
+def speed_default():
+    return 80 if context["fast"] else UNDEFINED
+
+
+schema = Schema({Optional("speed", default=speed_default): int})
+
+print(schema({}))  # {'speed': 80}
+context["fast"] = False
+print(schema({}))  # {}
+```
+
+For a `Required` key a declining default leaves the key missing, so it is reported
+as a missing required key.
+
 ## The extra-key policy
 
 What happens to a key the schema does not mention is controlled by the `extra`
@@ -132,7 +157,7 @@ schema({"keep": 1, "drop": "gone"})  # {'keep': 1}
 
 ## Forbidding keys
 
-`Forbidden` is the inverse of `Required`: the key must *not* be present. If it
+`Forbidden` is the inverse of `Required`: the key must _not_ be present. If it
 appears, validation fails with "key not allowed". The mapped value is never
 looked at, so the idiom is to map it to `object`.
 
@@ -147,6 +172,7 @@ schema({"id": 1})  # {'id': 1}
 A present forbidden key fails:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Forbidden
 
@@ -197,7 +223,7 @@ an ambiguous schema fails fast rather than at validation.
 
 ## Type and callable keys
 
-A key does not have to be a literal. A type key validates *every* key of that
+A key does not have to be a literal. A type key validates _every_ key of that
 type, which is how you describe an open mapping like "string keys, integer
 values":
 
@@ -266,6 +292,7 @@ change what an empty group does. `required=True` makes the group demand exactly
 one key:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Exclusive
 
