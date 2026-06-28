@@ -29,6 +29,7 @@ from probatio.validators._base import _SafeValidator
 
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
+_DURATION_MSG = "expected a duration like H:MM, H:MM:SS, or a number of seconds"
 
 # How many epoch sub-units make one second, per accepted ``Epoch`` unit.
 _EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}
@@ -209,9 +210,10 @@ class AsTime(_SafeValidator):
 class Duration(_SafeValidator):
     """Validate a duration, returning a ``datetime.timedelta``.
 
-    Accepts a ``timedelta`` (passed through), a number of seconds, a colon string
-    (``"H:MM"`` or ``"H:MM:SS"``, optionally negative), or a mapping of
-    ``timedelta`` keyword arguments (``{"hours": 1, "minutes": 30}``).
+    Accepts a ``timedelta`` (passed through), a number of seconds (an ``int``,
+    ``float``, or numeric string like ``"90"``), a colon string (``"H:MM"`` or
+    ``"H:MM:SS"``, optionally negative), or a mapping of ``timedelta`` keyword
+    arguments (``{"hours": 1, "minutes": 30}``).
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -241,15 +243,21 @@ class Duration(_SafeValidator):
         raise DurationInvalid(self.msg or "expected a duration")
 
     def _parse_string(self, value: str) -> datetime.timedelta:
-        """Parse a ``H:MM`` / ``H:MM:SS`` colon string into a timedelta."""
+        """Parse a ``H:MM`` / ``H:MM:SS`` colon string or a number of seconds.
+
+        A bare numeric string (``"90"``, ``"90.5"``) is read as seconds, matching
+        an ``int``/``float`` input, so ``Duration`` covers the whole time-period
+        family rather than only the colon form.
+        """
         text = value.strip()
         sign = 1
         if text.startswith("-"):
             sign, text = -1, text[1:]
+        if ":" not in text:
+            return sign * self._seconds(text)
         parts = text.split(":")
         if len(parts) not in _DURATION_PARTS or not all(p.isdigit() for p in parts):
-            message = self.msg or "expected a duration like H:MM or H:MM:SS"
-            raise DurationInvalid(message)
+            raise DurationInvalid(self.msg or _DURATION_MSG)
         hours, minutes, *rest = (int(part) for part in parts)
         seconds = rest[0] if rest else 0
         try:
@@ -259,8 +267,16 @@ class Duration(_SafeValidator):
                 seconds=seconds,
             )
         except OverflowError as exc:
-            message = self.msg or "expected a duration like H:MM or H:MM:SS"
-            raise DurationInvalid(message) from exc
+            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
+
+    def _seconds(self, text: str) -> datetime.timedelta:
+        """Read a bare number of seconds (``"90"``, ``"90.5"``) as a timedelta."""
+        try:
+            return datetime.timedelta(seconds=float(text))
+        except (ValueError, OverflowError) as exc:
+            # ``float("abc")`` and an empty string raise ValueError; ``"inf"`` or a
+            # huge value overflows timedelta; ``"nan"`` raises ValueError there.
+            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
 
 
 class TimeZone(_SafeValidator):

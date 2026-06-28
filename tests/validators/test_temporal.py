@@ -179,9 +179,28 @@ def test_duration_from_mapping() -> None:
     )
 
 
-@pytest.mark.parametrize("value", [True, "x:y", "nonsense", {"bogus": 1}, [1]])
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("90", datetime.timedelta(seconds=90)),
+        ("90.5", datetime.timedelta(seconds=90.5)),
+        ("-30", -datetime.timedelta(seconds=30)),
+        (" 90 ", datetime.timedelta(seconds=90)),
+    ],
+)
+def test_duration_from_numeric_string(value: str, expected: datetime.timedelta) -> None:
+    """A bare numeric string is read as seconds, like an int or float."""
+    assert Schema(Duration())(value) == expected
+
+
+def test_duration_numeric_string_matches_int() -> None:
+    """The numeric string "90" gives the same result as the int 90."""
+    assert Schema(Duration())("90") == Schema(Duration())(90)
+
+
+@pytest.mark.parametrize("value", [True, "x:y", "nonsense", "", {"bogus": 1}, [1]])
 def test_duration_rejects_invalid(value: object) -> None:
-    """A bool, a malformed string, bad mapping keys, or a wrong type all reject."""
+    """A bool, a malformed/empty string, bad mapping keys, or a wrong type reject."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Duration())(value)
     assert isinstance(caught.value.errors[0], DurationInvalid)
@@ -189,7 +208,7 @@ def test_duration_rejects_invalid(value: object) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [10**20, "100000000000000:0:0", {"days": 10**20}],
+    [10**20, "100000000000000:0:0", "inf", "1e400", {"days": 10**20}],
 )
 def test_duration_rejects_overflow(value: object) -> None:
     """A duration too large for timedelta is rejected, not a leaked OverflowError."""
