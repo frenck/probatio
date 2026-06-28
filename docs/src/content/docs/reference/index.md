@@ -325,10 +325,14 @@ Apply these after a dict schema with `All`; they inspect the whole mapping.
   `{key: value}` conditions hold, combined by `mode` (`"all"` or `"any"`).
 - `Check(predicate, msg)`: run a predicate over the value; falsy or raising reports
   `msg`.
-- `AtLeastOne(*keys, msg=None)`: at least one of the keys must be present in the
-  mapping.
-- `AtMostOne(*keys, msg=None)`: at most one of the keys may be present.
-- `ExactlyOne(*keys, msg=None)`: exactly one of the keys must be present.
+- `AtLeastOne(*keys, msg=None, require_mapping=True)`: at least one of the keys
+  must be present in the mapping.
+- `AtMostOne(*keys, msg=None, require_mapping=True)`: at most one of the keys may be
+  present.
+- `ExactlyOne(*keys, msg=None, require_mapping=True)`: exactly one of the keys must
+  be present.
+- `AllOrNone(*keys, msg=None, require_mapping=True)`: all of the keys must be present
+  together, or none of them.
 - `Immutable(*fields, msg=None)`: reject a change to a field between the previous
   value (from `current_context()`) and the new one.
 - `WriteOnce(*fields, msg=None)`: allow a field to be set once (from absent or

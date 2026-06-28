@@ -467,20 +467,28 @@ schema = Schema(
 schema({"start": 1, "end": 2})  # unchanged
 ```
 
-`AtLeastOne`, `AtMostOne`, and `ExactlyOne` are the key-group presence rules: how
-many of a set of keys may or must appear. `AtLeastOne("host", "url")` requires one
-of the keys (or both); `AtMostOne("include", "exclude")` allows one at most;
-`ExactlyOne("token", "password")` requires one and only one. They are the
-dict-level form of `Inclusive`/`Exclusive`, handy when the constraint reads more
-naturally as a standalone check than as a marker on each key.
+`AtLeastOne`, `AtMostOne`, `ExactlyOne`, and `AllOrNone` are the key-group
+presence rules: how many of a set of keys may or must appear. `AtLeastOne("host",
+"url")` requires one of the keys (or both); `AtMostOne("include", "exclude")`
+allows one at most; `ExactlyOne("token", "password")` requires one and only one;
+`AllOrNone("lat", "lon")` requires either all of the keys or none of them. They are
+the dict-level form of `Inclusive`/`Exclusive`, handy when the constraint reads
+more naturally as a standalone check than as a marker on each key.
 
 ```python
-from probatio import Schema, All, AtLeastOne, AtMostOne, ExactlyOne
+from probatio import Schema, AtLeastOne, AtMostOne, ExactlyOne, AllOrNone
 
-Schema(All(dict, AtLeastOne("host", "url")))({"host": "nas"})       # unchanged
-Schema(All(dict, AtMostOne("include", "exclude")))({"include": 1})  # unchanged
-Schema(All(dict, ExactlyOne("token", "password")))({"token": "t"})  # unchanged
+Schema(AtLeastOne("host", "url"))({"host": "nas"})       # unchanged
+Schema(AtMostOne("include", "exclude"))({"include": 1})  # unchanged
+Schema(ExactlyOne("token", "password"))({"token": "t"})  # unchanged
+Schema(AllOrNone("lat", "lon"))({"lat": 1, "lon": 2})    # unchanged
 ```
+
+A non-mapping is rejected by default, so the rule stands on its own without an
+enclosing dict schema. Pass `require_mapping=False` to leave a non-mapping
+untouched when the rule sits inside a larger pipeline. When more than one key
+conflicts (or, for `AllOrNone`, when a key is missing its partners), each offending
+key is reported with its own path.
 
 ## Transition validators
 

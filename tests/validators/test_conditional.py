@@ -6,6 +6,7 @@ import pytest
 
 from probatio import (
     All,
+    AllOrNone,
     AtLeastOne,
     AtMostOne,
     Check,
@@ -18,7 +19,13 @@ from probatio import (
     RequiredWithout,
     Schema,
 )
-from probatio.error import ExclusiveInvalid, RequiredFieldInvalid, SchemaError
+from probatio.error import (
+    DictInvalid,
+    ExclusiveInvalid,
+    InclusiveInvalid,
+    RequiredFieldInvalid,
+    SchemaError,
+)
 
 
 def _with_schema() -> Schema:
@@ -278,13 +285,64 @@ def test_exactly_one_rejects_two() -> None:
     assert isinstance(caught.value.errors[0], ExclusiveInvalid)
 
 
-@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne])
-def test_key_group_passes_through_a_non_mapping(validator: type) -> None:
-    """A non-mapping is left alone, so a type check elsewhere can catch it."""
-    assert Schema(validator("a", "b"))("not a dict") == "not a dict"
+@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne, AllOrNone])
+def test_key_group_rejects_a_non_mapping_by_default(validator: type) -> None:
+    """A non-mapping is rejected with the dict schema's own wording (HA/ESPHome parity)."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(validator("a", "b"))("not a dict")
+    error = caught.value.errors[0]
+    assert isinstance(error, DictInvalid)
+    assert error.error_message == "expected a dictionary"
 
 
-@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne])
+@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne, AllOrNone])
+def test_key_group_passes_through_a_non_mapping_when_opted_out(validator: type) -> None:
+    """With require_mapping=False a non-mapping is left alone, for use in a pipeline."""
+    rule = validator("a", "b", require_mapping=False)
+    assert Schema(rule)("not a dict") == "not a dict"
+
+
+def test_at_most_one_reports_each_conflicting_key_with_its_path() -> None:
+    """Two present keys each raise with their own path, so an editor can point at both."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AtMostOne("a", "b"))({"a": 1, "b": 2})
+    assert sorted(error.path for error in caught.value.errors) == [["a"], ["b"]]
+    assert all(isinstance(error, ExclusiveInvalid) for error in caught.value.errors)
+
+
+def test_exactly_one_too_many_reports_each_key_with_its_path() -> None:
+    """Exactly-one with too many keys reports each offending key with its path."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(ExactlyOne("a", "b"))({"a": 1, "b": 2})
+    assert sorted(error.path for error in caught.value.errors) == [["a"], ["b"]]
+
+
+def test_exactly_one_none_present_is_a_single_pathless_error() -> None:
+    """None present has no specific key to blame, so it is one pathless error."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(ExactlyOne("a", "b"))({"c": 1})
+    assert len(caught.value.errors) == 1
+    error = caught.value.errors[0]
+    assert isinstance(error, RequiredFieldInvalid)
+    assert error.path == []
+
+
+def test_all_or_none_passes_with_none_or_all() -> None:
+    """AllOrNone accepts none of the keys, or all of them."""
+    schema = Schema(AllOrNone("lat", "lon"))
+    assert schema({}) == {}
+    assert schema({"lat": 1, "lon": 2}) == {"lat": 1, "lon": 2}
+
+
+def test_all_or_none_reports_the_missing_keys_with_their_paths() -> None:
+    """One key without its partner reports the missing one, with its path."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AllOrNone("lat", "lon"))({"lat": 1})
+    assert [error.path for error in caught.value.errors] == [["lon"]]
+    assert isinstance(caught.value.errors[0], InclusiveInvalid)
+
+
+@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne, AllOrNone])
 def test_key_group_requires_at_least_one_key(validator: type) -> None:
     """Building a key-group validator with no keys is a schema error."""
     with pytest.raises(SchemaError):
