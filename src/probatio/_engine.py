@@ -118,6 +118,22 @@ class _MappingValidator:
                 self._literal[candidate.key_schema] = (index, candidate)
             else:
                 self._validators.append((index, candidate))
+        # A derived index for the hot path. A literal key that is neither
+        # Forbidden nor Remove (the overwhelming common case) maps to a flat
+        # tuple of exactly what the per-key loop needs: its position (for the
+        # seen flags), the inlined value type if any, and its value check. The
+        # loop reads that tuple instead of a ``_Candidate`` property and skips
+        # the forbidden/remove branches entirely. Forbidden and Remove literal
+        # keys are absent here and take the slower branch via ``_literal``.
+        self._literal_fast: dict[Any, tuple[int, type | None, CompiledSchema]] = {
+            candidate.key_schema: (
+                index,
+                candidate.value_type,
+                candidate.check_value,
+            )
+            for index, candidate in enumerate(candidates)
+            if candidate.is_literal and not candidate.forbidden and not candidate.remove
+        }
         # The pool for "did you mean ...?" suggestions on an unknown key: the
         # literal string keys a caller could legitimately provide. Remove and
         # Forbidden keys are excluded; suggesting a key that gets dropped, or one
@@ -208,43 +224,45 @@ class _MappingValidator:
         seen: bytearray | None = (
             bytearray(len(self._candidates)) if self._track_seen else None
         )
-        # The common case (a literal key, validated and stored) is inlined here;
-        # only the rarer paths (a type or callable key, a Remove, an error) call
-        # out to a helper. This keeps the per-key cost to one validator call.
+        # The common case (a plain literal key, validated and stored) is inlined
+        # here off a flat tuple; only the rarer paths (a type or callable key, a
+        # Forbidden or Remove literal key, an error) call out to a helper. This
+        # keeps the per-key cost to one validator call and no property reads.
+        fast_get = self._literal_fast.get
         literal_get = self._literal.get
         for key, value in data.items():
+            entry = fast_get(key)
+            if entry is not None:
+                index, value_type, check_value = entry
+                if seen is not None:
+                    seen[index] = 1
+                if value_type is not None:
+                    # Inlined ``{"k": <type>}``: isinstance, no validator call.
+                    if isinstance(value, value_type):
+                        out[key] = value
+                    else:
+                        errors.append(
+                            _type_error(value_type.__name__, [key], self._invalid_msg),
+                        )
+                    continue
+                try:
+                    out[key] = check_value(value)
+                except Invalid as exc:
+                    self._collect(key, exc, errors)
+                continue
             match = literal_get(key)
             if match is None:
                 self._match_validator(key, value, out, errors, seen)
                 continue
+            # Only Forbidden and Remove literal keys reach here; plain literal
+            # keys took the fast path above. ``_apply`` raises the forbidden
+            # error or validates the Remove value, and a Remove whose value fails
+            # has not consumed the key, so the type/callable candidates get a
+            # turn (a ``str: str`` may take it) and ``_match_validator`` applies
+            # the extra-key policy if none match.
             index, candidate = match
-            if candidate.forbidden:
-                errors.append(self._forbidden_error(key, candidate))
-                continue
-            if candidate.remove:
-                # A literal Remove whose value fails has not consumed the key, so
-                # try the type/callable candidates (a ``str: str`` may take it),
-                # just like a type-keyed Remove does. ``_match_validator`` applies
-                # the extra-key policy if none match.
-                if not self._apply(key, value, index, candidate, out, errors, seen):
-                    self._match_validator(key, value, out, errors, seen)
-                continue
-            if seen is not None:
-                seen[index] = 1
-            value_type = candidate.value_type
-            if value_type is not None:
-                # Inlined ``{"k": <type>}``: isinstance, no validator call.
-                if isinstance(value, value_type):
-                    out[key] = value
-                else:
-                    errors.append(
-                        _type_error(value_type.__name__, [key], self._invalid_msg),
-                    )
-                continue
-            try:
-                out[key] = candidate.check_value(value)
-            except Invalid as exc:
-                self._collect(key, exc, errors)
+            if not self._apply(key, value, index, candidate, out, errors, seen):
+                self._match_validator(key, value, out, errors, seen)
         if seen is not None:
             self._finalize(out, errors, seen)
         if self._has_groups and seen is not None:
