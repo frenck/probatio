@@ -6,7 +6,10 @@ import pytest
 
 from probatio import (
     All,
+    AtLeastOne,
+    AtMostOne,
     Check,
+    ExactlyOne,
     Invalid,
     MultipleInvalid,
     Optional,
@@ -15,7 +18,7 @@ from probatio import (
     RequiredWithout,
     Schema,
 )
-from probatio.error import RequiredFieldInvalid, SchemaError
+from probatio.error import ExclusiveInvalid, RequiredFieldInvalid, SchemaError
 
 
 def _with_schema() -> Schema:
@@ -222,3 +225,74 @@ def test_check_propagates_an_invalid_from_the_predicate() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Check(predicate, "unused"))("x")
     assert caught.value.errors[0].error_message == "from the predicate"
+
+
+def test_at_least_one_passes_with_a_key_present() -> None:
+    """At least one of the named keys present validates and passes through."""
+    schema = Schema(All(dict, AtLeastOne("host", "url")))
+    assert schema({"host": "nas"}) == {"host": "nas"}
+    assert schema({"host": "nas", "url": "x"}) == {"host": "nas", "url": "x"}
+
+
+def test_at_least_one_rejects_when_none_present() -> None:
+    """None of the named keys present raises RequiredFieldInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(All(dict, AtLeastOne("host", "url")))({"other": 1})
+    assert isinstance(caught.value.errors[0], RequiredFieldInvalid)
+
+
+def test_at_most_one_passes_with_zero_or_one() -> None:
+    """Zero or one of the named keys present validates."""
+    schema = Schema(All(dict, AtMostOne("include", "exclude")))
+    assert schema({}) == {}
+    assert schema({"include": 1}) == {"include": 1}
+
+
+def test_at_most_one_rejects_two() -> None:
+    """More than one of the named keys present raises ExclusiveInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(All(dict, AtMostOne("include", "exclude")))({"include": 1, "exclude": 2})
+    assert isinstance(caught.value.errors[0], ExclusiveInvalid)
+
+
+def test_exactly_one_passes_with_one() -> None:
+    """Exactly one of the named keys present validates."""
+    assert Schema(All(dict, ExactlyOne("token", "password")))({"token": "t"}) == {
+        "token": "t"
+    }
+
+
+def test_exactly_one_rejects_none() -> None:
+    """None of the named keys present raises RequiredFieldInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(All(dict, ExactlyOne("token", "password")))({"other": 1})
+    assert isinstance(caught.value.errors[0], RequiredFieldInvalid)
+
+
+def test_exactly_one_rejects_two() -> None:
+    """More than one of the named keys present raises ExclusiveInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(All(dict, ExactlyOne("token", "password")))(
+            {"token": "t", "password": "p"}
+        )
+    assert isinstance(caught.value.errors[0], ExclusiveInvalid)
+
+
+@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne])
+def test_key_group_passes_through_a_non_mapping(validator: type) -> None:
+    """A non-mapping is left alone, so a type check elsewhere can catch it."""
+    assert Schema(validator("a", "b"))("not a dict") == "not a dict"
+
+
+@pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne])
+def test_key_group_requires_at_least_one_key(validator: type) -> None:
+    """Building a key-group validator with no keys is a schema error."""
+    with pytest.raises(SchemaError):
+        validator()
+
+
+def test_key_group_custom_message() -> None:
+    """A custom message replaces the default on each key-group validator."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AtLeastOne("a", "b", msg="need a or b"))({})
+    assert caught.value.errors[0].error_message == "need a or b"

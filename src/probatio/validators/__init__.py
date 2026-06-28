@@ -37,7 +37,10 @@ from probatio.validators.comparison import (
     SmallFloat,
 )
 from probatio.validators.conditional import (
+    AtLeastOne,
+    AtMostOne,
     Check,
+    ExactlyOne,
     RequiredIf,
     RequiredWith,
     RequiredWithout,
@@ -127,6 +130,8 @@ __all__ = [
     "AsDate",
     "AsDatetime",
     "AsTime",
+    "AtLeastOne",
+    "AtMostOne",
     "Base64",
     "Boolean",
     "Byte",
@@ -148,6 +153,7 @@ __all__ = [
     "Epoch",
     "Equal",
     "ExactSequence",
+    "ExactlyOne",
     "Fqdn",
     "FqdnUrl",
     "Hex",
