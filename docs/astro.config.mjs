@@ -106,6 +106,7 @@ export default defineConfig({
             { label: "Custom validators", slug: "guides/custom-validators" },
             { label: "Recursive schemas", slug: "guides/recursive-schemas" },
             { label: "Schemas from dataclasses", slug: "guides/dataclasses" },
+            { label: "Schemas from TypedDicts", slug: "guides/typeddict" },
             { label: "JSON Schema", slug: "guides/json-schema" },
             { label: "OpenAPI", slug: "guides/openapi" },
             { label: "Field lists", slug: "guides/field-lists" },
