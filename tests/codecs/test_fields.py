@@ -8,6 +8,7 @@ probatio schemas unchanged.
 
 from __future__ import annotations
 
+import enum
 from typing import Any
 
 import pytest
@@ -133,6 +134,19 @@ def test_unsupported_value_raises() -> None:
         serialize(Schema([str]))
 
 
+def test_unhashable_callable_value_raises_cleanly() -> None:
+    """An unhashable callable value raises ValueError, not a leaked TypeError."""
+
+    class _Unhashable:
+        __hash__ = None
+
+        def __call__(self, value: Any) -> Any:
+            return value
+
+    with pytest.raises(ValueError, match="unable to serialize"):
+        serialize(Schema({Required("k"): _Unhashable()}))
+
+
 def test_custom_serializer_overrides_and_defers() -> None:
     """A custom serializer can override a node or defer with UNSUPPORTED."""
     sentinel = object()
@@ -242,3 +256,48 @@ def test_string_and_no_shape_validators_serialize() -> None:
     assert by_name["a"]["type"] == "string"
     assert by_name["b"]["type"] == "string"
     assert "type" not in by_name["c"]
+
+
+class _Color(enum.Enum):
+    """A small enum shared by both libraries in the parity cases.
+
+    The member values differ from the lowercased names on purpose, so the select
+    options pin ``member.value`` and not ``member.name.lower()``.
+    """
+
+    RED = "r"
+    GREEN = "green"
+
+
+def _parity_build(lib: Any) -> dict[str, Any]:
+    """Schemas exercising the constructs serialize must match the oracle on."""
+    req, opt = lib.Required, lib.Optional
+    return {
+        "in_dict": {req("k"): lib.In({"x": "X", "y": "Y"})},
+        "in_list": {req("k"): lib.In(["a", "b"])},
+        "email": {req("k"): lib.Email},
+        "url": {req("k"): lib.Url},
+        "fqdnurl": {req("k"): lib.FqdnUrl},
+        "lower": {req("k"): lib.Lower},
+        "upper": {req("k"): lib.Upper},
+        "capitalize": {req("k"): lib.Capitalize},
+        "title": {req("k"): lib.Title},
+        "strip": {req("k"): lib.Strip},
+        "maybe": {req("k"): lib.Maybe(int)},
+        "any_none_first": {req("k"): lib.Any(None, str)},
+        "enum_class": {req("k"): _Color},
+        "coerce_enum": {req("k"): lib.Coerce(_Color)},
+        "coerce_int": {req("k"): lib.Coerce(int)},
+        "empty_description": {opt("k", description=""): int},
+        "none_description": {opt("k", description=None): int},
+    }
+
+
+@pytest.mark.parametrize("case", list(_parity_build(voluptuous)))
+def test_serialize_matches_voluptuous_serialize(case: str) -> None:
+    """serialize matches voluptuous-serialize byte for byte across these constructs."""
+    got = serialize(Schema(_parity_build(probatio)[case]))
+    want = voluptuous_serialize.convert(
+        voluptuous.Schema(_parity_build(voluptuous)[case])
+    )
+    assert got == want
