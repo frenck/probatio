@@ -26,6 +26,7 @@ from probatio import (
     Duration,
     EnsureList,
     Epoch,
+    HexInt,
     IPAddress,
     MultipleOf,
     NonEmpty,
@@ -238,7 +239,9 @@ def test_new_validators_serialize_to_fields() -> None:
     assert by_name["pct"]["type"] == "float"
 
 
-@pytest.mark.parametrize("validator", [MultipleOf(5), Duration(), EnsureList()])
+@pytest.mark.parametrize(
+    "validator", [MultipleOf(5), Duration(), EnsureList(), HexInt()]
+)
 def test_validators_without_a_frontend_shape_serialize_empty(validator: object) -> None:
     """A validator with no field-list equivalent serializes to an empty value, not an error."""
     field = serialize(Schema({Optional("v"): validator}))[0]
