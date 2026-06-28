@@ -41,7 +41,9 @@ jobs:
           uv run --no-sync pytest --cov probatio tests
           --junitxml=junit.xml -o junit_family=legacy
       - name: 🧩 Run workspace package tests
-        run: uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
+        run: >
+          uv run --no-sync pytest packages/pytest-probatio/tests
+          -o addopts="" -o junit_family=legacy --junitxml=junit-packages.xml
       - name: 📝 Verify documentation examples
         run: uv run --no-sync python docs/verify_examples.py
       - name: ⬆️ Upload coverage artifact
