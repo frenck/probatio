@@ -315,7 +315,7 @@ def _future_flags(tree: ast.Module) -> int:
 
     Each statement is compiled on its own, so a block's ``from __future__ import
     annotations`` would not reach the later statements without this; the class that
-    follows would then evaluate its annotations eagerly (on Python 3.13) and a
+    follows would then evaluate its annotations eagerly (before Python 3.14) and a
     self-referential dataclass field (``children: list[Tree]``) would raise a
     NameError before ``get_type_hints`` ever runs.
     """

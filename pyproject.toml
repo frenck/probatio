@@ -8,7 +8,7 @@ build-backend = "hatchling.build"
 name = "probatio"
 description = "A modern Python data validation library"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Franck Nijhof", email = "opensource@frenck.dev" }]
@@ -30,8 +30,10 @@ classifiers = [
   "Natural Language :: English",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Programming Language :: Python :: Implementation :: CPython",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Typing :: Typed",
@@ -129,7 +131,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -247,12 +249,12 @@ testpaths = ["tests"]
 addopts = "-q --cov -p no:probatio"
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 strict = true
 files = ["src/probatio"]
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.12"
 
 # The typed, enforced surface is the package itself. Scope a bare `ty check` to
 # the same surface (mirroring mypy's `files = ["src/probatio"]`) so an unscoped

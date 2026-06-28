@@ -28,7 +28,7 @@ permissions:
 jobs:
   # Run each atheris harness on a real Python 3.13 interpreter. The oss-fuzz path
   # (ClusterFuzzLite) cannot: its base image ships Python 3.11, and probatio
-  # requires >=3.13, so the package will not install there. atheris itself runs
+  # requires >=3.12, so the package will not install there. atheris itself runs
   # fine on 3.13, which is also how the harnesses are fuzzed locally.
   atheris:
     name: Fuzz ${{ matrix.harness }}
