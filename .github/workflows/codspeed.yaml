@@ -32,8 +32,11 @@ jobs:
       - name: Install the project
         run: uv sync --locked --group codspeed
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c # v3.8.1
+        uses: CodSpeedHQ/action@a4a36bb07c0638b0b4ca52bf1f3dad1b4289e52f # v4.18.1
         with:
+          # v4 makes `mode` required; on a standard runner this is the
+          # instrumented measurement v3 ran by default, now named "simulation".
+          mode: simulation
           # Clear the global pytest addopts (-q --cov); coverage instrumentation
           # would skew the benchmark timings.
           run: uv run --no-sync pytest bench --codspeed --no-cov -o addopts=""
