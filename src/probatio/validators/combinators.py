@@ -10,6 +10,7 @@ typing one is referred to as ``typing.Any`` throughout.
 
 from __future__ import annotations
 
+import copy
 import typing
 
 from probatio.error import (
@@ -20,8 +21,38 @@ from probatio.error import (
     NotEnoughValid,
     TooManyValid,
 )
-from probatio.schema import compile_schema
+from probatio.schema import PREVENT_EXTRA, compile_schema
 from probatio.validators._base import _SafeValidator
+
+
+class _Combinator(_SafeValidator):
+    """Base for the combinators, threading an enclosing schema's extra policy in.
+
+    A combinator compiles its branches at construction with the strict default
+    extra policy. When a ``Schema`` wraps it with a different ``extra``, the schema
+    rebinds it through ``__probatio_with_extra__``, which recompiles the branches
+    under that policy on a copy. That carries the policy into dict schemas nested
+    in the combinator, the way voluptuous compiles them, without mutating the
+    shared combinator instance.
+    """
+
+    _extra: int
+
+    def _compile_branches(self) -> None:  # pragma: no cover - each combinator overrides
+        """Recompile ``self.validators`` into ``self._compiled`` under ``self._extra``."""
+        raise NotImplementedError
+
+    def __probatio_with_extra__(self, extra: int) -> _Combinator:
+        """Return a copy of this combinator recompiled under ``extra``.
+
+        The enclosing ``Schema`` only rebinds when its policy differs from the
+        combinator's strict default, so this recompiles on a fresh copy and never
+        touches the shared instance.
+        """
+        clone = copy.copy(self)
+        clone._extra = extra  # noqa: SLF001
+        clone._compile_branches()  # noqa: SLF001
+        return clone
 
 
 def _branch_label(branch: typing.Any) -> str | None:
@@ -105,7 +136,7 @@ def _combinator_repr(combinator: typing.Any) -> str:
     return f"{type(combinator).__name__}({body}, msg={combinator.msg!r})"
 
 
-class All(_SafeValidator):
+class All(_Combinator):
     """Apply every validator in turn; all must pass, the output chains forward."""
 
     def __init__(
@@ -124,8 +155,14 @@ class All(_SafeValidator):
         self.validators = list(validators)
         self.msg = msg
         self.required = required
+        self._extra = PREVENT_EXTRA
+        self._compile_branches()
+
+    def _compile_branches(self) -> None:
+        """Compile each validator under the current extra policy."""
         self._compiled = [
-            compile_schema(validator, required=required) for validator in validators
+            compile_schema(validator, required=self.required, extra=self._extra)
+            for validator in self.validators
         ]
 
     def __call__(self, value: typing.Any) -> typing.Any:
@@ -194,7 +231,7 @@ def _run_typed_any(
     raise AnyInvalid(message)
 
 
-class Any(_SafeValidator):
+class Any(_Combinator):
     """Return the first validator that accepts the value; fail if none do."""
 
     # Marks Any as a "complex" mapping key: ``Required(Any("a", "b"))`` requires
@@ -218,8 +255,14 @@ class Any(_SafeValidator):
         self.validators = list(validators)
         self.msg = msg
         self.required = required
+        self._extra = PREVENT_EXTRA
+        self._compile_branches()
+
+    def _compile_branches(self) -> None:
+        """Compile each branch under the current extra policy."""
         self._compiled = [
-            compile_schema(validator, required=required) for validator in validators
+            compile_schema(validator, required=self.required, extra=self._extra)
+            for validator in self.validators
         ]
         self._types = _type_tuple(self._compiled)
         self._expected = _expected_label(self.validators)
@@ -236,7 +279,7 @@ class Any(_SafeValidator):
         return _combinator_repr(self)
 
 
-class Union(_SafeValidator):
+class Union(_Combinator):
     """Like ``Any``, but an optional discriminant narrows which validators to try.
 
     Without a discriminant it behaves like ``Any``. With one, the discriminant is
@@ -263,8 +306,14 @@ class Union(_SafeValidator):
         self.msg = msg
         self.required = required
         self.discriminant = discriminant
+        self._extra = PREVENT_EXTRA
+        self._compile_branches()
+
+    def _compile_branches(self) -> None:
+        """Compile each branch under the current extra policy, indexing by id."""
         self._compiled = [
-            compile_schema(validator, required=required) for validator in validators
+            compile_schema(validator, required=self.required, extra=self._extra)
+            for validator in self.validators
         ]
         # Map each raw validator to its compiled form by identity, so a
         # discriminant's chosen subset resolves in one lookup per choice instead
@@ -273,7 +322,7 @@ class Union(_SafeValidator):
             id(raw): compiled
             for raw, compiled in zip(self.validators, self._compiled, strict=True)
         }
-        self._types = _type_tuple(self._compiled) if discriminant is None else None
+        self._types = _type_tuple(self._compiled) if self.discriminant is None else None
         self._expected = _expected_label(self.validators)
 
     def __call__(self, value: typing.Any) -> typing.Any:
@@ -286,7 +335,8 @@ class Union(_SafeValidator):
         # its compiled form, compiling any object it returns that was not among
         # the originals (matching voluptuous, which recompiles the chosen set).
         candidates = [
-            self._compiled_by_id.get(id(option)) or compile_schema(option)
+            self._compiled_by_id.get(id(option))
+            or compile_schema(option, extra=self._extra)
             for option in self.discriminant(value, self.validators)
         ]
         # The discriminant chose a subset, so the all-branches label would not
@@ -298,7 +348,7 @@ class Union(_SafeValidator):
         return _combinator_repr(self)
 
 
-class SomeOf(_SafeValidator):
+class SomeOf(_Combinator):
     """Require the value to pass a bounded number of the given validators.
 
     The output of each passing validator feeds the next, like ``All``. At least
@@ -328,8 +378,13 @@ class SomeOf(_SafeValidator):
         self.max_valid = max_valid if max_valid is not None else len(self.validators)
         self.msg = msg
         self.required = required
+        self._extra = PREVENT_EXTRA
+        self._compile_branches()
+
+    def _compile_branches(self) -> None:
+        """Compile each validator under the current extra policy."""
         self._compiled = [
-            compile_schema(validator, required=required)
+            compile_schema(validator, required=self.required, extra=self._extra)
             for validator in self.validators
         ]
 
