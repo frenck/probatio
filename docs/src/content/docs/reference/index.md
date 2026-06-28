@@ -221,8 +221,8 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
   default, or a `strptime` `format=`).
 - `AsTime(format=None, msg=None)`: parse a string to a `datetime.time` (ISO 8601 by
   default, or a `strptime` `format=`).
-- `Duration(msg=None)`: parse a duration (timedelta, seconds, `H:MM[:SS]`, or a
-  mapping) to a `timedelta`.
+- `Duration(msg=None)`: parse a duration (timedelta, seconds as an int/float/string,
+  `H:MM[:SS]`, or a mapping) to a `timedelta`.
 - `TimeZone(msg=None)`: validate an IANA zone name, returned as
   `zoneinfo.ZoneInfo`.
 - `Epoch(unit="seconds", msg=None)`: parse a Unix timestamp (`int` or `float`,

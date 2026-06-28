@@ -248,9 +248,9 @@ Schema(Date(format="%d/%m/%Y"))("25/06/2026")       # '25/06/2026'
 
 `Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration` and
 `TimeZone` are Probatio additions that coerce to a Python object: `Duration`
-parses a `timedelta`, a number of seconds, a `H:MM[:SS]` string, or a mapping
-into a `datetime.timedelta`; `TimeZone` resolves an IANA name to a
-`zoneinfo.ZoneInfo`.
+parses a `timedelta`, a number of seconds (an `int`, `float`, or numeric string),
+a `H:MM[:SS]` string, or a mapping into a `datetime.timedelta`; `TimeZone`
+resolves an IANA name to a `zoneinfo.ZoneInfo`.
 
 ```python
 from probatio import Schema, Time, Duration, TimeZone
@@ -258,6 +258,7 @@ from probatio import Schema, Time, Duration, TimeZone
 Schema(Time())("14:30:00")             # '14:30:00'
 Schema(Duration())("1:30:00")          # datetime.timedelta(seconds=5400)
 Schema(Duration())(90)                 # datetime.timedelta(seconds=90)
+Schema(Duration())("90")               # datetime.timedelta(seconds=90)
 Schema(TimeZone())("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
 ```
 
