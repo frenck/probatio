@@ -7,6 +7,7 @@
 [![License][license-shield]](https://github.com/frenck/probatio/blob/main/LICENSE)
 
 [![Build Status][build-shield]][build]
+[![Code Coverage][codecov-shield]][codecov]
 [![CodSpeed][codspeed-shield]][codspeed]
 [![OpenSSF Scorecard][scorecard-shield]][scorecard]
 
@@ -195,6 +196,8 @@ SOFTWARE.
 
 [build-shield]: https://github.com/frenck/probatio/actions/workflows/tests.yaml/badge.svg
 [build]: https://github.com/frenck/probatio/actions/workflows/tests.yaml
+[codecov-shield]: https://codecov.io/gh/frenck/probatio/graph/badge.svg
+[codecov]: https://codecov.io/gh/frenck/probatio
 [codspeed-shield]: https://img.shields.io/endpoint?url=https://codspeed.io/badge.json
 [codspeed]: https://codspeed.io/frenck/probatio
 [scorecard-shield]: https://api.scorecard.dev/projects/github.com/frenck/probatio/badge
