@@ -11,6 +11,8 @@ this codec.
 
 from __future__ import annotations
 
+import enum
+from collections.abc import Hashable, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
@@ -30,16 +32,19 @@ from probatio.validators import (
     AsTime,
     Base64,
     ByteLength,
+    Capitalize,
     Clamp,
     Coerce,
     CreditCard,
     DataURI,
     Datetime,
     Duration,
+    Email,
     EndsWith,
     EnsureList,
     Epoch,
     Fqdn,
+    FqdnUrl,
     Hex,
     HexColor,
     Hostname,
@@ -50,7 +55,9 @@ from probatio.validators import (
     IPv6Address,
     IsRegex,
     Length,
+    Lower,
     MacAddress,
+    Maybe,
     MultipleOf,
     NonEmpty,
     NoWhitespace,
@@ -62,7 +69,11 @@ from probatio.validators import (
     Slug,
     Sorted,
     StartsWith,
+    Strip,
     TimeZone,
+    Title,
+    Upper,
+    Url,
 )
 from probatio.validators import Any as AnyValidator
 
@@ -110,6 +121,49 @@ _SERIALIZE_TYPES: dict[type, str] = {
     str: "string",
 }
 
+# The format validators, rendered as a ``format`` field by voluptuous-serialize.
+# These are the bare functions a voluptuous schema uses (``vol.Email``), so they
+# arrive uncalled under the shim.
+_SERIALIZE_FORMATS: dict[Any, str] = {Email: "email", Url: "url", FqdnUrl: "fqdnurl"}
+
+# The string transforms, rendered as a boolean flag (``{"lower": True}``).
+_SERIALIZE_TRANSFORMS: dict[Any, str] = {
+    Lower: "lower",
+    Upper: "upper",
+    Capitalize: "capitalize",
+    Title: "title",
+    Strip: "strip",
+}
+
+
+def _enum_select(enum_cls: type[enum.Enum]) -> dict[str, Any]:
+    """Render an Enum class as a select of its member values, like the oracle."""
+    return {
+        "type": "select",
+        "options": [(member.value, member.value) for member in enum_cls],
+    }
+
+
+def _serialize_callable(node: Any) -> dict[str, Any] | None:
+    """Render a bare format validator or string transform, or None if neither."""
+    if not isinstance(node, Hashable):
+        # The format/transform tables are keyed by identity, so an unhashable
+        # callable cannot be one. Bail before the dict lookup hashes it, leaving
+        # it to fall through to the ValueError like the oracle does.
+        return None
+    fmt = _SERIALIZE_FORMATS.get(node)
+    if fmt is not None:
+        return {"format": fmt}
+    flag = _SERIALIZE_TRANSFORMS.get(node)
+    if flag is not None:
+        return {flag: True}
+    return None
+
+
+def _allow_none(field: dict[str, Any]) -> dict[str, Any]:
+    """Mark a serialized value field as nullable, matching ``Maybe``'s oracle output."""
+    return {**field, "allow_none": True}
+
 
 def serialize(schema: Any, *, custom_serializer: Any = None) -> Any:
     """Render a schema as the field-list shape voluptuous-serialize produces.
@@ -142,7 +196,7 @@ def _serialize_field(key: Any, value: Any, custom: Any) -> dict[str, Any]:
     marker = key if isinstance(key, Marker) else None
     field = dict(_serialize_value(value, custom))
     field["name"] = marker.schema if marker is not None else key
-    if marker is not None and marker.description:
+    if marker is not None and marker.description is not None:
         field["description"] = marker.description
     field["required"] = isinstance(marker, Required)
     if isinstance(marker, Optional):
@@ -165,6 +219,14 @@ def _serialize_value(node: Any, custom: Any) -> dict[str, Any]:
         name = _SERIALIZE_TYPES.get(node)
         if name is not None:
             return {"type": name}
+        if issubclass(node, enum.Enum):
+            return _enum_select(node)
+    if callable(node):
+        # The format validators and string transforms are bare functions, so they
+        # are matched by identity before the validator dispatch below.
+        func_field = _serialize_callable(node)
+        if func_field is not None:
+            return func_field
     converted = _serialize_validator(node, custom)
     if converted is not None:
         return converted
@@ -181,8 +243,22 @@ def _serialize_value(node: Any, custom: Any) -> dict[str, Any]:
 def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # noqa: PLR0911
     """Render a known validator, or None if it is not recognized."""
     if isinstance(node, In):
-        return {"type": "select", "options": [(item, item) for item in node.container]}
+        # A mapping container carries a label per value, so its items become the
+        # (value, label) options; a list/tuple uses each item as its own label.
+        container = node.container
+        options = (
+            list(container.items())
+            if isinstance(container, Mapping)
+            else [(item, item) for item in container]
+        )
+        return {"type": "select", "options": options}
+    if isinstance(node, Maybe):
+        return _allow_none(_serialize_value(node.validator, custom))
     if isinstance(node, AnyValidator):
+        # ``Maybe(X)`` compiles to ``Any(None, X)``: voluptuous-serialize strips a
+        # leading None and marks the single remaining member allow_none.
+        if len(node.validators) == 2 and node.validators[0] is None:
+            return _allow_none(_serialize_value(node.validators[1], custom))
         for validator in node.validators:
             converted = _serialize_value(validator, custom)
             if converted:
@@ -195,7 +271,13 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
         return merged
     if isinstance(node, Coerce):
         name = _SERIALIZE_TYPES.get(node.type)
-        return {"type": name} if name is not None else {}
+        if name is not None:
+            return {"type": name}
+        if isinstance(node.type, type) and issubclass(node.type, enum.Enum):
+            return _enum_select(node.type)
+        # An unmapped coerce target (a function, a custom type) carries no field
+        # hint, so it serializes to an open dict rather than raising.
+        return {}
     typed = _serialize_typed(node, custom)
     if typed is not None:
         return typed
