@@ -201,7 +201,7 @@ from probatio import Schema, Alphanumeric, StartsWith, HexColor
 
 Schema(Alphanumeric())("abc123")     # 'abc123'
 Schema(StartsWith("https://"))("https://example.com")  # 'https://example.com'
-Schema(HexColor())("#ff8800")        # '#ff8800'
+Schema(HexColor())("#FF8800")        # '#ff8800' (normalized; upper=True for uppercase)
 ```
 
 :::tip
@@ -214,14 +214,17 @@ want to reject non-strings, put a `str` check ahead of the transform with `All`.
 A handful of validators check a structured format or a checksum, all pure (no
 network, no extra dependency): `CreditCard` (the Luhn check), `IBAN` (the ISO 13616
 mod-97 check), `DataURI` (an RFC 2397 `data:` URI), and `E164` (a phone number in
-international format). They validate and return the value unchanged.
+international format). By default `CreditCard`, `IBAN`, and `E164` canonicalize the
+input (strip grouping, upper-case the IBAN); pass `normalize=False` to validate and
+return the value unchanged.
 
 ```python
 from probatio import Schema, CreditCard, IBAN, E164
 
-Schema(CreditCard())("4242 4242 4242 4242")     # unchanged
-Schema(IBAN())("DE89 3704 0044 0532 0130 00")   # unchanged
-Schema(E164())("+14155552671")                  # unchanged
+Schema(CreditCard())("4242 4242 4242 4242")     # '4242424242424242'
+Schema(IBAN())("de89 3704 0044 0532 0130 00")   # 'DE89370400440532013000'
+Schema(E164())("+1 (415) 555-2671")             # '+14155552671'
+Schema(E164(normalize=False))("+14155552671")   # '+14155552671' (unchanged)
 ```
 
 These check shape, not existence: `CreditCard` confirms the Luhn checksum, not that
@@ -315,6 +318,18 @@ Schema(UUID())("12345678-1234-5678-1234-567812345678")
 Schema(MacAddress())("AA-BB-CC-DD-EE-FF")  # 'aa:bb:cc:dd:ee:ff'
 Schema(Port())("8080")  # 8080
 Schema(ULID())("01ARZ3NDEKTSV4RRFFQ69G5FAV")  # '01ARZ3NDEKTSV4RRFFQ69G5FAV'
+```
+
+`MacAddress` normalizes to lowercase, colon-separated form by default. Pass
+`upper=True`, a different `separator` (`""` for bare hex), or `normalize=False`
+to validate without rewriting the input:
+
+```python
+from probatio import Schema, MacAddress
+
+Schema(MacAddress(upper=True))("aa-bb-cc-dd-ee-ff")  # 'AA:BB:CC:DD:EE:FF'
+Schema(MacAddress(separator="-"))("aabbccddeeff")  # 'aa-bb-cc-dd-ee-ff'
+Schema(MacAddress(normalize=False))("AA-BB-cc-dd-ee-ff")  # 'AA-BB-cc-dd-ee-ff'
 ```
 
 `IPNetwork` accepts host bits and normalizes to the network; `Hostname` takes a

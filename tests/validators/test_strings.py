@@ -218,6 +218,13 @@ def test_hex_color_accepts(value: str) -> None:
     assert Schema(HexColor())(value) == value
 
 
+def test_hex_color_normalizes_case() -> None:
+    """HexColor lower-cases by default, upper-cases with upper=True, keeps the #."""
+    assert Schema(HexColor())("#FF8800") == "#ff8800"
+    assert Schema(HexColor(upper=True))("#ff8800") == "#FF8800"
+    assert Schema(HexColor(normalize=False))("#FF8800") == "#FF8800"
+
+
 @pytest.mark.parametrize("value", ["red", "#xyz", "ff8800", 5])
 def test_hex_color_rejects(value: object) -> None:
     """A non-hex-color value raises MatchInvalid."""

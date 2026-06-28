@@ -200,7 +200,9 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
   with or ends with a fixed affix.
 - `ByteLength(min=None, max=None, msg=None)`: bound the UTF-8 byte length (not the
   code-point count).
-- `HexColor(msg=None)`: a hex color string (`#rgb` or `#rrggbb`).
+- `HexColor(normalize=True, upper=False, msg=None)`: a hex color string (`#rgb` or
+  `#rrggbb`), lower-cased by default (`upper=True` for uppercase, `normalize=False`
+  to leave it unchanged).
 
 </details>
 
@@ -252,7 +254,10 @@ coerce to their natural Python object; the format checks pass the string through
 - `IPAddress(msg=None)`: an IP address of either version.
 - `IPNetwork(msg=None)`: a CIDR network (host bits allowed), returned as an
   `ipaddress` network.
-- `MacAddress(msg=None)`: a MAC address, normalized to `aa:bb:cc:dd:ee:ff`.
+- `MacAddress(normalize=True, upper=False, separator=":", msg=None)`: a MAC
+  address, normalized to `aa:bb:cc:dd:ee:ff` by default. `upper=True` uppercases,
+  `separator=` sets the separator (`""` for bare hex), and `normalize=False`
+  returns the input unchanged.
 - `UUID(msg=None, version=None)`: a UUID, returned as `uuid.UUID`; `version` pins
   the version.
 - `ULID(msg=None)`: a ULID (26 Crockford base32 characters), normalized to upper
@@ -283,14 +288,18 @@ coerce to their natural Python object; the format checks pass the string through
   backend), optionally validating the decoded value.
 - `Base64(msg=None)`, `Hex(msg=None)`: validate a Base64 or hexadecimal string,
   returning it unchanged.
-- `CreditCard(msg=None)`: a credit card number that passes the Luhn checksum (12 to
-  19 digits, spaces or hyphens allowed).
-- `IBAN(msg=None)`: an IBAN that passes the ISO 13616 mod-97 checksum (spaces
-  allowed; the per-country length is not checked).
+- `CreditCard(normalize=True, msg=None)`: a credit card number that passes the Luhn
+  checksum (12 to 19 digits, spaces or hyphens allowed). Normalized to bare digits
+  by default; `normalize=False` returns the value unchanged.
+- `IBAN(normalize=True, msg=None)`: an IBAN that passes the ISO 13616 mod-97
+  checksum (spaces allowed; the per-country length is not checked). Normalized to
+  the compact, upper-cased form by default; `normalize=False` returns it unchanged.
 - `DataURI(msg=None)`: an RFC 2397 data URI (`data:[<mediatype>][;base64],<data>`),
   validating the Base64 payload when declared.
-- `E164(msg=None)`: a phone number in international E.164 format (`+` then up to 15
-  digits). A format check, not a check that the number is dialable.
+- `E164(normalize=True, msg=None)`: a phone number in international E.164 format
+  (`+` then up to 15 digits). A format check, not a check that the number is
+  dialable. Grouping characters are stripped by default; `normalize=False` rejects
+  them and returns the value unchanged.
 
 </details>
 

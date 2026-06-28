@@ -72,23 +72,40 @@ class UUID(_SafeValidator):
 
 
 class MacAddress(_SafeValidator):
-    """Validate a MAC address, returning a normalized ``aa:bb:cc:dd:ee:ff`` string.
+    """Validate a MAC address, normalized to ``aa:bb:cc:dd:ee:ff`` by default.
 
-    Accepts the common separators (colon, hyphen, dot) and bare hex, and
-    normalizes to lowercase colon-separated form.
+    Accepts the common separators (colon, hyphen, dot) and bare hex. By default
+    the result is canonicalized to lowercase, colon-separated form. Pass
+    ``upper=True`` for uppercase, and ``separator=`` to change the separator (for
+    example ``"-"``, or ``""`` for bare hex). Pass ``normalize=False`` to validate
+    only and return the input unchanged; ``upper`` and ``separator`` then have no
+    effect.
     """
 
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
+    def __init__(
+        self,
+        normalize: bool = True,
+        *,
+        upper: bool = False,
+        separator: str = ":",
+        msg: str | None = None,
+    ) -> None:
+        """Store the normalization options and an optional message."""
+        self.normalize = normalize
+        self.upper = upper
+        self.separator = separator
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> str:
-        """Return the normalized MAC address, else raise MacAddressInvalid."""
+        """Return the MAC address, normalized unless ``normalize`` is False."""
         if not isinstance(value, str):
             raise MacAddressInvalid(self.msg or "expected a MAC address")
         cleaned = value.replace(":", "").replace("-", "").replace(".", "").lower()
         if len(cleaned) != _MAC_LENGTH or not _HEX_CHARS.issuperset(cleaned):
             raise MacAddressInvalid(self.msg or "expected a MAC address")
-        return ":".join(
-            cleaned[index : index + 2] for index in range(0, _MAC_LENGTH, 2)
+        if not self.normalize:
+            return value
+        octets = cleaned.upper() if self.upper else cleaned
+        return self.separator.join(
+            octets[index : index + 2] for index in range(0, _MAC_LENGTH, 2)
         )

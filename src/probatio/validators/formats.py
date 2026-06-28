@@ -23,6 +23,8 @@ _CARD_MAX = 19
 _IBAN_MIN = 15
 _IBAN_MAX = 34
 _E164_MAX = 15
+# Grouping characters stripped from a phone number when normalizing.
+_E164_SEPARATORS = str.maketrans("", "", " -.()")
 
 
 def _luhn_ok(digits: str) -> bool:
@@ -42,16 +44,19 @@ class CreditCard(_SafeValidator):
     """Require a credit card number that passes the Luhn checksum.
 
     Accepts a digit string, optionally grouped with spaces or hyphens. The 12 to
-    19 digits (the ISO/IEC 7812 range) must pass the Luhn check. The value is
-    returned unchanged; this is a checksum, not a check that the card exists.
+    19 digits (the ISO/IEC 7812 range) must pass the Luhn check. With ``normalize``
+    (the default) the grouped separators are stripped and the bare digit string is
+    returned; ``normalize=False`` returns the value unchanged. This is a checksum,
+    not a check that the card exists.
     """
 
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
+    def __init__(self, normalize: bool = True, *, msg: str | None = None) -> None:
+        """Store the normalization flag and an optional custom message."""
+        self.normalize = normalize
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the value if it is a Luhn-valid card number, else raise."""
+        """Return the card number (bare digits when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(
                 self.msg or "expected a credit card number", code="credit_card"
@@ -65,7 +70,7 @@ class CreditCard(_SafeValidator):
             raise ValueInvalid(
                 self.msg or "invalid credit card number", code="credit_card"
             )
-        return value
+        return digits if self.normalize else value
 
 
 def _valid_iban(compact: str) -> bool:
@@ -93,20 +98,24 @@ class IBAN(_SafeValidator):
 
     Accepts an IBAN, optionally grouped with spaces. The structure (two letters,
     two check digits, then alphanumerics) and the mod-97 checksum are validated;
-    the per-country length is not. The value is returned unchanged.
+    the per-country length is not. With ``normalize`` (the default) the result is
+    the compact, upper-cased form (spaces stripped); ``normalize=False`` returns
+    the value unchanged.
     """
 
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
+    def __init__(self, normalize: bool = True, *, msg: str | None = None) -> None:
+        """Store the normalization flag and an optional custom message."""
+        self.normalize = normalize
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the value if it is a checksum-valid IBAN, else raise."""
+        """Return the IBAN (compact and upper-cased when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected an IBAN", code="iban")
-        if not _valid_iban(value.replace(" ", "").upper()):
+        compact = value.replace(" ", "").upper()
+        if not _valid_iban(compact):
             raise ValueInvalid(self.msg or "invalid IBAN", code="iban")
-        return value
+        return compact if self.normalize else value
 
 
 class DataURI(_SafeValidator):
@@ -147,24 +156,28 @@ class E164(_SafeValidator):
 
     A leading ``+``, a first digit 1 to 9, then up to 14 more digits (15 digits
     total at most). This is a format check, not a guarantee the number is assigned
-    or dialable, which needs a phone-number database. The value is returned
-    unchanged.
+    or dialable, which needs a phone-number database. With ``normalize`` (the
+    default) common grouping characters (spaces, hyphens, dots, parentheses) are
+    stripped and the compact ``+<digits>`` form is returned; ``normalize=False``
+    rejects those characters and returns the value unchanged.
     """
 
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
+    def __init__(self, normalize: bool = True, *, msg: str | None = None) -> None:
+        """Store the normalization flag and an optional custom message."""
+        self.normalize = normalize
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the value if it is a valid E.164 number, else raise."""
+        """Return the E.164 number (compact when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected a phone number", code="e164")
-        digits = value[1:]
+        candidate = value.translate(_E164_SEPARATORS) if self.normalize else value
+        digits = candidate[1:]
         if (
-            not value.startswith("+")
+            not candidate.startswith("+")
             or not 2 <= len(digits) <= _E164_MAX
             or digits[0] not in _NONZERO
             or not _DIGITS.issuperset(digits)
         ):
             raise ValueInvalid(self.msg or "invalid phone number", code="e164")
-        return value
+        return candidate
