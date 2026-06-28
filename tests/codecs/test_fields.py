@@ -114,6 +114,19 @@ def test_coerce_of_non_type_is_open() -> None:
     assert serialize(Schema(probatio.Coerce(str.strip))) == {}
 
 
+@pytest.mark.parametrize("value", [5, "abc", 3.14, True])
+def test_literal_value_serializes_as_a_constant(value: object) -> None:
+    """A literal mapping value renders as a constant field, like the oracle."""
+    assert serialize(Schema({Required("n"): value})) == voluptuous_serialize.convert(
+        voluptuous.Schema({voluptuous.Required("n"): value}),
+    )
+
+
+def test_bare_literal_serializes_as_a_constant() -> None:
+    """A bare literal schema renders as a constant value, like the oracle."""
+    assert serialize(Schema(5)) == voluptuous_serialize.convert(voluptuous.Schema(5))
+
+
 def test_unsupported_value_raises() -> None:
     """An un-serializable value raises, matching voluptuous-serialize."""
     with pytest.raises(ValueError, match="unable to serialize"):
