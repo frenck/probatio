@@ -168,6 +168,12 @@ def _serialize_value(node: Any, custom: Any) -> dict[str, Any]:
     converted = _serialize_validator(node, custom)
     if converted is not None:
         return converted
+    if isinstance(node, str | int | float):
+        # A literal mapping value (``{"mode": 5}``) is a constant the value must
+        # equal. voluptuous-serialize renders it as a ``constant`` field; ``bool``
+        # is an ``int`` subclass, so it is covered. ``None`` is not a constant
+        # there, so it falls through to the error, matching the oracle.
+        return {"type": "constant", "value": node}
     message = f"unable to serialize schema: {node!r}"
     raise ValueError(message)
 
