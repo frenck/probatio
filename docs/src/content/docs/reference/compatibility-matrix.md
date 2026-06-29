@@ -274,7 +274,10 @@ Probatio does.
 - **Non-dict `Mapping` input (a `MappingProxyType`, a multidict, a custom
   mapping).** voluptuous rejects it with "expected a dictionary". Probatio
   validates any object implementing the `Mapping` protocol and returns a plain
-  `dict`. A strict superset, so existing dict code is unaffected.
+  `dict`. A genuine `dict` subclass, on the other hand, is preserved as its own
+  class, the same as voluptuous, so a `NodeDictClass` and similar metadata-carrying
+  subclasses survive validation. A strict superset, so existing dict code is
+  unaffected.
 - **A callable validator raising `ValueError("reason")`.** voluptuous reports a
   bare "not a valid value", dropping the reason. Probatio appends it: "not a valid
   value: reason". A `ValueError` with no message stays bare.

@@ -10,6 +10,7 @@ from probatio import (
     ALLOW_EXTRA,
     REMOVE_EXTRA,
     UNDEFINED,
+    Alias,
     Any,
     Coerce,
     Exclusive,
@@ -44,6 +45,39 @@ def test_accepts_any_mapping() -> None:
     result = Schema({"name": str, "port": int})(proxy)
     assert result == {"name": "app", "port": 80}
     assert type(result) is dict
+
+
+def test_dict_subclass_is_preserved() -> None:
+    """A dict subclass comes back as that subclass, matching voluptuous."""
+
+    class NodeDict(dict):
+        pass
+
+    result = Schema({"a": int})(NodeDict({"a": 1}))
+    assert result == {"a": 1}
+    assert type(result) is NodeDict
+
+
+def test_dict_subclass_is_preserved_with_aliases() -> None:
+    """The subclass survives even when alias resolution rebuilds the input."""
+
+    class NodeDict(dict):
+        pass
+
+    result = Schema({Alias("a", "A"): int})(NodeDict({"A": 1}))
+    assert result == {"a": 1}
+    assert type(result) is NodeDict
+
+
+def test_nested_dict_subclasses_are_preserved() -> None:
+    """A subclass is preserved at every level of a nested mapping."""
+
+    class NodeDict(dict):
+        pass
+
+    result = Schema({"outer": {"a": int}})(NodeDict({"outer": NodeDict({"a": 1})}))
+    assert type(result) is NodeDict
+    assert type(result["outer"]) is NodeDict
 
 
 def test_mapping_value_errors_are_reported() -> None:

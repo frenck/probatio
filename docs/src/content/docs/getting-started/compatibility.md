@@ -61,7 +61,10 @@ is a deliberate improvement over a sharp edge:
   once. The first, meaningful error is identical.
 - Any `Mapping` is accepted, not only `dict`. A `MappingProxyType`, a multidict,
   or any custom mapping validates and returns a plain `dict`, where voluptuous
-  rejects it. A strict superset, so dict code is unaffected.
+  rejects it. A genuine `dict` subclass is preserved as its own class, matching
+  voluptuous, so a Home Assistant `NodeDictClass` keeps its type (and the source
+  line it carries) across validation. A strict superset, so dict code is
+  unaffected.
 - A callable validator that raises `ValueError("reason")` keeps the reason in
   the error ("not a valid value: reason"), where voluptuous drops it. A
   `ValueError` with no message still reads "not a valid value".
