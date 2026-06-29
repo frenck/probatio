@@ -196,12 +196,23 @@ class _MappingValidator:
         if not isinstance(data, dict) and not isinstance(data, Mapping):
             message = "expected a dictionary"
             raise DictInvalid(message)
+        # The output is rebuilt as the input's class when that is a genuine dict
+        # subclass, matching voluptuous. Home Assistant loads YAML into a
+        # NodeDictClass (a dict subclass carrying the source file and line), and
+        # that type has to survive validation. A plain dict stays a plain dict (the
+        # hot case), and a foreign Mapping (a MappingProxyType, a multidict) that is
+        # not a dict subclass normalizes to a plain dict, since it cannot be
+        # reconstructed. Read here, before alias resolution rebuilds data as a plain
+        # dict.
+        data_type = type(data)
         if self._alias_lookup:
             # Rename accepted alias names to their canonical keys before matching,
             # so everything below works on canonical names. Only runs when the
             # schema actually has aliases, so the common case pays nothing.
             data = self._resolve_aliases(data)
-        out: dict[Any, Any] = {}
+        out: dict[Any, Any] = (
+            {} if data_type is dict or not issubclass(data_type, dict) else data_type()
+        )
         errors: list[Invalid] = []
         # ``seen`` flags which candidates matched (by position), so the finalizer
         # pass can tell a provided-but-invalid key from an absent one. A bytearray

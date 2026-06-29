@@ -82,7 +82,10 @@ is a deliberate improvement, not a regression:
 - **Any `Mapping` is accepted, not only `dict`.** A `MappingProxyType`, a
   multidict, or any custom type implementing the `Mapping` protocol validates
   and returns a plain `dict`, where voluptuous rejects it with "expected a
-  dictionary". This is a strict superset, so dict code is unaffected.
+  dictionary". A genuine `dict` subclass is preserved as its own class, the same
+  as voluptuous, so a subclass that carries metadata (like Home Assistant's
+  `NodeDictClass`) survives validation. This is a strict superset, so dict code
+  is unaffected.
 - **A callable's `ValueError` message is kept.** When a plain callable validator
   raises `ValueError("reason")`, the reason is carried into the error ("not a
   valid value: reason") instead of being dropped. A `ValueError` with no message
