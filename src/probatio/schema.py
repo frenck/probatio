@@ -743,6 +743,16 @@ class Schema:
         validation time. A bare ``Schema(Self)`` (Self with nothing around it) has
         no enclosing schema at all and is a definition error.
         """
+        # Inside a combinator, Self always defers to the root being validated. A
+        # combinator compiles its branches before the enclosing schema exists, so
+        # any _COMPILING_ROOT reached here is an intermediate branch schema, not the
+        # schema Self refers to. In Any({key: Self}, str) the dict branch compiles
+        # as its own Schema and would capture Self; binding to it would trap the
+        # recursion in that one branch, so a string leaf never falls through to the
+        # sibling str branch. Deferring re-runs the whole combinator instead.
+        if _COMPILING_FOR_COMBINATOR.get():
+            return _deferred_self
+
         root = _COMPILING_ROOT.get()
         if root is not None and root.schema is not Self:
             # Direct Self: bind to the enclosing schema now.
@@ -755,16 +765,13 @@ class Schema:
 
             return validate
 
-        if not _COMPILING_FOR_COMBINATOR.get():
-            # A bare Schema(Self), or Self wrapped by a validator that compiles it
-            # outside a combinator: there is no enclosing schema to resolve against.
-            message = (
-                "Self must be a mapping value, sequence element, or combinator "
-                "branch, not a schema on its own"
-            )
-            raise SchemaError(message)
-
-        return _deferred_self
+        # A bare Schema(Self), or Self wrapped by a validator that compiles it
+        # outside a combinator: there is no enclosing schema to resolve against.
+        message = (
+            "Self must be a mapping value, sequence element, or combinator "
+            "branch, not a schema on its own"
+        )
+        raise SchemaError(message)
 
     @staticmethod
     def _compile_type(schema: type) -> CompiledSchema:
