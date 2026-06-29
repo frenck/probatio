@@ -12,8 +12,6 @@ and the JSON/YAML/TOML loaders and dumpers.
 
 from __future__ import annotations
 
-from importlib import metadata
-
 from probatio._type_registry import (
     clear_type_registry,
     register_type,
@@ -246,13 +244,27 @@ from probatio.validators import (
     validate,
 )
 
-# Resolved from the installed package metadata, falling back to "0.0.0" for a
-# bare source-tree import (no install); the release workflow stamps the real
-# version at publish time.
-try:
-    __version__ = metadata.version("probatio")
-except metadata.PackageNotFoundError:  # pragma: no cover - only without an install
-    __version__ = "0.0.0"
+
+# ``__version__`` is resolved lazily from the installed package metadata on first
+# access (PEP 562). A plain ``import probatio`` for validation never reads it, so
+# it should not pay for the metadata lookup, which scans the installed dist-info
+# (~20 ms). The resolved value is cached as a real module global afterwards. It
+# falls back to "0.0.0" for a bare source-tree import (no install); the release
+# workflow stamps the real version at publish time.
+def __getattr__(name: str) -> str:
+    """Resolve ``__version__`` from the package metadata on first access."""
+    if name == "__version__":
+        from importlib import metadata  # noqa: PLC0415
+
+        try:
+            version = metadata.version("probatio")
+        except metadata.PackageNotFoundError:  # pragma: no cover
+            version = "0.0.0"
+        globals()["__version__"] = version
+        return version
+    message = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(message)
+
 
 __all__ = [
     "ALLOW_EXTRA",
