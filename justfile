@@ -66,6 +66,14 @@ codspeed:
     uv sync --group codspeed
     uv run --no-sync pytest bench --codspeed --no-cov -o addopts=""
 
+# Build the optional mypyc-accelerated engine in place (ADR-010): compiles the
+# validation hot loop to a C extension next to its source. Opt-in and dev-only;
+# the default build stays pure Python, so the published wheel is unaffected. Needs
+# a C compiler. mypyc ships with mypy (the typing group); setuptools drives the
+# build. Run `just clean` to drop the .so and return to pure Python.
+build-fast:
+    uv run --no-sync --with setuptools python scripts/build_accelerated.py
+
 # Run every documented Python example and verify its output comments.
 examples:
     uv run --no-sync python docs/verify_examples.py
@@ -114,7 +122,8 @@ check: precommit
     uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
     uv run --no-sync python docs/verify_examples.py
 
-# Remove build and tooling artifacts.
+# Remove build and tooling artifacts, including the opt-in accelerated .so files.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .ty htmlcov .coverage coverage.xml
+    find src -name '*.so' -delete
     find . -type d -name __pycache__ -exec rm -rf {} +
