@@ -174,6 +174,16 @@ def test_in_suggests_close_members_on_a_miss() -> None:
     assert "did you mean 'auto'?" in error.error_message
 
 
+def test_in_suggestion_surfaces_in_msg_and_context() -> None:
+    """The lazily matched suggestion also reaches .msg, .context, and as_dict()."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In(["auto", "manual"]))("atuo")
+    error = caught.value.errors[0]
+    assert "did you mean 'auto'?" in error.msg
+    assert error.context["candidates"] == ["auto"]
+    assert error.as_dict()["context"]["candidates"] == ["auto"]
+
+
 def test_in_offers_no_suggestion_when_nothing_is_close() -> None:
     """A miss with no close member has empty candidates and no hint."""
     with pytest.raises(MultipleInvalid) as caught:
@@ -181,6 +191,7 @@ def test_in_offers_no_suggestion_when_nothing_is_close() -> None:
     error = caught.value.errors[0]
     assert error.candidates == []
     assert "did you mean" not in error.error_message
+    assert "candidates" not in error.context
 
 
 def test_in_has_no_suggestions_for_non_string_members() -> None:

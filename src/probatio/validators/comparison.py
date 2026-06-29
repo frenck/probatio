@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import typing
-from difflib import get_close_matches
 
 from probatio.error import (
     ContainsInvalid,
@@ -16,7 +15,6 @@ from probatio.error import (
     NotInInvalid,
     RangeInvalid,
     SchemaError,
-    _format_candidates,
 )
 from probatio.validators._base import _SafeValidator
 
@@ -453,12 +451,9 @@ class In(_SafeValidator):
             return candidate in self.container
         return any(candidate == self._normalize(member) for member in self.container)
 
-    def _suggest(self, value: typing.Any) -> list[str]:
-        """Close string members for a string value, for a 'did you mean ...?' hint."""
-        if not isinstance(value, str):
-            return []
-        pool = [member for member in self.container if isinstance(member, str)]
-        return get_close_matches(value, pool)
+    def _string_members(self) -> list[str]:
+        """Return the string members, the pool a 'did you mean ...?' hint matches."""
+        return [member for member in self.container if isinstance(member, str)]
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the (normalized) value if it is in the container, else raise."""
@@ -469,14 +464,17 @@ class In(_SafeValidator):
             message = self.msg or "value is not allowed"
             raise InInvalid(message) from exc
         if not present:
-            candidates = self._suggest(value)
-            if self.msg is not None:
-                message = self.msg
-            else:
-                message = f"value must be one of {_sorted_for_message(self.container)}"
-                if candidates:
-                    message += f", did you mean {_format_candidates(candidates)}?"
-            raise InInvalid(message, candidates=candidates)
+            # The suggestion match is deferred to the error, so a miss inside a
+            # combinator branch that is then discarded never pays for difflib.
+            message = self.msg or (
+                f"value must be one of {_sorted_for_message(self.container)}"
+            )
+            raise InInvalid(
+                message,
+                suggest_value=value,
+                suggest_pool=self._string_members(),
+                suffix=self.msg is None,
+            )
         return candidate
 
 

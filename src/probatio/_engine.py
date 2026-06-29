@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from difflib import get_close_matches
 from typing import Any, NamedTuple
 
 from probatio.error import (
@@ -25,7 +24,6 @@ from probatio.error import (
     SchemaError,
     SequenceTypeInvalid,
     TypeInvalid,
-    _format_candidates,
 )
 from probatio.markers import UNDEFINED, Undefined, VirtualPathComponent
 
@@ -446,16 +444,17 @@ class _MappingValidator:
         """Build the unmatched-key error, suggesting close schema keys when any.
 
         The offending key is never suggested back, so a key that failed only on
-        its value (a Remove whose value did not validate) does not echo itself.
+        its value (a Remove whose value did not validate) does not echo itself. The
+        suggestion match is deferred to the error, so an unknown-key error raised in
+        a discarded combinator branch never pays for difflib.
         """
-        candidates: list[str] = []
-        if isinstance(key, str) and self._key_names:
-            pool = [name for name in self._key_names if name != key]
-            candidates = get_close_matches(key, pool)
-        message = "not a valid option"
-        if candidates:
-            message += f", did you mean {_format_candidates(candidates)}?"
-        return ExtraKeysInvalid(message, path=[key], candidates=candidates)
+        pool = [name for name in self._key_names if name != key]
+        return ExtraKeysInvalid(
+            "not a valid option",
+            path=[key],
+            suggest_value=key,
+            suggest_pool=pool,
+        )
 
     def _finalize(
         self,

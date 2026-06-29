@@ -18,6 +18,7 @@ caller raising its own error to populate. All four are surfaced together by
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import get_close_matches
 from typing import Any, cast
 
 # A single rendered path segment is capped at this length, so an error string
@@ -173,6 +174,103 @@ class Invalid(Error):
         }
 
 
+_NO_SUGGESTION = object()
+
+
+class _SuggestionInvalid(Invalid):
+    """An ``Invalid`` that suggests close allowed values, matched only when read.
+
+    The match against the allowed string ``suggest_pool`` (``difflib``, which is
+    not cheap) is deferred until the error's ``candidates`` or message is actually
+    read. An error raised speculatively inside a combinator and then discarded
+    never pays for it; a surfaced error pays exactly once and caches the result.
+    The "``, did you mean ...?``" suffix is appended to the default message only
+    (a custom ``msg`` still records candidates but keeps its own text).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        path: list[Any] | None = None,
+        error_message: str | None = None,
+        error_type: str | None = None,
+        *,
+        suggest_value: Any = _NO_SUGGESTION,
+        suggest_pool: tuple[str, ...] | list[str] = (),
+        suffix: bool = True,
+        code: str | None = None,
+        context: dict[str, Any] | None = None,
+        translation_key: str | None = None,
+        placeholders: dict[str, Any] | None = None,
+    ) -> None:
+        """Record what to match against; the match itself happens lazily."""
+        self._suggest_value = suggest_value
+        self._suggest_pool = suggest_pool
+        self._with_suffix = suffix
+        self._candidates: list[str] | None = None
+        self._suffix_cache: str | None = None
+        super().__init__(
+            message,
+            path,
+            error_message,
+            error_type,
+            code=code,
+            context=context,
+            translation_key=translation_key,
+            placeholders=placeholders,
+        )
+
+    @property
+    def candidates(self) -> list[str]:
+        """The close matches among the allowed values, computed on first read."""
+        if self._candidates is None:
+            value = self._suggest_value
+            self._candidates = (
+                get_close_matches(value, self._suggest_pool)
+                if isinstance(value, str)
+                else []
+            )
+        return self._candidates
+
+    def _suffix_text(self) -> str:
+        """Return the ``, did you mean ...?`` fragment for the message, cached."""
+        if self._suffix_cache is None:
+            self._suffix_cache = (
+                f", did you mean {_format_candidates(self.candidates)}?"
+                if self._with_suffix and self.candidates
+                else ""
+            )
+        return self._suffix_cache
+
+    @property
+    def error_message(self) -> str:
+        """The bare message, with the suggestion suffix when there is one."""
+        return self._error_message + self._suffix_text()
+
+    @property
+    def msg(self) -> str:
+        """The human-readable message (same text as ``error_message`` here)."""
+        return self.error_message
+
+    @property
+    def context(self) -> dict[str, Any]:
+        """Structured detail, including the close matches when there are any."""
+        ctx = dict(self._context)
+        if self.candidates:
+            ctx.setdefault("candidates", self.candidates)
+        return ctx
+
+    def __str__(self) -> str:
+        """Render the (suffixed) message with the error type and data path."""
+        output = self.error_message
+        if self._error_type:
+            output += " for " + self._error_type
+        if self._path:
+            path = "][".join(_render_segment(segment) for segment in self._path)
+            output += f" @ data[{path}]"
+        return output
+
+
 class MultipleInvalid(Invalid):
     """A collection of validation errors gathered from one validation pass."""
 
@@ -266,44 +364,15 @@ class DictInvalid(Invalid):
     default_code = "not_a_dictionary"
 
 
-class ExtraKeysInvalid(Invalid):
+class ExtraKeysInvalid(_SuggestionInvalid):
     """A mapping key matched no schema key under ``PREVENT_EXTRA``.
 
     Carries ``candidates``: the close matches among the schema's known keys, so a
-    caller can render (or has already rendered) a "did you mean ...?" hint without
-    recomputing it. The list is empty when nothing was close enough.
+    caller can render (or has already rendered) a "did you mean ...?" hint. The
+    match is lazy (see ``_SuggestionInvalid``) and empty when nothing was close.
     """
 
     default_code = "extra_keys_not_allowed"
-
-    def __init__(
-        self,
-        message: str,
-        path: list[Any] | None = None,
-        error_message: str | None = None,
-        error_type: str | None = None,
-        *,
-        candidates: list[str] | None = None,
-        code: str | None = None,
-        context: dict[str, Any] | None = None,
-        translation_key: str | None = None,
-        placeholders: dict[str, Any] | None = None,
-    ) -> None:
-        """Create the error, recording any close-match key suggestions."""
-        self.candidates: list[str] = list(candidates) if candidates else []
-        merged = dict(context) if context else {}
-        if self.candidates:
-            merged.setdefault("candidates", self.candidates)
-        super().__init__(
-            message,
-            path,
-            error_message,
-            error_type,
-            code=code,
-            context=merged or None,
-            translation_key=translation_key,
-            placeholders=placeholders,
-        )
 
 
 class ExclusiveInvalid(Invalid):
@@ -342,44 +411,16 @@ class ScalarInvalid(Invalid):
     default_code = "not_valid"
 
 
-class CoerceInvalid(Invalid):
+class CoerceInvalid(_SuggestionInvalid):
     """A value could not be coerced to the requested type.
 
     Carries ``candidates``: when the target is an ``Enum`` with string values, the
     close matches among them, so a caller can render (or has already rendered) a
-    "did you mean ...?" hint. The list is empty for any other coercion.
+    "did you mean ...?" hint. The match is lazy (see ``_SuggestionInvalid``) and
+    empty for any other coercion.
     """
 
     default_code = "coerce"
-
-    def __init__(
-        self,
-        message: str,
-        path: list[Any] | None = None,
-        error_message: str | None = None,
-        error_type: str | None = None,
-        *,
-        candidates: list[str] | None = None,
-        code: str | None = None,
-        context: dict[str, Any] | None = None,
-        translation_key: str | None = None,
-        placeholders: dict[str, Any] | None = None,
-    ) -> None:
-        """Create the error, recording any close-match suggestions."""
-        self.candidates: list[str] = list(candidates) if candidates else []
-        merged = dict(context) if context else {}
-        if self.candidates:
-            merged.setdefault("candidates", self.candidates)
-        super().__init__(
-            message,
-            path,
-            error_message,
-            error_type,
-            code=code,
-            context=merged or None,
-            translation_key=translation_key,
-            placeholders=placeholders,
-        )
 
 
 class EnumInvalid(Invalid):
@@ -424,45 +465,16 @@ class LengthInvalid(Invalid):
     default_code = "length"
 
 
-class InInvalid(Invalid):
+class InInvalid(_SuggestionInvalid):
     """The value is not a member of the allowed set.
 
     Carries ``candidates``: the close matches among the allowed string members, so
-    a caller can render (or has already rendered) a "did you mean ...?" hint
-    without recomputing it. The list is empty when nothing was close enough or the
-    members are not strings.
+    a caller can render (or has already rendered) a "did you mean ...?" hint. The
+    match is lazy (see ``_SuggestionInvalid``) and empty when nothing was close
+    enough or the members are not strings.
     """
 
     default_code = "not_in_list"
-
-    def __init__(
-        self,
-        message: str,
-        path: list[Any] | None = None,
-        error_message: str | None = None,
-        error_type: str | None = None,
-        *,
-        candidates: list[str] | None = None,
-        code: str | None = None,
-        context: dict[str, Any] | None = None,
-        translation_key: str | None = None,
-        placeholders: dict[str, Any] | None = None,
-    ) -> None:
-        """Create the error, recording any close-match suggestions."""
-        self.candidates: list[str] = list(candidates) if candidates else []
-        merged = dict(context) if context else {}
-        if self.candidates:
-            merged.setdefault("candidates", self.candidates)
-        super().__init__(
-            message,
-            path,
-            error_message,
-            error_type,
-            code=code,
-            context=merged or None,
-            translation_key=translation_key,
-            placeholders=placeholders,
-        )
 
 
 class NotInInvalid(Invalid):
