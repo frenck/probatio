@@ -22,7 +22,6 @@ from probatio.error import (
     YamlInvalid,
 )
 from probatio.schema import compile_schema
-from probatio.serde import _optional, load_yaml
 from probatio.validators._base import _SafeValidator
 
 
@@ -139,6 +138,8 @@ class YAMLString(_SafeValidator):
 
     def __init__(self, schema: typing.Any = None, msg: str | None = None) -> None:
         """Compile the optional inner schema; require a YAML backend up front."""
+        from probatio.serde import _optional  # noqa: PLC0415
+
         if _optional.yamlrocks is None and _optional.pyyaml is None:
             message = "YAMLString needs a YAML parser; install probatio[yaml]"
             raise SchemaError(message)
@@ -147,6 +148,8 @@ class YAMLString(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the decoded (and validated) value, else raise YamlInvalid."""
+        from probatio.serde import load_yaml  # noqa: PLC0415
+
         if not isinstance(value, str | bytes):
             raise YamlInvalid(self.msg or "expected a YAML string")
         try:
