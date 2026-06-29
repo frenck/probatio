@@ -193,40 +193,51 @@ class All(_Combinator):
         return _combinator_repr(self)
 
 
-def _type_tuple(compiled: list[typing.Any]) -> tuple[type, ...] | None:
-    """Return the branch types if every branch is a plain type check, else None.
+def _type_tuple(
+    validators: list[typing.Any], compiled: list[typing.Any]
+) -> tuple[tuple[type, ...], bool] | None:
+    """Return ``(types, allow_none)`` when every branch is a bare type or ``None``.
 
-    When all of an ``Any``/``Union``'s branches are bare types (``Any(int, str)``)
-    a single ``isinstance(value, types)`` decides acceptance, which is much faster
-    than calling each branch and catching an ``Invalid`` until one matches. A type
-    check returns its value unchanged, so the matched value is just the value.
+    Such an ``Any``/``Union`` resolves with a single ``isinstance`` (plus a
+    ``value is None`` check when a ``None`` branch is present) instead of calling
+    each branch and catching an ``Invalid`` until one matches. Folding ``None`` in
+    here keeps the very common ``Any(int, None)`` and ``Any(str, None)`` on the
+    fast path. A type check returns its value unchanged, so the matched value is
+    just the value. None if any branch is neither a type nor ``None``.
     """
     types: list[type] = []
-    for branch in compiled:
+    allow_none = False
+    for raw, branch in zip(validators, compiled, strict=True):
+        if raw is None:
+            allow_none = True
+            continue
         checked_type = getattr(branch, "checked_type", None)
         if checked_type is None:
             return None
         types.append(checked_type)
-    return tuple(types) if types else None
+    if not types and not allow_none:
+        return None
+    return tuple(types), allow_none
 
 
 def _run_typed_any(
     types: tuple[type, ...],
+    allow_none: bool,
     value: typing.Any,
     msg: str | None,
+    expected: str | None,
 ) -> typing.Any:
-    """Resolve an all-type ``Any``/``Union`` without per-branch exceptions.
+    """Resolve an all-type (or None) ``Any``/``Union`` without per-branch exceptions.
 
-    One ``isinstance`` accepts on the hot path. On a miss, a single descriptive
-    ``AnyInvalid("expected int or str")`` is raised, built from the branch type
-    names, without running any branch. So both the match and the miss skip the
-    try/except churn.
+    One ``isinstance``, plus a ``value is None`` check when a ``None`` branch is
+    present, accepts on the hot path. On a miss a single ``AnyInvalid`` is raised
+    from the precomputed branch labels, without running any branch, so both the
+    match and the miss skip the try/except churn.
     """
-    if isinstance(value, types):
+    if (allow_none and value is None) or isinstance(value, types):
         return value
     if msg is not None:
         raise AnyInvalid(msg)
-    expected = " or ".join(branch.__name__ for branch in types)
     message = f"expected {expected}"
     raise AnyInvalid(message)
 
@@ -264,14 +275,14 @@ class Any(_Combinator):
             compile_schema(validator, required=self.required, extra=self._extra)
             for validator in self.validators
         ]
-        self._types = _type_tuple(self._compiled)
+        self._types = _type_tuple(self.validators, self._compiled)
         self._expected = _expected_label(self.validators)
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Try each validator, returning the first that accepts the value."""
-        # All-type branches resolve by one isinstance, both on match and on miss.
+        # All-type (or None) branches resolve by one isinstance, on match and miss.
         if self._types is not None:
-            return _run_typed_any(self._types, value, self.msg)
+            return _run_typed_any(*self._types, value, self.msg, self._expected)
         return _run_any(self._compiled, value, self.msg, self._expected)
 
     def __repr__(self) -> str:
@@ -322,14 +333,18 @@ class Union(_Combinator):
             id(raw): compiled
             for raw, compiled in zip(self.validators, self._compiled, strict=True)
         }
-        self._types = _type_tuple(self._compiled) if self.discriminant is None else None
+        self._types = (
+            _type_tuple(self.validators, self._compiled)
+            if self.discriminant is None
+            else None
+        )
         self._expected = _expected_label(self.validators)
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Try the (possibly narrowed) candidates, returning the first match."""
         if self.discriminant is None:
             if self._types is not None:
-                return _run_typed_any(self._types, value, self.msg)
+                return _run_typed_any(*self._types, value, self.msg, self._expected)
             return _run_any(self._compiled, value, self.msg, self._expected)
         # A discriminant returns a subset of the raw validators; resolve each to
         # its compiled form, compiling any object it returns that was not among
