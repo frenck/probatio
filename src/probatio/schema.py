@@ -285,6 +285,15 @@ class _EnumCheck:
             ) from exc
 
 
+# The extra-key policy rendered as its public name, for ``repr`` (matches
+# voluptuous, which shows the policy a Schema was built with).
+_EXTRA_TO_NAME = {
+    PREVENT_EXTRA: "PREVENT_EXTRA",
+    ALLOW_EXTRA: "ALLOW_EXTRA",
+    REMOVE_EXTRA: "REMOVE_EXTRA",
+}
+
+
 class Schema:
     """A compiled, callable schema.
 
@@ -348,6 +357,24 @@ class Schema:
         # Raised outside the except block so the single error is reported on its
         # own, not chained as "during handling of the above exception".
         raise MultipleInvalid([error])
+
+    def __str__(self) -> str:
+        """Render as the wrapped schema, matching voluptuous.
+
+        Callers ``str()`` a Schema to inspect the shape it wraps. Home Assistant's
+        config classifier reads a leading ``{`` or ``[`` to tell dict- from
+        list-based config, so this delegates to the inner schema rather than
+        returning the default object repr.
+        """
+        return str(self.schema)
+
+    def __repr__(self) -> str:
+        """Render as voluptuous does: the inner schema, extra policy, and required."""
+        extra = _EXTRA_TO_NAME.get(self.extra, "??")
+        return (
+            f"<Schema({self.schema}, extra={extra}, "
+            f"required={self.required}) object at 0x{id(self):x}>"
+        )
 
     def _call_with_context(self, data: Any, context: Any) -> Any:
         """Set the call context, then validate through the common path.

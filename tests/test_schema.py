@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from probatio import Invalid, MultipleInvalid, Required, Schema
+from probatio import ALLOW_EXTRA, Invalid, MultipleInvalid, Required, Schema
 from probatio.error import ScalarInvalid, TypeInvalid, ValueInvalid
 
 
@@ -147,3 +147,29 @@ def test_infer_passes_keyword_arguments_through() -> None:
     assert schema({"extra": 1}) == {"extra": 1}
     with pytest.raises(MultipleInvalid):
         schema({"name": 42})
+
+
+def test_str_delegates_to_the_inner_schema() -> None:
+    """str(Schema(x)) reads as str(x), matching voluptuous, not the object repr."""
+    assert str(Schema({"a": int})) == "{'a': <class 'int'>}"
+    assert str(Schema([int])) == "[<class 'int'>]"
+    assert str(Schema(int)) == "<class 'int'>"
+
+
+def test_str_lets_a_leading_brace_or_bracket_classify_the_schema() -> None:
+    """The rendered string starts with { for a dict schema and [ for a list one.
+
+    Home Assistant's config classifier reads exactly that to tell dict- from
+    list-based config, so the delegation has to surface the wrapped container.
+    """
+    assert str(Schema({"a": int})).startswith("{")
+    assert str(Schema([int])).startswith("[")
+
+
+def test_repr_mirrors_voluptuous_with_extra_and_required() -> None:
+    """repr(Schema) shows the inner schema, the extra policy name, and required."""
+    rendered = repr(Schema({"a": int}, extra=ALLOW_EXTRA))
+    assert rendered.startswith(
+        "<Schema({'a': <class 'int'>}, extra=ALLOW_EXTRA, required=False) object at 0x"
+    )
+    assert rendered.endswith(">")
