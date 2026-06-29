@@ -13,7 +13,6 @@ value and returns the validated (and possibly normalized) result, or raises
 from __future__ import annotations
 
 import sys
-from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
@@ -53,7 +52,7 @@ from probatio.markers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Collection, Iterator
+    from collections.abc import Callable, Collection
 
 # The schema currently being compiled, so a ``Self`` reference inside it can be
 # resolved to the enclosing (root) schema. Only the outermost compile sets it.
@@ -126,8 +125,7 @@ def current_context() -> Any:
     return _VALIDATION_CONTEXT.get()
 
 
-@contextmanager
-def recursion_guard(cost: int = 1) -> Iterator[None]:
+class recursion_guard:  # noqa: N801 - a context manager, named like contextlib's
     """Bound recursive validation so deep or cyclic data fails cleanly.
 
     Raises ``Invalid`` once the recursion passes a fraction of the interpreter's
@@ -140,16 +138,29 @@ def recursion_guard(cost: int = 1) -> Iterator[None]:
     passes a larger cost so the guard fires before the real stack overflows. The
     budget is shared, so mixed recursion (a ``Self`` schema containing a recursive
     dataclass, say) accounts for both correctly.
+
+    A plain class rather than ``@contextmanager``: it sits on the per-level
+    recursion hot path, and skipping the generator machinery is roughly twice as
+    fast per ``with``.
     """
-    depth = _SELF_DEPTH.get() + cost
-    if depth > sys.getrecursionlimit() // _SELF_DEPTH_DIVISOR:
-        message = "data is nested too deeply for this recursive schema"
-        raise Invalid(message)
-    token = _SELF_DEPTH.set(depth)
-    try:
-        yield
-    finally:
-        _SELF_DEPTH.reset(token)
+
+    __slots__ = ("_cost", "_token")
+
+    def __init__(self, cost: int = 1) -> None:
+        """Store how much this level costs against the shared depth budget."""
+        self._cost = cost
+
+    def __enter__(self) -> None:
+        """Charge one level, raising ``Invalid`` if the budget is exceeded."""
+        depth = _SELF_DEPTH.get() + self._cost
+        if depth > sys.getrecursionlimit() // _SELF_DEPTH_DIVISOR:
+            message = "data is nested too deeply for this recursive schema"
+            raise Invalid(message)
+        self._token = _SELF_DEPTH.set(depth)
+
+    def __exit__(self, *exc: object) -> None:
+        """Release this level's charge back to the budget."""
+        _SELF_DEPTH.reset(self._token)
 
 
 def _deferred_self(data: Any) -> Any:
