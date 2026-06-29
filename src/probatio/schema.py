@@ -560,13 +560,20 @@ class Schema:
             # (matching voluptuous), on a copy so the shared instance is untouched.
             if self.extra != PREVENT_EXTRA:
                 rebind = getattr(schema, "__probatio_with_extra__", None)
-                if rebind is not None:
+                # Rebinding only matters when a branch holds a nested mapping (the
+                # policy changes how a dict compiles); a combinator of types and
+                # lists compiles identically, so skip the copy and recompile.
+                needs = getattr(schema, "__probatio_needs_extra__", None)
+                if rebind is not None and (needs is None or needs()):
                     schema = rebind(self.extra)
             # A combinator or wrapper compiled its own branches at construction, so
             # the compile walk never descends into them; detect a ``Self`` nested in
-            # one on the branch node itself. Cheap for a plain callable (it has no
-            # ``validators``/``validator`` to walk) and skipped once a Self is found.
-            if not self._uses_self:
+            # one on the branch node itself. Only a node that holds child schemas
+            # (``validators``/``validator``) can carry a nested ``Self``, so a plain
+            # leaf validator skips the walk entirely.
+            if not self._uses_self and (
+                hasattr(schema, "validators") or hasattr(schema, "validator")
+            ):
                 self._uses_self = _schema_uses_self(schema)
             # probatio's own validators always raise Invalid (never leak a
             # ValueError), so they can be called directly. Arbitrary callables go

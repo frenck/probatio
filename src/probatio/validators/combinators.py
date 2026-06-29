@@ -25,6 +25,25 @@ from probatio.schema import PREVENT_EXTRA, compile_schema
 from probatio.validators._base import _SafeValidator
 
 
+def _branch_holds_mapping(node: typing.Any) -> bool:
+    """Whether a node holds a dict schema the rebind's extra policy would reach.
+
+    The rebind recompiles a branch under the new policy, which reaches a mapping
+    directly, through a sequence, or through a nested combinator (combinators
+    re-thread the policy too). It does not reach into a nested ``Schema`` or a
+    wrapper like ``Maybe`` (they compile their own contents under their own
+    policy), so those are leaves here.
+    """
+    if isinstance(node, dict):
+        return True
+    if isinstance(node, list | tuple | set | frozenset):
+        return any(_branch_holds_mapping(element) for element in node)
+    children = getattr(node, "validators", None)
+    if isinstance(children, list):
+        return any(_branch_holds_mapping(child) for child in children)
+    return False
+
+
 class _Combinator(_SafeValidator):
     """Base for the combinators, threading an enclosing schema's extra policy in.
 
@@ -37,10 +56,20 @@ class _Combinator(_SafeValidator):
     """
 
     _extra: int
+    validators: list[typing.Any]
 
     def _compile_branches(self) -> None:  # pragma: no cover - each combinator overrides
         """Recompile ``self.validators`` into ``self._compiled`` under ``self._extra``."""
         raise NotImplementedError
+
+    def __probatio_needs_extra__(self) -> bool:
+        """Whether a non-strict extra could reach a nested mapping in the branches.
+
+        The extra policy only changes how a dict schema compiles, so a combinator
+        whose branches hold no mapping (``Any(str, [str])``) compiles identically
+        under any policy and need not be rebound, skipping the copy and recompile.
+        """
+        return any(_branch_holds_mapping(branch) for branch in self.validators)
 
     def __probatio_with_extra__(self, extra: int) -> _Combinator:
         """Return a copy of this combinator recompiled under ``extra``.
