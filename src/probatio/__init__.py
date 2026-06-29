@@ -12,18 +12,12 @@ and the JSON/YAML/TOML loaders and dumpers.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from probatio._type_registry import (
     clear_type_registry,
     register_type,
     type_registry,
-)
-from probatio.codecs import (
-    UNSUPPORTED,
-    from_json_schema,
-    from_openapi,
-    serialize,
-    to_json_schema,
-    to_openapi,
 )
 from probatio.dataclass_schema import (
     DataclassSchema,
@@ -114,20 +108,6 @@ from probatio.schema import (
     Schema,
     Schemable,
     current_context,
-)
-from probatio.serde import (
-    clear_default_options,
-    default_options,
-    dump,
-    dump_json,
-    dump_toml,
-    dump_yaml,
-    load,
-    load_json,
-    load_toml,
-    load_yaml,
-    load_yaml_with_locations,
-    set_default_options,
 )
 from probatio.validators import (
     ASCII,
@@ -244,6 +224,66 @@ from probatio.validators import (
     validate,
 )
 
+if TYPE_CHECKING:
+    # Eagerly visible to type-checkers so ``probatio.to_json_schema`` and friends
+    # keep their real signatures, while at runtime they are re-exported lazily
+    # (below) to keep a validate-only import cheap.
+    from probatio.codecs import (
+        UNSUPPORTED,
+        from_json_schema,
+        from_openapi,
+        serialize,
+        to_json_schema,
+        to_openapi,
+    )
+    from probatio.serde import (
+        clear_default_options,
+        default_options,
+        dump,
+        dump_json,
+        dump_toml,
+        dump_yaml,
+        load,
+        load_json,
+        load_toml,
+        load_yaml,
+        load_yaml_with_locations,
+        set_default_options,
+    )
+
+# The codec and serde layers cost more to import than the validation engine, and a
+# plain ``import probatio`` for validation needs neither. Their public names are
+# re-exported lazily (PEP 562): the submodule is imported on first access of one of
+# its names, and the resolved attribute is cached as a real module global so later
+# reads are free. Maps each re-exported name to the module it lives in.
+_LAZY_NAMES = dict.fromkeys(
+    (
+        "UNSUPPORTED",
+        "from_json_schema",
+        "from_openapi",
+        "serialize",
+        "to_json_schema",
+        "to_openapi",
+    ),
+    "probatio.codecs",
+) | dict.fromkeys(
+    (
+        "clear_default_options",
+        "default_options",
+        "dump",
+        "dump_json",
+        "dump_toml",
+        "dump_yaml",
+        "load",
+        "load_json",
+        "load_toml",
+        "load_yaml",
+        "load_yaml_with_locations",
+        "set_default_options",
+    ),
+    "probatio.serde",
+)
+
 
 # ``__version__`` is resolved lazily from the installed package metadata on first
 # access (PEP 562). A plain ``import probatio`` for validation never reads it, so
@@ -251,8 +291,8 @@ from probatio.validators import (
 # (~20 ms). The resolved value is cached as a real module global afterwards. It
 # falls back to "0.0.0" for a bare source-tree import (no install); the release
 # workflow stamps the real version at publish time.
-def __getattr__(name: str) -> str:
-    """Resolve ``__version__`` from the package metadata on first access."""
+def __getattr__(name: str) -> object:
+    """Resolve ``__version__`` and the lazy codec/serde re-exports on first access."""
     if name == "__version__":
         from importlib import metadata  # noqa: PLC0415
 
@@ -262,6 +302,13 @@ def __getattr__(name: str) -> str:
             version = "0.0.0"
         globals()["__version__"] = version
         return version
+    module_name = _LAZY_NAMES.get(name)
+    if module_name is not None:
+        from importlib import import_module  # noqa: PLC0415
+
+        value = getattr(import_module(module_name), name)
+        globals()[name] = value
+        return value
     message = f"module {__name__!r} has no attribute {name!r}"
     raise AttributeError(message)
 
