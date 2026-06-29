@@ -77,6 +77,23 @@ def test_self_inside_any_validates_a_recursive_alternative() -> None:
         schema({"follow": {"number": "1.5"}})
 
 
+def test_self_inside_any_falls_through_to_a_sibling_branch() -> None:
+    """A Self recursion re-runs the whole Any, so a leaf takes a later branch.
+
+    The recursive branch is a mapping whose values are Self; the sibling branch is
+    a scalar. A string leaf fails the mapping branch and must fall through to the
+    str branch, instead of stopping at "expected a dictionary". This is Home
+    Assistant's recursive translations schema (config_panel sections that bottom
+    out in string leaves).
+    """
+    schema = Schema(Any({Any(str, "_"): Self}, str))
+    data = {"section": {"title": "a string", "sub": {"item": "x"}}}
+    assert schema(data) == data
+    assert schema("leaf") == "leaf"
+    with pytest.raises(MultipleInvalid):
+        schema({"section": {"title": 123}})
+
+
 def test_self_inside_all_chains_recursion_with_another_schema() -> None:
     """Self works inside All, chaining the recursive check with a second schema."""
     schema = Schema(
