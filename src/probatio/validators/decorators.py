@@ -13,6 +13,12 @@ from probatio.schema import ALLOW_EXTRA, Schema
 
 _RETURNS_KEY = "__return__"
 
+# ``validate`` preserves the decorated function's signature for callers: the
+# wrapper transforms the arguments internally (so it cannot forward a ParamSpec
+# directly), so it is typed ``Any`` and cast to the function's own ``(**P) -> R``.
+_P = typing.ParamSpec("_P")
+_R = typing.TypeVar("_R")
+
 
 def message(
     default: str | None = None,
@@ -117,7 +123,7 @@ def _args_to_dict(
 
 def validate(
     *args: typing.Any, **kwargs: typing.Any
-) -> typing.Callable[..., typing.Any]:
+) -> typing.Callable[[typing.Callable[_P, _R]], typing.Callable[_P, _R]]:
     """Decorate a function to validate its arguments (and return) against schemas.
 
     Name a schema per argument, positionally or by keyword, and optionally a
@@ -135,8 +141,8 @@ def validate(
         returns = schema_arguments.pop(_RETURNS_KEY)
 
     def decorate(
-        func: typing.Callable[..., typing.Any],
-    ) -> typing.Callable[..., typing.Any]:
+        func: typing.Callable[_P, _R],
+    ) -> typing.Callable[_P, _R]:
         """Wrap ``func`` so its arguments and return value are validated."""
         positional = _args_to_dict(func, args)
         arguments = {**positional, **schema_arguments}
@@ -164,7 +170,7 @@ def validate(
             ]
             return output_schema(func(*leading, **validated))
 
-        return wrapper
+        return typing.cast("typing.Callable[_P, _R]", wrapper)
 
     return decorate
 
