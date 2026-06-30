@@ -849,14 +849,14 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     if not isinstance(required_raw, list):
         message = f"JSON Schema 'required' must be an array, got {type(required_raw).__name__}"
         raise SchemaError(message)
-    # ``required`` entries are property names (strings). A nested array or object
-    # is valid JSON but unhashable, so build the set defensively rather than leak
-    # a TypeError from an untrusted document.
-    try:
-        required: set[Any] = set(required_raw)
-    except TypeError as exc:
-        message = "JSON Schema 'required' must contain only property names"
-        raise SchemaError(message) from exc
+    # ``required`` entries are property names, so every entry must be a string. A
+    # non-string entry (a number, or an unhashable nested array or object) never
+    # matches a property name, so it would silently make a required field optional;
+    # refuse it rather than honor a malformed document.
+    if not all(isinstance(entry, str) for entry in required_raw):
+        message = "JSON Schema 'required' must contain only property names (strings)"
+        raise SchemaError(message)
+    required: set[Any] = set(required_raw)
     mapping: dict[Any, Any] = {}
     for name, subschema in properties.items():
         if subschema is False:
@@ -1028,16 +1028,18 @@ class _ContainsCount:
 
 
 def _item_count(node: dict[str, Any], key: str) -> int | None:
-    """Read an integer item-count bound (``minItems``/``maxItems``), or None.
+    """Read a non-negative integer item-count bound (``minItems``/``maxItems``), or None.
 
-    A non-integer bound would otherwise leak a TypeError from the ``Length`` check
-    at validation time, so it is refused at decode with a clean ``SchemaError``.
+    A non-integer or negative bound would otherwise leak a TypeError from the
+    ``Length`` check or silently validate data under a malformed count, so it is
+    refused at decode with a clean ``SchemaError``. The JSON Schema count keywords
+    are non-negative integers.
     """
     value = node.get(key)
     if value is None:
         return None
-    if not isinstance(value, int) or isinstance(value, bool):
-        message = f"JSON Schema {key!r} must be an integer, got {type(value).__name__}"
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        message = f"JSON Schema {key!r} must be a non-negative integer, got {value!r}"
         raise SchemaError(message)
     return value
 
