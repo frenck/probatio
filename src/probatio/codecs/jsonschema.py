@@ -82,8 +82,11 @@ _STRING_FUNCS = frozenset({Lower, Upper, Capitalize, Title, Strip})
 
 # ``Boolean`` is a ``message`` factory, so each ``Boolean()`` is a fresh wrapper.
 # They all share ``__wrapped__`` (the undecorated function), which is the stable
-# identity to match against.
-_BOOLEAN_FUNC = Boolean.__wrapped__
+# identity to match against. ``functools.wraps`` sets ``__wrapped__`` at runtime,
+# where the factory's call type does not advertise it, so read it via ``getattr``
+# (no default: ``Boolean`` always carries it, and a None fallback could collide with
+# a node that has no ``__wrapped__`` at the identity check below).
+_BOOLEAN_FUNC = getattr(Boolean, "__wrapped__")  # noqa: B009
 
 # The deepest a decoded JSON Schema may nest. Generous for any real schema (which
 # rarely nests past a handful of levels), but low enough that even the most
