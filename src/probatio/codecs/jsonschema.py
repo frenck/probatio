@@ -774,8 +774,20 @@ def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
     return object if combined is None else combined
 
 
-def _from_type_list(node: dict[str, Any], types: list[str], ctx: _Decode) -> Any:
-    """Render a ``type`` array (``["string", "null"]``) as an Any of each type."""
+def _from_type_list(node: dict[str, Any], types: list[Any], ctx: _Decode) -> Any:
+    """Render a ``type`` array (``["string", "null"]``) as an Any of each type.
+
+    ``types`` is untrusted JSON, so each entry must be a string: a non-string entry
+    (a ``null`` becomes a ``type`` of None, which would otherwise fall through to an
+    accept-anything schema and silently widen validation) is refused.
+    """
+    for name in types:
+        if not isinstance(name, str):
+            message = (
+                f"JSON Schema 'type' array entries must be strings, "
+                f"got {type(name).__name__}"
+            )
+            raise SchemaError(message)
     validators = [
         None if name == "null" else _from_typed({**node, "type": name}, ctx)
         for name in types

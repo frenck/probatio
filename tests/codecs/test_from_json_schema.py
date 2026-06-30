@@ -357,6 +357,25 @@ def test_non_list_required_is_a_clean_schema_error() -> None:
         from_json_schema({"type": "object", "required": "name"})
 
 
+def test_non_string_type_array_entry_is_a_clean_schema_error() -> None:
+    """A non-string entry in a 'type' array is refused rather than widening.
+
+    A ``null`` entry would become a ``type`` of None and fall through to an
+    accept-anything schema, silently widening validation; refuse it instead.
+    """
+    with pytest.raises(SchemaError, match="type"):
+        from_json_schema({"type": [None]})
+
+
+def test_type_array_decodes_to_a_union() -> None:
+    """A valid 'type' array decodes to an Any of each named type, including null."""
+    schema = from_json_schema({"type": ["string", "null"]})
+    assert schema("x") == "x"
+    assert schema(None) is None
+    with pytest.raises(MultipleInvalid):
+        schema(123)
+
+
 def test_prefix_items_round_trips_an_exact_sequence() -> None:
     """An ExactSequence encodes to prefixItems and decodes back to a tuple schema."""
     schema = from_json_schema(to_json_schema(Schema(ExactSequence([int, str]))))
