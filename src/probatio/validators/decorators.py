@@ -138,6 +138,11 @@ def validate(
 
         @validate(arg1=int, arg2=str, __return__=int)
         def f(arg1, arg2): ...
+
+    Only the arguments and the return value are validated; the function body is the
+    caller's own code. An exception it raises (anything but the ``Invalid`` from a
+    failed argument or return schema) propagates unchanged. ``validate`` is a
+    convenience wrapper, not a safe-validator boundary.
     """
     returns_defined = False
     returns = None

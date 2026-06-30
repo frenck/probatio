@@ -86,6 +86,22 @@ def test_validate_without_argument_schemas() -> None:
     assert add(1, 2) == 3
 
 
+def test_validate_propagates_a_body_exception_unchanged() -> None:
+    """A non-Invalid exception from the wrapped body propagates, not wrapped.
+
+    ``validate`` checks the arguments and return value; the body is the caller's own
+    code, so its own error is not a validation failure and is not converted.
+    """
+
+    @validate(_value=int)
+    def boom(_value: int) -> int:
+        message = "kaboom"
+        raise RuntimeError(message)
+
+    with pytest.raises(RuntimeError, match="kaboom"):
+        boom(1)
+
+
 def test_raises_accepts_a_matching_exception() -> None:
     """raises swallows the expected exception."""
     with raises(MultipleInvalid):
