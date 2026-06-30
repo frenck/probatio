@@ -104,6 +104,7 @@ def test_e164_accepts_valid_numbers() -> None:
     assert schema("+14155552671") == "+14155552671"
     assert schema("+442071838750") == "+442071838750"
     assert schema("+1 (415) 555-2671") == "+14155552671"
+    assert schema("+12") == "+12"  # the two-digit minimum (one more than "+1")
 
 
 @pytest.mark.parametrize(

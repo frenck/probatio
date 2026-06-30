@@ -154,8 +154,8 @@ class DataURI(_SafeValidator):
 class E164(_SafeValidator):
     """Require a phone number in international E.164 format.
 
-    A leading ``+``, a first digit 1 to 9, then up to 14 more digits (15 digits
-    total at most). This is a format check, not a guarantee the number is assigned
+    A leading ``+``, a first digit 1 to 9, then 1 to 14 more digits (2 to 15 digits
+    total). This is a format check, not a guarantee the number is assigned
     or dialable, which needs a phone-number database. With ``normalize`` (the
     default) common grouping characters (spaces, hyphens, dots, parentheses) are
     stripped and the compact ``+<digits>`` form is returned; ``normalize=False``
