@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import namedtuple
+
 import pytest
 
 from probatio import (
@@ -36,6 +38,18 @@ def test_exact_sequence_keeps_the_type() -> None:
     result = Schema(ExactSequence([int, int]))((1, 2))
     assert result == (1, 2)
     assert isinstance(result, tuple)
+
+
+def test_exact_sequence_rebuilds_a_namedtuple() -> None:
+    """A namedtuple is rebuilt with positional fields, not leaked as a TypeError.
+
+    ``Point(result)`` would pass the list as a single field; a namedtuple needs its
+    fields spread positionally.
+    """
+    point = namedtuple("Point", "x y")  # noqa: PYI024 - a runtime namedtuple fixture
+    result = Schema(ExactSequence([int, int]))(point(1, 2))
+    assert result == point(1, 2)
+    assert isinstance(result, point)
 
 
 def test_exact_sequence_item_error_has_index() -> None:
