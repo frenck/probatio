@@ -68,9 +68,9 @@ measured, plus the inlining of the common validators.
    already comfortable, and the workload validates at config load.
 2. An adaptive, bail-safe compiled variant, default `AUTO`, with the interpreted
    engine as the always-present semantics and fallback (this ADR).
-3. mypyc (ADR-010) or a native core: accelerate the existing engine instead of
-   generating code. Higher ceilings or a recompile, but neither helps the
-   construction step and mypyc is only ~1.3x.
+3. mypyc or a native core: accelerate the existing engine instead of generating
+   code. Higher ceilings or a recompile, but neither helps the construction step
+   and mypyc is only ~1.3x.
 
 **Decision**: Option 2, with `AUTO` as the default. ADR-004's substance, that there
 is one set of validation semantics, stands unchanged: the interpreted engine remains

@@ -60,7 +60,7 @@ registers and when to call it.
 
 This is not a paraphrase of compatibility. Probatio is validated against Home
 Assistant's own `config_validation` test suite, with voluptuous swapped out for
-Probatio through `install_as_voluptuous`. All 142 tests in that suite pass.
+Probatio through `install_as_voluptuous`. The whole suite passes.
 
 Getting there surfaced real compatibility gaps that isolated unit tests had
 missed, like `Remove(key)` keeping a value that fails its schema, and the exact

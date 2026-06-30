@@ -88,10 +88,10 @@ except Invalid as err:
 It is a config-loading library, so the real question is whether you would feed it
 untrusted input. The evidence, not the adjectives:
 
-- **voluptuous 0.16.0 test suite:** 140 pass, 27 deliberate and documented
-  deviations. voluptuous's own authors' notion of the contract, run against
-  Probatio.
-- **Home Assistant `config_validation`:** 142 of 142 pass, with voluptuous
+- **voluptuous 0.16.0 test suite:** runs against Probatio, with every divergence
+  a deliberate, documented deviation. voluptuous's own authors' notion of the
+  contract, checked.
+- **Home Assistant `config_validation`:** the full suite passes, with voluptuous
   swapped out for Probatio.
 - **100% line and branch coverage**, type-checked under both mypy and ty, in CI.
 - **Fuzzed on every untrusted-input surface.** The first fuzzing pass found
@@ -124,7 +124,7 @@ migration guide, and the API reference.
 
 ## Changelog & Releases
 
-This repository keeps a change log using [GitHub's releases][releases]
+This repository keeps a changelog using [GitHub's releases][releases]
 functionality. The format of the log is based on
 [Keep a Changelog][keepchangelog]. There is intentionally no `CHANGELOG.md` file:
 the GitHub Releases are the changelog.
@@ -134,8 +134,8 @@ of `MAJOR.MINOR.PATCH`. In a nutshell, the version will be incremented
 based on the following:
 
 - `MAJOR`: Incompatible or major changes.
-- `MINOR`: Backwards-compatible new features and enhancements.
-- `PATCH`: Backwards-compatible bugfixes and package updates.
+- `MINOR`: Backward-compatible new features and enhancements.
+- `PATCH`: Backward-compatible bugfixes and package updates.
 
 ## Contributing
 
@@ -150,7 +150,7 @@ Before you start, read the [contributing guide][contributing], the
 [code of conduct][code-of-conduct], and the [security policy][security]. Bugs and
 feature requests go to the [issue tracker][issues].
 
-Thank you for being involved! :heart_eyes:
+Thank you for being involved.
 
 ## Credits and inspiration
 
@@ -168,7 +168,7 @@ json_schema. Probatio stands on that same lineage.
 The original setup of this repository is by [Franck Nijhof][frenck].
 
 For a full list of all authors and contributors,
-check [the contributor's page][contributors].
+check [the contributors page][contributors].
 
 ## License
 

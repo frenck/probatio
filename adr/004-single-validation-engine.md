@@ -39,9 +39,11 @@ stays, since it is a small, contract-based optimization, not a second engine. If
 a future, measured workload genuinely needs more speed, a native core is the
 path to revisit, not regenerated Python source.
 
-**Revisited by ADR-011.** This decision is the default and still stands: the
-single interpreted engine is what every schema uses unless asked otherwise.
-ADR-011 reopens the codegen question with a different design (an opt-in, off by
-default, bail-safe compiled variant whose errors and unsupported shapes always
-fall back to this engine), and weighs it honestly against the four objections
-above rather than overturning them.
+**Revisited by ADR-011.** The substance of this decision still stands: the
+interpreted engine remains the only validation semantics and the always-present
+fallback. ADR-011 reopens the codegen question with a different design, an
+adaptive, bail-safe compiled variant whose default policy is `AUTO`: a schema runs
+interpreted and compiles itself only once it proves hot, and every error and
+unsupported shape falls back to this engine. So a cold or one-shot schema still
+uses the interpreted engine, while a hot schema accelerates itself. ADR-011 weighs
+that honestly against the four objections above rather than overturning them.
