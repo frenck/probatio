@@ -391,12 +391,18 @@ def _convert_named(node: Any) -> dict[str, Any] | None:
 
 # Regex syntax that Python's ``re`` accepts but JSON Schema's ECMA-262 dialect does
 # not. A ``pattern`` using one of these would be rejected, or silently behave
-# differently, in an external (non-Python) validator: a Python named group or
-# backreference, an inline ``(?#...)`` comment, a ``(?(id)...)`` conditional, a
-# ``(?>...)`` atomic group, an inline ``(?i)``/``(?im:...)`` flag set, or the
-# ``\A``/``\Z`` anchors that ECMA-262 spells ``^``/``$``.
+# differently, in an external (non-Python) validator. The detection is conservative:
+# a false negative (a Python-only construct not listed) emits an invalid pattern, so
+# err toward listing; a false positive only drops a valid pattern, the safe direction.
 _PYTHON_ONLY_REGEX = re.compile(
-    r"\(\?P[<=]|\(\?\#|\(\?\(|\(\?>|\(\?[aiLmsux]+[:)]|\\[AZ]",
+    r"\(\?P[<=]"  # named group (?P<n>...) or backreference (?P=n)
+    r"|\(\?\#"  # inline comment (?#...)
+    r"|\(\?\("  # conditional (?(id)yes|no)
+    r"|\(\?>"  # atomic group (?>...)
+    r"|\(\?[aiLmsux]+[:)]"  # inline flags (?i) or scoped (?im:...)
+    r"|\(\?[aiLmsux]*-[aiLmsux]+:"  # negated/mixed scoped flags (?-i:...)
+    r"|(?<!\\)[*+?}]\+"  # possessive quantifier (*+ ++ ?+ }+), not an escape
+    r"|\\[AZ]",  # \A / \Z anchors, which ECMA-262 spells ^ / $
 )
 
 
