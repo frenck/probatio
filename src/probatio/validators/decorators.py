@@ -13,9 +13,10 @@ from probatio.schema import ALLOW_EXTRA, Schema
 
 _RETURNS_KEY = "__return__"
 
-# ``validate`` preserves the decorated function's signature for callers: the
-# wrapper transforms the arguments internally (so it cannot forward a ParamSpec
-# directly), so it is typed ``Any`` and cast to the function's own ``(**P) -> R``.
+# ``validate`` and ``message`` preserve the decorated function's signature for
+# callers: each wraps it with a ``*args, **kwargs`` forwarder (so it cannot pass a
+# ParamSpec through directly), typed ``Any`` internally and cast back to the
+# function's own ``(**P) -> R``.
 _P = typing.ParamSpec("_P")
 _R = typing.TypeVar("_R")
 
@@ -23,7 +24,10 @@ _R = typing.TypeVar("_R")
 def message(
     default: str | None = None,
     cls: type[Invalid] | None = None,
-) -> typing.Callable[..., typing.Any]:
+) -> typing.Callable[
+    [typing.Callable[_P, _R]],
+    typing.Callable[..., typing.Callable[_P, _R]],
+]:
     """Turn a function that raises ``ValueError`` into a configurable validator.
 
     The decorated function becomes a factory. Calling it returns a validator that
@@ -45,15 +49,15 @@ def message(
         raise SchemaError(problem)
 
     def decorator(
-        func: typing.Callable[..., typing.Any],
-    ) -> typing.Callable[..., typing.Any]:
+        func: typing.Callable[_P, _R],
+    ) -> typing.Callable[..., typing.Callable[_P, _R]]:
         """Wrap ``func`` as a factory producing message-carrying validators."""
 
         @wraps(func)
         def check(
             msg: str | None = None,
             clsoverride: type[Invalid] | None = None,
-        ) -> typing.Callable[..., typing.Any]:
+        ) -> typing.Callable[_P, _R]:
             """Return a validator that runs ``func`` with a fixed failure message."""
 
             @wraps(func)
@@ -66,7 +70,10 @@ def message(
                         msg or default or "invalid value"
                     ) from None
 
-            return wrapper
+            # The wrapper forwards ``*args, **kwargs`` to ``func``, so it carries the
+            # same signature; it is typed ``Any`` internally and cast back to
+            # ``func``'s own ``(**P) -> R``, the way ``validate`` does.
+            return typing.cast("typing.Callable[_P, _R]", wrapper)
 
         return check
 
