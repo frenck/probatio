@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -355,3 +356,20 @@ def test_load_yaml_option_rejected_by_backend_is_a_clear_error(
     monkeypatch.setattr(_optional, "yamlrocks", None)
     with pytest.raises(ValueError, match="does not accept the option"):
         load_yaml("v: 1", options={"option": 1})
+
+
+def test_load_yaml_backend_typeerror_is_not_mislabeled_as_a_bad_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backend TypeError merely mentioning 'argument' propagates, not a bad-option error."""
+
+    def boom(_data: object, **_options: object) -> object:
+        # A data-related TypeError that happens to contain the word "argument": it
+        # accepts the option keywords, so this is not an unaccepted-option error.
+        message = "the document argument is malformed"
+        raise TypeError(message)
+
+    monkeypatch.setattr(_optional, "yamlrocks", None)
+    monkeypatch.setattr(_optional, "pyyaml", SimpleNamespace(safe_load=boom))
+    with pytest.raises(TypeError, match="document argument is malformed"):
+        load_yaml("v: 1", options={"flow": True})
