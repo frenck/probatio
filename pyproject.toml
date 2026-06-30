@@ -176,6 +176,9 @@ ignore = [
 # script directory, not importable library code. They dispatch with many returns
 # and swallow the "expected" exceptions of the surface under test.
 "fuzz/**" = ["ANN", "INP001", "S101", "PLR0911", "PLR0912", "SIM105"]
+# The accelerated build driver is a dev-only script (ADR-010), a script directory
+# rather than importable library code.
+"scripts/**" = ["INP001"]
 # The docs example harness is a dev-only script: it executes first-party doc
 # snippets (eval/exec by design), prints results, uses local imports, and runs a
 # branchy dispatcher over the AST. It is not importable library code.
