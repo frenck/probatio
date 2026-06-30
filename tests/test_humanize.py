@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from probatio import Error, Required, Schema
+from probatio import Error, Required, Schema, Secret
 from probatio.humanize import (
     MAX_VALIDATION_ERROR_ITEM_LENGTH,
     humanize_error,
@@ -44,6 +44,23 @@ def test_humanize_multiple_errors_joined() -> None:
         schema({"a": "x", "b": "y"})
     message = humanize_error({"a": "x", "b": "y"}, caught.value)
     assert len(message.splitlines()) == 2
+
+
+def test_humanize_redacts_a_failed_secret_value() -> None:
+    """A Secret that fails validation is redacted, never echoed into the message.
+
+    The raw value is still the unwrapped secret in the data on a failure (the mask
+    only wraps a successful result), so rendering it would leak the credential.
+    """
+    schema = Schema({Required("password"): Secret(int), Required("user"): str})
+    data = {"password": "hunter2-secret", "user": 123}
+    with pytest.raises(Exception) as caught:  # noqa: PT011
+        schema(data)
+    message = humanize_error(data, caught.value)
+    assert "hunter2-secret" not in message
+    assert "<redacted>" in message
+    # A non-secret field's value is still shown, redaction is targeted.
+    assert "Got 123" in message
 
 
 def test_humanize_truncates_long_values() -> None:
