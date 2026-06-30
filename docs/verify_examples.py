@@ -46,7 +46,16 @@ import types
 from contextlib import redirect_stdout
 from pathlib import Path
 
-DOCS = Path(__file__).resolve().parent / "src" / "content" / "docs"
+ROOT = Path(__file__).resolve().parent.parent
+DOCS = ROOT / "docs" / "src" / "content" / "docs"
+
+# READMEs outside the docs tree that carry runnable public examples. They are
+# checked here too, so a snippet in the project or a package README cannot drift
+# while the docs site stays green.
+_EXTRA_PAGES = [
+    ROOT / "README.md",
+    ROOT / "packages" / "pytest-probatio" / "README.md",
+]
 
 # Capture an optional marker on the line before the fence, then the block body.
 # The marker may be an HTML comment (Markdown) or an MDX expression comment.
@@ -82,7 +91,9 @@ def _is_instance_of(exc, name, env):
 
 
 def iter_pages():
-    for path in sorted(DOCS.rglob("*.md")) + sorted(DOCS.rglob("*.mdx")):
+    pages = sorted(DOCS.rglob("*.md")) + sorted(DOCS.rglob("*.mdx"))
+    pages += [path for path in _EXTRA_PAGES if path.exists()]
+    for path in pages:
         text = path.read_text()
 
         blocks = []
@@ -470,7 +481,7 @@ def main() -> int:
     # Each page runs its blocks sequentially in one shared namespace and one
     # shared working directory, mirroring a reader copying blocks top to bottom.
     for path, blocks in iter_pages():
-        rel = path.relative_to(DOCS)
+        rel = path.relative_to(ROOT)
         # Run the page's blocks inside a real module registered in ``sys.modules``,
         # not a bare dict, so ``get_type_hints`` can resolve a forward reference
         # (a self-referential dataclass like ``children: list[Tree]``) against the
