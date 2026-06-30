@@ -45,6 +45,12 @@
       "matchPackageNames": ["gcr.io/oss-fuzz-base/base-builder-python"],
       "addLabels": ["maintenance"],
       "schedule": ["before 3am on the first day of the month"]
+    },
+    {
+      "description": "marshmallow is a benchmark-only comparison dependency, capped at <4.0.0 by dataclasses-json (also benchmark-only in the bench-world group), whose latest release has no marshmallow 4 support. A marshmallow 4 bump is unsatisfiable and cannot lock, so hold it on the 3.x line until dataclasses-json supports 4 or is dropped from the benchmark.",
+      "matchManagers": ["pep621"],
+      "matchDepNames": ["marshmallow"],
+      "allowedVersions": "<4.0.0"
     }
   ]
 }
