@@ -840,19 +840,22 @@ def test_array_length_round_trips_as_item_count() -> None:
         schema([1])  # below the array length
 
 
-def test_unrecognized_type_accepts_anything() -> None:
-    """An unknown ``type`` value is ignored, leaving an accept-anything schema."""
-    schema = from_json_schema({"type": "nonsense"})
-    assert schema("x") == "x"
-    assert schema(5) == 5
+def test_unrecognized_type_is_rejected() -> None:
+    """An unknown ``type`` name fails closed rather than accepting anything."""
+    with pytest.raises(SchemaError, match="not a recognized type name"):
+        from_json_schema({"type": "nonsense"})
 
 
-def test_unrecognized_type_still_honors_a_constraint() -> None:
-    """An unknown ``type`` does not swallow a sibling constraint keyword."""
-    schema = from_json_schema({"type": "nonsense", "minimum": 5})
-    assert schema(7) == 7
-    with pytest.raises(Invalid):
-        schema(3)  # the sibling minimum still applies
+def test_unrecognized_type_is_rejected_even_with_a_constraint() -> None:
+    """A sibling constraint does not rescue an unknown ``type``; it still fails closed."""
+    with pytest.raises(SchemaError, match="not a recognized type name"):
+        from_json_schema({"type": "nonsense", "minimum": 5})
+
+
+def test_unrecognized_type_in_a_type_array_is_rejected() -> None:
+    """An unknown name inside a ``type`` array fails closed too (issue: fail-open widen)."""
+    with pytest.raises(SchemaError, match="not a recognized type name"):
+        from_json_schema({"type": ["integer", "nonsense"]})
 
 
 def test_object_length_round_trips_as_property_count() -> None:
