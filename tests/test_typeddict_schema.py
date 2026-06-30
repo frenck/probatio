@@ -178,3 +178,17 @@ def test_functional_form_matches_the_class() -> None:
         "port": 1,
         "host": "x",
     }
+
+
+def test_construct_returns_trusted_data_unchanged() -> None:
+    """construct() returns trusted input as the TypedDict, with no validation."""
+
+    class Movie(TypedDict):
+        title: str
+        year: int
+
+    schema = TypedDictSchema(Movie)
+    data = {"title": "x", "year": "not-an-int"}  # wrong type, but trusted
+    assert schema.construct(data) == {"title": "x", "year": "not-an-int"}
+    with pytest.raises(MultipleInvalid):
+        schema(data)  # validation would reject it

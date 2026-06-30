@@ -424,6 +424,13 @@ class _DeferredRef:
     document root. Its ``schema`` is always set before any validation runs.
     """
 
+    # Validating a ``$ref`` re-enters the same schema, so the code generator must
+    # not compile a mapping holding one: a deep failure would make every level bail
+    # to the interpreted engine and re-validate its whole subtree, an exponential
+    # cascade. This marks the value so ``probatio._codegen`` leaves such a mapping
+    # interpreted, the same way ``Self`` recursion is left interpreted.
+    _probatio_recursive_ref = True
+
     def __init__(self) -> None:
         """Start unresolved; ``schema`` is filled in when the target finishes."""
         self.schema: Schema | None = None

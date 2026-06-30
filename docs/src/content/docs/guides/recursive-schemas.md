@@ -74,7 +74,7 @@ tree({"value": 1, "next": {"value": 2, "next": "stop"}})
 ```
 
 `All(Self, ...)` works the same way, chaining the recursive check with another
-schema. `Self` has to be a *direct* branch of the combinator, as above. Buried
+schema. `Self` has to be a _direct_ branch of the combinator, as above. Buried
 inside a structure that is a branch (`Any({"inner": Self}, ...)`), it binds to that
 structure rather than the whole schema, so keep it at the top of the branch.
 
@@ -83,6 +83,7 @@ which compiles its inner schema outside any combinator, so `Self` has nothing to
 resolve to and it raises `SchemaError` at build time:
 
 <!-- verify: raises SchemaError -->
+
 ```python
 from probatio import Schema, Self, Maybe
 

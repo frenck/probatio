@@ -18,12 +18,12 @@ voluptuous is the primary correctness target (see ADR-001).
 
 ## Project layout
 
-| Path            | Purpose                                                       |
-| --------------- | ------------------------------------------------------------- |
-| `src/probatio/` | The Python package                                            |
-| `tests/`        | pytest suite; each test has a one-line docstring              |
-| `docs/`         | Astro Starlight documentation site                            |
-| `adr/`          | Architecture decision records (the why behind major choices)  |
+| Path            | Purpose                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `src/probatio/` | The Python package                                           |
+| `tests/`        | pytest suite; each test has a one-line docstring             |
+| `docs/`         | Astro Starlight documentation site                           |
+| `adr/`          | Architecture decision records (the why behind major choices) |
 
 ## Commands: `just` is the interface
 

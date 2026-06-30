@@ -3,13 +3,37 @@
 Run with: ``uv run --no-sync pytest bench --codspeed``. These are tracked per-PR
 by CodSpeed so a performance regression shows up in review. They are not part of
 the normal test run (testpaths is ``tests``).
+
+Every benchmark pins its compile policy explicitly; none rides the process default.
+That matters because the default is ``AUTO``, which compiles a schema once it has
+been validated enough times, and a benchmark loops far past that threshold. Left to
+the default, the interpreted benchmarks would silently start measuring generated
+code mid-run, so the numbers would mix two engines and break the CodSpeed history.
+Instead:
+
+- The interpreted benchmarks build their schema with ``compile=False``. They are the
+  engine baseline, continuous with every prior CodSpeed run.
+- The ``*_compiled`` benchmarks call ``.compile()`` eagerly, so the generated
+  validator is in place before the first measured call, with no warmup to mix in.
+  A guard test asserts each one really swapped in generated code, so a future
+  generator change cannot quietly turn a compiled benchmark back into an interpreted
+  one without anyone noticing.
+- ``test_generate_*`` measures the code generation itself (the cost being monitored),
+  not validation.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import probatio
+from probatio._codegen import compile_mapping
+
+
+def _is_compiled(schema: probatio.Schema) -> bool:
+    """Report whether the schema swapped in a generated validator."""
+    return getattr(schema._compiled, "__name__", "") == "_validate"
 
 
 def _config_schema() -> dict[Any, Any]:
@@ -26,7 +50,8 @@ def _config_schema() -> dict[Any, Any]:
     }
 
 
-CONFIG = probatio.Schema(_config_schema())
+CONFIG = probatio.Schema(_config_schema(), compile=False)
+CONFIG_COMPILED = probatio.Schema(_config_schema()).compile()
 CONFIG_PAYLOAD = {
     "name": "service",
     "port": "443",
@@ -37,32 +62,61 @@ CONFIG_PAYLOAD = {
 
 
 def test_validate_config(benchmark: Any) -> None:
-    """Validate a configuration-style payload."""
+    """Validate a configuration-style payload (interpreted)."""
     result = benchmark(CONFIG, CONFIG_PAYLOAD)
     # Assert the work actually happened (port coerced to int), so a benchmark
     # cannot look faster by quietly skipping validation.
     assert result["port"] == 443
 
 
+def test_validate_config_compiled(benchmark: Any) -> None:
+    """Validate the same config payload through the generated validator."""
+    result = benchmark(CONFIG_COMPILED, CONFIG_PAYLOAD)
+    assert result["port"] == 443
+
+
 def test_compile_config(benchmark: Any) -> None:
-    """Compile the full configuration schema from scratch."""
-    result = benchmark(lambda: probatio.Schema(_config_schema()))
+    """Build the full configuration schema from scratch (no code generation)."""
+    result = benchmark(lambda: probatio.Schema(_config_schema(), compile=False))
     assert isinstance(result, probatio.Schema)
 
 
-def test_validate_list(benchmark: Any) -> None:
-    """Validate a list of coerced, range-checked numbers (single-element schema)."""
-    schema = probatio.Schema(
-        [probatio.All(probatio.Coerce(int), probatio.Range(min=0))]
+def test_generate_config(benchmark: Any) -> None:
+    """Generate a validator for the config mapping: the codegen plus exec cost."""
+    validator = probatio.Schema(_config_schema(), compile=False)._compiled
+    result = benchmark(compile_mapping, validator)
+    # Assert the generator accepted the mapping, so the benchmark cannot look faster
+    # by bailing to None on a shape it no longer handles.
+    assert result is not None
+
+
+def _list_schema(**kwargs: Any) -> probatio.Schema:
+    """A single-element list schema (coerced, range-checked numbers)."""
+    return probatio.Schema(
+        [probatio.All(probatio.Coerce(int), probatio.Range(min=0))], **kwargs
     )
-    payload = [str(value) for value in range(50)]
-    result = benchmark(schema, payload)
+
+
+LIST = _list_schema(compile=False)
+LIST_COMPILED = _list_schema().compile()
+LIST_PAYLOAD = [str(value) for value in range(50)]
+
+
+def test_validate_list(benchmark: Any) -> None:
+    """Validate a list of coerced, range-checked numbers (interpreted)."""
+    result = benchmark(LIST, LIST_PAYLOAD)
+    assert result == list(range(50))
+
+
+def test_validate_list_compiled(benchmark: Any) -> None:
+    """Validate the same list through the generated per-item loop."""
+    result = benchmark(LIST_COMPILED, LIST_PAYLOAD)
     assert result == list(range(50))
 
 
 def test_validate_any_miss(benchmark: Any) -> None:
     """Reject a value against an Any whose branches all fail (the deepest-error path)."""
-    schema = probatio.Schema(probatio.Any(int, float, str))
+    schema = probatio.Schema(probatio.Any(int, float, str), compile=False)
 
     def run() -> bool:
         try:
@@ -84,6 +138,7 @@ def test_validate_exclusive_group(benchmark: Any) -> None:
             probatio.Exclusive("b", "g"): int,
             probatio.Optional("c"): int,
         },
+        compile=False,
     )
     result = benchmark(schema, {"a": 1, "c": 3})
     assert result == {"a": 1, "c": 3}
@@ -126,7 +181,8 @@ def _leaf_heavy_schema() -> dict[Any, Any]:
     }
 
 
-LEAF_HEAVY = probatio.Schema(_leaf_heavy_schema())
+LEAF_HEAVY = probatio.Schema(_leaf_heavy_schema(), compile=False)
+LEAF_HEAVY_COMPILED = probatio.Schema(_leaf_heavy_schema()).compile()
 LEAF_HEAVY_PAYLOAD = {
     "email": "user@example.com",
     "ip": "192.168.1.1",
@@ -139,6 +195,12 @@ LEAF_HEAVY_PAYLOAD = {
 def test_validate_leaf_heavy(benchmark: Any) -> None:
     """Validate a mapping of built-in leaf validators (Email, IP, Match, ...)."""
     result = benchmark(LEAF_HEAVY, LEAF_HEAVY_PAYLOAD)
+    assert result["email"] == "user@example.com"
+
+
+def test_validate_leaf_heavy_compiled(benchmark: Any) -> None:
+    """Validate the leaf-heavy mapping through the generated validator."""
+    result = benchmark(LEAF_HEAVY_COMPILED, LEAF_HEAVY_PAYLOAD)
     assert result["email"] == "user@example.com"
 
 
@@ -158,7 +220,8 @@ def _nested_schema() -> dict[Any, Any]:
     }
 
 
-NESTED = probatio.Schema(_nested_schema())
+NESTED = probatio.Schema(_nested_schema(), compile=False)
+NESTED_COMPILED = probatio.Schema(_nested_schema()).compile()
 NESTED_PAYLOAD = {
     "entity_id": "light.kitchen",
     "data": {"brightness": "200", "rgb": [255, 0, 0]},
@@ -169,6 +232,48 @@ def test_validate_nested(benchmark: Any) -> None:
     """Validate a nested mapping (recursing into a sub-mapping and a list)."""
     result = benchmark(NESTED, NESTED_PAYLOAD)
     assert result["data"]["brightness"] == 200
+
+
+def test_validate_nested_compiled(benchmark: Any) -> None:
+    """Validate the nested mapping through the generated top-level validator."""
+    result = benchmark(NESTED_COMPILED, NESTED_PAYLOAD)
+    assert result["data"]["brightness"] == 200
+
+
+@dataclass
+class _Service:
+    """A small dataclass, the clearest compiled win (validate and construct fused)."""
+
+    name: str
+    port: int
+    enabled: bool
+    weight: float
+
+
+SERVICE = probatio.DataclassSchema(_Service, compile=False)
+SERVICE_COMPILED = probatio.DataclassSchema(_Service).compile()
+SERVICE_PAYLOAD = {"name": "service", "port": 443, "enabled": True, "weight": 1.5}
+
+
+def test_validate_dataclass(benchmark: Any) -> None:
+    """Validate and construct a dataclass (interpreted)."""
+    result = benchmark(SERVICE, SERVICE_PAYLOAD)
+    assert result.port == 443
+
+
+def test_validate_dataclass_compiled(benchmark: Any) -> None:
+    """Validate and construct a dataclass through the fused generated validator."""
+    result = benchmark(SERVICE_COMPILED, SERVICE_PAYLOAD)
+    assert result.port == 443
+
+
+def test_compiled_benchmarks_use_the_generated_validator() -> None:
+    """Guard: every ``*_compiled`` benchmark really measures generated code."""
+    assert _is_compiled(CONFIG_COMPILED)
+    assert _is_compiled(LEAF_HEAVY_COMPILED)
+    assert _is_compiled(NESTED_COMPILED)
+    assert _is_compiled(SERVICE_COMPILED)
+    assert _is_compiled(LIST_COMPILED)
 
 
 def _combinator_schema() -> dict[Any, Any]:
@@ -200,24 +305,24 @@ def _deep_schema(depth: int) -> dict[Any, Any]:
 
 
 def test_compile_nested(benchmark: Any) -> None:
-    """Compile a nested schema from scratch (recursive compile over a sub-mapping)."""
-    result = benchmark(lambda: probatio.Schema(_nested_schema()))
+    """Build a nested schema from scratch (recursive compile over a sub-mapping)."""
+    result = benchmark(lambda: probatio.Schema(_nested_schema(), compile=False))
     assert isinstance(result, probatio.Schema)
 
 
 def test_compile_leaf_heavy(benchmark: Any) -> None:
-    """Compile a wide, many-key mapping from scratch."""
-    result = benchmark(lambda: probatio.Schema(_leaf_heavy_schema()))
+    """Build a wide, many-key mapping from scratch."""
+    result = benchmark(lambda: probatio.Schema(_leaf_heavy_schema(), compile=False))
     assert isinstance(result, probatio.Schema)
 
 
 def test_compile_combinators(benchmark: Any) -> None:
-    """Compile a combinator-heavy schema (All/Any/Union nesting) from scratch."""
-    result = benchmark(lambda: probatio.Schema(_combinator_schema()))
+    """Build a combinator-heavy schema (All/Any/Union nesting) from scratch."""
+    result = benchmark(lambda: probatio.Schema(_combinator_schema(), compile=False))
     assert isinstance(result, probatio.Schema)
 
 
 def test_compile_deep(benchmark: Any) -> None:
-    """Compile a deeply nested schema, where construction cost actually lives."""
-    result = benchmark(lambda: probatio.Schema(_deep_schema(16)))
+    """Build a deeply nested schema, where construction cost actually lives."""
+    result = benchmark(lambda: probatio.Schema(_deep_schema(16), compile=False))
     assert isinstance(result, probatio.Schema)

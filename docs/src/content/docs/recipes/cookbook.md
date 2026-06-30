@@ -37,6 +37,7 @@ A point with a non-int coordinate fails against the point branch, not the whole
 union:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Union
 
@@ -76,6 +77,7 @@ flag("off")  # False
 does not crash with a raw `ValueError`:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Coerce, All, Range
 
@@ -214,7 +216,7 @@ except Invalid as err:
 
 ## At least one of a group of keys
 
-To require that *at least one* of several keys is present, while still allowing
+To require that _at least one_ of several keys is present, while still allowing
 more than one, use a `Required(Any(...))` key. The `Any` lists the acceptable
 keys, and the mapped value validates each one that appears. This is the "one or
 more" counterpart to `Exclusive` (at most one) and `Inclusive` (all or none).
@@ -261,7 +263,7 @@ schema({"name": "app", "legacy_mode": True})  # {'name': 'app'}
 
 ## Extending a base schema with a cross-field rule
 
-To add keys to a shared base *and* check a rule across the whole mapping, compose
+To add keys to a shared base _and_ check a rule across the whole mapping, compose
 the two: `extend` merges the new keys, and `All` layers a whole-mapping validator
 on top. There is no need for `extend` to grow special cases; the combinators
 already compose.
@@ -327,6 +329,7 @@ node({"name": "root", "children": [{"name": "leaf"}]})
 A bad value deep in the tree is rejected with a path that points right at it:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Required, Optional, Self
 
@@ -364,6 +367,7 @@ except Invalid as err:
 failure, raises a plain `Error` carrying the humanized message.
 
 <!-- verify: raises Error -->
+
 ```python
 from probatio import Schema, Range
 from probatio.humanize import validate_with_humanized_errors

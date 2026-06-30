@@ -105,6 +105,10 @@ test = [
   # voluptuous-openapi is a dev-only oracle: probatio.to_openapi is compared
   # against its convert() on equivalent schemas. Never a runtime dependency.
   "voluptuous-openapi==0.4.1",
+  # mashumaro is a benchmark-only comparison for the dataclass path (its codegen
+  # from_dict against DataclassSchema). It is not an oracle: it deserializes rather
+  # than validates, so it is never compared for correctness. Never a runtime dep.
+  "mashumaro==3.17",
   # The optional I/O backends, installed for tests so the real accelerators are
   # exercised (the pure-Python fallbacks are covered by patching these to None).
   # These are the probatio[fast] / probatio[yaml] / probatio[toml] extras.
@@ -120,6 +124,22 @@ lint = ["ruff==0.15.20", "codespell==2.4.2", "zizmor==1.26.1"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
 codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
+# Cross-library comparison for the "rest of the world" benchmark (bench_world.py).
+# Benchmark-only, installed on demand (just bench-world syncs this group); none is a
+# runtime or test dependency, and none is a correctness oracle. pydantic v1 is read
+# through pydantic v2's pydantic.v1 compatibility namespace, so both versions come
+# from one install.
+bench-world = [
+  { include-group = "test" },
+  "cattrs==25.3.0",
+  "dacite==1.9.2",
+  "dataclasses-json==0.6.7",
+  "marshmallow==3.26.2",
+  "pydantic==2.12.4",
+  # Renders the benchmark charts (just charts) into the docs assets, themed to the
+  # docs. Benchmark-only; never a runtime or test dependency.
+  "matplotlib==3.10.7",
+]
 # Everything needed for local development, in one install. Includes the `just`
 # task runner (the `rust-just` wheel bundles the binary), so `uv run just` works
 # with no separate install.
@@ -171,7 +191,7 @@ ignore = [
 ]
 # Benchmarks print results, time tiny throwaway callables, and are a script
 # directory rather than an importable package.
-"bench/**" = ["T201", "S101", "ANN", "D", "INP001"]
+"bench/**" = ["T201", "S101", "ANN", "D", "INP001", "SLF001"]
 # Fuzz harnesses are atheris entry points (fixed signatures, not annotated) in a
 # script directory, not importable library code. They dispatch with many returns
 # and swallow the "expected" exceptions of the surface under test.

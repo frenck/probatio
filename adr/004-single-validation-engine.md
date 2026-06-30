@@ -38,3 +38,10 @@ raise `Invalid`, so the engine calls them without the ValueError-wrapping guard)
 stays, since it is a small, contract-based optimization, not a second engine. If
 a future, measured workload genuinely needs more speed, a native core is the
 path to revisit, not regenerated Python source.
+
+**Revisited by ADR-011.** This decision is the default and still stands: the
+single interpreted engine is what every schema uses unless asked otherwise.
+ADR-011 reopens the codegen question with a different design (an opt-in, off by
+default, bail-safe compiled variant whose errors and unsupported shapes always
+fall back to this engine), and weighs it honestly against the four objections
+above rather than overturning them.

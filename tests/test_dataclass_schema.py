@@ -15,7 +15,7 @@ from collections.abc import (  # noqa: TC003 - resolved at runtime by get_type_h
     Sequence,
 )
 from dataclasses import InitVar, dataclass, field
-from typing import Annotated, Any, Literal, NewType, TypeVar
+from typing import Annotated, Any, Literal, NewType, TypedDict, TypeVar
 
 import pytest
 
@@ -674,3 +674,256 @@ def test_initvar_type_is_enforced() -> None:
 
     with pytest.raises(MultipleInvalid):
         DataclassSchema(Seeded)({"base": 1, "seed": "not-an-int"})
+
+
+# --- construct(): the opt-in trusted fast path (no validation) ---
+
+
+@dataclass
+class _Loc:
+    x: int
+    y: int
+
+
+@dataclass
+class _Rec:
+    name: str
+    age: int
+    tags: list[str]
+    loc: _Loc
+    note: str = "none"
+    extra: list[int] = field(default_factory=list)
+
+
+def test_construct_matches_validation_for_trusted_input() -> None:
+    """construct() builds the same instance validation would, without checking."""
+    schema = DataclassSchema(_Rec)
+    data = {"name": "ada", "age": 30, "tags": ["a"], "loc": {"x": 1, "y": 2}}
+    built = schema.construct(dict(data))
+    assert built == schema(dict(data))
+    assert built.note == "none"  # default filled
+    assert built.extra == []  # factory default filled
+    assert type(built.loc) is _Loc  # nested built as a real instance, not a dict
+
+
+def test_construct_builds_a_list_of_nested_dataclasses() -> None:
+    """A list of dataclasses is built per item."""
+
+    @dataclass
+    class Bag:
+        items: list[_Loc]
+
+    schema = DataclassSchema(Bag)
+    built = schema.construct({"items": [{"x": 1, "y": 2}, {"x": 3, "y": 4}]})
+    assert built.items == [_Loc(1, 2), _Loc(3, 4)]
+    assert type(built.items[0]) is _Loc
+
+
+def test_construct_trusts_the_input_and_skips_validation() -> None:
+    """A wrong type passes straight through construct(); validation would reject it."""
+    schema = DataclassSchema(_Loc)
+    built = schema.construct({"x": "not-an-int", "y": 2})
+    assert built == _Loc(x="not-an-int", y=2)  # unchecked, trusted
+    with pytest.raises(MultipleInvalid):
+        schema({"x": "not-an-int", "y": 2})
+
+
+def test_construct_caches_the_constructor() -> None:
+    """The constructor is built once and reused across calls."""
+    schema = DataclassSchema(_Loc)
+    schema.construct({"x": 1, "y": 2})
+    first = schema._construct_fn
+    schema.construct({"x": 3, "y": 4})
+    assert schema._construct_fn is first
+
+
+def test_construct_falls_back_for_a_recursive_dataclass() -> None:
+    """A self-referential dataclass is not fast-built; construct() validates instead."""
+    schema = DataclassSchema(Node)  # nxt: Node | None
+    assert schema._fast_constructor() is None
+    data = {"value": 1, "nxt": {"value": 2}}
+    assert schema.construct(dict(data)) == schema(dict(data))
+
+
+def test_construct_falls_back_for_a_recursive_list_dataclass() -> None:
+    """A list-of-self dataclass falls back to validation too."""
+    schema = DataclassSchema(Tree)  # children: list[Tree]
+    assert schema._fast_constructor() is None
+    data = {"name": "root", "children": [{"name": "leaf", "children": []}]}
+    assert schema.construct(dict(data)) == schema(dict(data))
+
+
+def test_construct_falls_back_for_a_nested_unbuildable_dataclass() -> None:
+    """A field whose nested dataclass cannot be fast-built falls the whole thing back."""
+
+    @dataclass
+    class HasNode:
+        n: Node
+
+    schema = DataclassSchema(HasNode)
+    assert schema._fast_constructor() is None
+    data = {"n": {"value": 1}}
+    assert schema.construct(dict(data)) == schema(dict(data))
+
+
+def test_construct_falls_back_for_a_dataclass_behind_a_container() -> None:
+    """A dataclass behind a tuple (not a plain list) is left to validation."""
+
+    @dataclass
+    class Pair:
+        points: tuple[_Loc, _Loc]
+
+    schema = DataclassSchema(Pair)
+    assert schema._fast_constructor() is None
+
+
+def test_construct_builds_optional_and_union_fields() -> None:
+    """construct() fast-builds Optional, list-of-Optional, and single-dataclass Union."""
+
+    @dataclass
+    class Has:
+        loc: _Loc | None
+        items: list[_Loc | None]
+        tagged: _Loc | str
+        count: int | None = None  # Optional scalar passes straight through
+
+    schema = DataclassSchema(Has)
+    assert schema._fast_constructor() is not None
+    built = schema.construct(
+        {
+            "loc": {"x": 1, "y": 2},
+            "items": [{"x": 3, "y": 4}, None],
+            "tagged": {"x": 5, "y": 6},
+            "count": 7,
+        }
+    )
+    assert built.loc == _Loc(1, 2)
+    assert built.items == [_Loc(3, 4), None]
+    assert type(built.items[0]) is _Loc
+    assert built.tagged == _Loc(5, 6)
+    assert built.count == 7
+    # A None Optional, and the str branch of the union (not a dict).
+    other = schema.construct({"loc": None, "items": [], "tagged": "label"})
+    assert other.loc is None
+    assert other.tagged == "label"
+    assert other.count is None
+
+
+def test_construct_falls_back_for_optional_unbuildable() -> None:
+    """An Optional wrapping a shape the fast path cannot build falls back."""
+
+    @dataclass
+    class Has:
+        pair: tuple[_Loc, _Loc] | None
+
+    assert DataclassSchema(Has)._fast_constructor() is None
+
+
+def test_construct_falls_back_for_a_union_of_two_dataclasses() -> None:
+    """A Union of two dataclasses cannot be told apart at runtime, so it falls back."""
+
+    @dataclass
+    class A:
+        v: int
+
+    @dataclass
+    class B:
+        w: int
+
+    @dataclass
+    class Amb:
+        thing: A | B
+
+    assert DataclassSchema(Amb)._fast_constructor() is None
+
+
+def test_construct_falls_back_for_a_union_with_a_dict_alternative() -> None:
+    """A dataclass-or-dict union is ambiguous (both are dicts), so it falls back."""
+
+    @dataclass
+    class Has:
+        thing: _Loc | dict[str, int]
+
+    assert DataclassSchema(Has)._fast_constructor() is None
+
+
+def test_construct_falls_back_for_a_union_with_a_mapping_alternative() -> None:
+    """A Mapping alternative is dict-shaped at runtime, so the union falls back.
+
+    ``Mapping[...]`` resolves to ``collections.abc.Mapping``, not ``dict``, but a dict
+    still satisfies it, so it is ambiguous with the dataclass branch the same way a
+    plain ``dict`` is. Without falling back, a mapping value would be fed to the
+    dataclass constructor.
+    """
+
+    @dataclass
+    class Has:
+        thing: _Loc | Mapping[str, int]
+
+    schema = DataclassSchema(Has)
+    assert schema._fast_constructor() is None
+    # And it still builds the right thing through the validating fallback.
+    assert schema.construct({"thing": {"k": 1}}) == schema({"thing": {"k": 1}})
+
+
+class _Movie(TypedDict):
+    """A module-level TypedDict, so get_type_hints can resolve it in an annotation."""
+
+    title: str
+
+
+@dataclass
+class _HasMovie:
+    thing: _Loc | _Movie
+
+
+def test_construct_falls_back_for_a_union_with_a_typeddict_alternative() -> None:
+    """A TypedDict alternative is a plain dict at runtime, so the union falls back."""
+    assert DataclassSchema(_HasMovie)._fast_constructor() is None
+
+
+def test_construct_falls_back_for_a_union_with_a_recursive_dataclass() -> None:
+    """A union member that cannot itself be fast-built falls the whole thing back."""
+
+    @dataclass
+    class Has:
+        thing: Node | str
+
+    assert DataclassSchema(Has)._fast_constructor() is None
+
+
+def test_construct_passes_through_an_already_built_nested_instance() -> None:
+    """A nested field already holding an instance is used as-is, not subscripted.
+
+    construct() builds a nested dataclass from a dict; handed the built instance
+    instead (a partially constructed input), it passes it through rather than calling
+    the child constructor on a non-dict, which would crash.
+    """
+
+    @dataclass
+    class Has:
+        loc: _Loc
+
+    schema = DataclassSchema(Has)
+    built = schema.construct({"loc": _Loc(1, 2)})
+    assert built.loc == _Loc(1, 2)
+    assert type(built.loc) is _Loc
+
+
+def test_construct_aliases_a_trusted_plain_list() -> None:
+    """A plain-list field is passed through, not copied, where validation rebuilds it.
+
+    construct() trusts the input, so it aliases a ``list[int]`` it does not need to
+    rebuild; the validating call returns a fresh list. Both hold equal values.
+    """
+
+    @dataclass
+    class Tagged:
+        tags: list[int]
+
+    schema = DataclassSchema(Tagged)
+    source = [1, 2, 3]
+    assert schema.construct({"tags": source}).tags is source  # aliased, trusted
+    validated = schema({"tags": source})
+    assert validated.tags is not source  # validation rebuilds a fresh list
+    assert validated.tags == source

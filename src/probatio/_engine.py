@@ -79,6 +79,11 @@ class _Candidate(NamedTuple):
     # declaration order. Empty for a normal key. The value arriving under any of
     # these names is validated and stored under ``key_schema`` (the canonical).
     alias_input_names: tuple[Any, ...] = ()
+    # The raw value schema this candidate compiled (the ``int``, ``Range(...)``,
+    # ``All(...)`` written in the schema), kept so the code generator can inline
+    # known validators instead of calling their compiled closures. ``None`` for a
+    # candidate the generator never sees (the Extra catch-all).
+    value_schema: Any = None
 
 
 class _MappingValidator:
@@ -690,10 +695,14 @@ class _SequenceValidator:
                 self._validate_item(index, item, result, errors)
         if errors:
             raise MultipleInvalid(errors)
-        # Rebuild as the data's own type (voluptuous semantics), so a subclass or
-        # namedtuple round-trips. A namedtuple takes its fields positionally, not a
-        # single iterable, so it is rebuilt with a splat.
+        # A plain list is the hot case: ``result`` is already a fresh list of the
+        # validated items, so return it directly rather than copying it into a new
+        # one. Other types are rebuilt as the data's own type (voluptuous semantics),
+        # so a subclass or namedtuple round-trips. A namedtuple takes its fields
+        # positionally, not a single iterable, so it is rebuilt with a splat.
         out_type = type(data)
+        if out_type is list:
+            return result
         if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
             return out_type(*result)
         return out_type(result)

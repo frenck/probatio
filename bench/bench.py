@@ -1,11 +1,17 @@
-"""Compare probatio and voluptuous validation throughput.
+"""Compare voluptuous and probatio (interpreted and compiled) validation throughput.
 
 Run with: ``uv run --no-sync python bench/bench.py``.
 
-For each scenario the same schema is built once in both libraries, then a fixed
-payload is validated many times. It prints a small table of total time and the
-probatio/voluptuous ratio. This is a rough, single-machine comparison, not a
-rigorous benchmark; CodSpeed (``just codspeed``) is the tracked one.
+For each scenario the same schema is built in voluptuous and in probatio, the
+probatio one twice: once interpreted (``compile=False``) and once compiled
+(``.compile()``). A fixed payload is then validated many times through each. It
+prints a small table of total time and the ratios against voluptuous, plus how much
+the compiled path gains over the interpreted one. The compiled column only differs
+where the schema shape actually generates code; where it does not, it bails to the
+interpreted engine and the two read the same, which is honest to show.
+
+This is a rough, single-machine comparison, not a rigorous benchmark; CodSpeed
+(``just codspeed``) is the tracked one.
 """
 
 from __future__ import annotations
@@ -34,6 +40,33 @@ def config(lib: Any) -> Any:
     )
 
 
+def flat_types(lib: Any) -> Any:
+    """A flat mapping of plain type checks, no coercion (the isinstance hot path)."""
+    return lib.Schema(
+        {
+            lib.Required("name"): str,
+            lib.Optional("port"): int,
+            lib.Optional("enabled"): bool,
+            lib.Optional("ratio"): float,
+        },
+    )
+
+
+def combinator(lib: Any) -> Any:
+    """A mapping of combinators: an Any of literals and an All of Coerce plus Range."""
+    return lib.Schema(
+        {
+            lib.Required("mode"): lib.Any("auto", "manual", "off"),
+            lib.Required("level"): lib.All(lib.Coerce(int), lib.Range(min=0, max=10)),
+        },
+    )
+
+
+def number_list(lib: Any) -> Any:
+    """A list of coerced, range-checked numbers (a sequence schema, not a mapping)."""
+    return lib.Schema([lib.All(lib.Coerce(int), lib.Range(min=0))])
+
+
 def nested(lib: Any) -> Any:
     """A nested service-call-style schema."""
     return lib.Schema(
@@ -54,6 +87,11 @@ def nested(lib: Any) -> Any:
 
 SCENARIOS = [
     (
+        "flat types",
+        flat_types,
+        {"name": "service", "port": 443, "enabled": True, "ratio": 1.5},
+    ),
+    (
         "config",
         config,
         {
@@ -65,6 +103,16 @@ SCENARIOS = [
         },
     ),
     (
+        "combinator",
+        combinator,
+        {"mode": "auto", "level": "7"},
+    ),
+    (
+        "number list",
+        number_list,
+        [str(value) for value in range(50)],
+    ),
+    (
         "nested",
         nested,
         {
@@ -74,32 +122,71 @@ SCENARIOS = [
     ),
 ]
 
-ITERATIONS = 50_000
+ITERATIONS = 100_000
+REPEATS = 5
 
 
-def _time(validator: Any, payload: Any, iterations: int) -> float:
-    """Return the total seconds to validate ``payload`` ``iterations`` times."""
-    start = time.perf_counter()
-    for _ in range(iterations):
-        validator(payload)
-    return time.perf_counter() - start
+def _per_op_us(validator: Any, payload: Any) -> float:
+    """Return microseconds per validation, the best of ``REPEATS`` timed runs.
+
+    The best (minimum) run is the least disturbed by other activity on the machine,
+    so it is the most stable single number for a rough comparison.
+    """
+    best = float("inf")
+    for _ in range(REPEATS):
+        start = time.perf_counter()
+        for _ in range(ITERATIONS):
+            validator(payload)
+        best = min(best, time.perf_counter() - start)
+    return best / ITERATIONS * 1_000_000
+
+
+def measure() -> list[dict[str, Any]]:
+    """Time every scenario, returning ``[{scenario, voluptuous, probatio, compiled}]``."""
+    # Pin interpreted explicitly; the compiled schema is generated up front. Without
+    # this the interpreted schema would compile itself partway through the loop.
+    probatio.set_compile_policy(probatio.CompilePolicy.OFF)
+    rows: list[dict[str, Any]] = []
+    for name, builder, payload in SCENARIOS:
+        vol_schema = builder(voluptuous)
+        prob_schema = builder(probatio)
+        prob_compiled = builder(probatio).compile()
+        # Warm each once before timing.
+        vol_schema(payload)
+        prob_schema(payload)
+        prob_compiled(payload)
+        rows.append(
+            {
+                "scenario": name,
+                "voluptuous": _per_op_us(vol_schema, payload),
+                "probatio": _per_op_us(prob_schema, payload),
+                "compiled": _per_op_us(prob_compiled, payload),
+            }
+        )
+    return rows
 
 
 def main() -> None:
-    """Run every scenario through both libraries and print a comparison."""
-    print(f"{'scenario':<12} {'probatio':>12} {'voluptuous':>12} {'ratio':>8}")
-    print("-" * 48)
-    for name, builder, payload in SCENARIOS:
-        probatio_schema = builder(probatio)
-        voluptuous_schema = builder(voluptuous)
-        probatio_schema(payload)
-        voluptuous_schema(payload)
-        probatio_time = _time(probatio_schema, payload, ITERATIONS)
-        voluptuous_time = _time(voluptuous_schema, payload, ITERATIONS)
-        ratio = probatio_time / voluptuous_time
+    """Run every scenario through voluptuous and both probatio engines, and compare."""
+    header = (
+        f"{'scenario':<12} {'voluptuous':>11} {'probatio':>11} {'compiled':>11} "
+        f"{'prob vs vol':>12} {'comp vs vol':>12}"
+    )
+    print(header)
+    print("-" * len(header))
+    for row in measure():
+        vol, prob, comp = row["voluptuous"], row["probatio"], row["compiled"]
         print(
-            f"{name:<12} {probatio_time:>12.4f} {voluptuous_time:>12.4f} {ratio:>7.2f}x"
+            f"{row['scenario']:<12} {vol:>9.3f}µs {prob:>9.3f}µs {comp:>9.3f}µs "
+            f"{vol / prob:>11.2f}x {vol / comp:>11.2f}x"
         )
+    print(
+        "\nTimes are microseconds per validation (lower is faster). The last two "
+        "columns are how many times faster than voluptuous probatio runs, "
+        "interpreted and compiled. 'number list' does the most work per call (50 "
+        "items), so its absolute time is the highest even though its per-item cost "
+        "is in line with the rest."
+    )
 
 
 if __name__ == "__main__":

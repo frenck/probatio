@@ -5,7 +5,7 @@ description: Probatio's safety model for validating untrusted data and schemas.
 
 Probatio sits at the edge of a program: it validates data that came from
 somewhere you do not control. That data is often hostile, and through
-`from_json_schema` even the *schema* can be hostile. This page is honest about
+`from_json_schema` even the _schema_ can be hostile. This page is honest about
 what Probatio defends against, how, and where the responsibility stays with you.
 
 ## Threat model
@@ -34,12 +34,12 @@ code, the same as the rest of your program.
 
 ## Threats and mitigations
 
-| Threat                                                         | Vector                                                          | Mitigation                                                                                       |
-| -------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Catastrophic backtracking (ReDoS)                              | A `pattern` in an untrusted JSON Schema, compiled to a regex     | `from_json_schema` refuses a nested unbounded quantifier with `SchemaError`, before it compiles  |
-| Stack exhaustion from a deep document                          | A pathologically nested untrusted JSON Schema                    | The decoder caps nesting depth and raises `SchemaError` instead of overflowing the stack         |
-| Stack exhaustion from deep or cyclic data                      | Crafted data run through a recursive `Self` schema               | A recursion depth guard raises a clean `Invalid` instead of `RecursionError`                     |
-| Arbitrary object construction from YAML                        | Tags in an untrusted YAML payload                                | YAML is always parsed with a safe loader; the unsafe loaders are never used                      |
+| Threat                                    | Vector                                                       | Mitigation                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Catastrophic backtracking (ReDoS)         | A `pattern` in an untrusted JSON Schema, compiled to a regex | `from_json_schema` refuses a nested unbounded quantifier with `SchemaError`, before it compiles |
+| Stack exhaustion from a deep document     | A pathologically nested untrusted JSON Schema                | The decoder caps nesting depth and raises `SchemaError` instead of overflowing the stack        |
+| Stack exhaustion from deep or cyclic data | Crafted data run through a recursive `Self` schema           | A recursion depth guard raises a clean `Invalid` instead of `RecursionError`                    |
+| Arbitrary object construction from YAML   | Tags in an untrusted YAML payload                            | YAML is always parsed with a safe loader; the unsafe loaders are never used                     |
 
 ## Regex denial of service
 
@@ -53,6 +53,7 @@ the decoder raises `SchemaError` rather than building a validator that could
 hang:
 
 <!-- verify: raises SchemaError -->
+
 ```python
 from probatio import from_json_schema
 
@@ -76,7 +77,7 @@ not a guarantee.
 :::
 
 The trust boundary is the `from_json_schema` path, and only that path. A
-`Match` pattern you write in Python is *not* checked. That matches voluptuous:
+`Match` pattern you write in Python is _not_ checked. That matches voluptuous:
 a developer-written regex is the developer's responsibility. If you compile a
 pattern from input you do not trust, screen it yourself before handing it to
 `Match`.
@@ -91,6 +92,7 @@ unhandled crash. Probatio guards both.
 A JSON Schema document nested past a fixed depth is refused while decoding:
 
 <!-- verify: raises SchemaError -->
+
 ```python
 from probatio import from_json_schema
 

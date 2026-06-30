@@ -24,124 +24,124 @@ voluptuous](/getting-started/migrating-from-voluptuous/) and
 
 ## Schema and constants
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `Schema` | Supported | Same calling convention, including positional `required`/`extra`. |
-| `Schemable` | Supported | The type alias for anything `Schema` accepts. |
-| `ALLOW_EXTRA` | Supported | Extra-key policy constant. |
-| `PREVENT_EXTRA` | Supported | The default extra-key policy. |
-| `REMOVE_EXTRA` | Supported | Extra-key policy constant. |
-| `UNDEFINED` | Supported | The "no value" sentinel for marker defaults. |
-| `Undefined` | Supported | The type of `UNDEFINED`. |
-| `default_factory` | Supported | Wraps a callable as a marker default factory. |
+| Name              | Status    | Notes                                                             |
+| ----------------- | --------- | ----------------------------------------------------------------- |
+| `Schema`          | Supported | Same calling convention, including positional `required`/`extra`. |
+| `Schemable`       | Supported | The type alias for anything `Schema` accepts.                     |
+| `ALLOW_EXTRA`     | Supported | Extra-key policy constant.                                        |
+| `PREVENT_EXTRA`   | Supported | The default extra-key policy.                                     |
+| `REMOVE_EXTRA`    | Supported | Extra-key policy constant.                                        |
+| `UNDEFINED`       | Supported | The "no value" sentinel for marker defaults.                      |
+| `Undefined`       | Supported | The type of `UNDEFINED`.                                          |
+| `default_factory` | Supported | Wraps a callable as a marker default factory.                     |
 
 ## Markers
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `Marker` | Supported | Base class for all markers. |
-| `Required` | Supported | The key must be present. |
-| `Optional` | Supported | The key may be present; `default` fills it in. |
-| `Remove` | Supported | Drop matching keys from the output. |
-| `Extra` | Supported | The catch-all key. |
-| `Inclusive` | Supported | Keys in a group appear together or not at all. |
-| `Exclusive` | Supported | At most one key from a group. |
-| `Self` | Supported, with deviation | Recursive schema reference. See [Intentional deviations](#intentional-deviations). |
+| Name        | Status                    | Notes                                                                              |
+| ----------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `Marker`    | Supported                 | Base class for all markers.                                                        |
+| `Required`  | Supported                 | The key must be present.                                                           |
+| `Optional`  | Supported                 | The key may be present; `default` fills it in.                                     |
+| `Remove`    | Supported                 | Drop matching keys from the output.                                                |
+| `Extra`     | Supported                 | The catch-all key.                                                                 |
+| `Inclusive` | Supported                 | Keys in a group appear together or not at all.                                     |
+| `Exclusive` | Supported                 | At most one key from a group.                                                      |
+| `Self`      | Supported, with deviation | Recursive schema reference. See [Intentional deviations](#intentional-deviations). |
 
 ## Combinators
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `All` | Supported | Every validator must pass, output feeding the next. |
-| `Any` | Supported | First accepting validator wins. |
-| `And` | Supported | Alias of `All`. |
-| `Or` | Supported | Alias of `Any`. |
-| `Union` | Supported | Like `Any`, with an optional `discriminant`. |
-| `Switch` | Supported | Alias of `Union`. |
+| Name     | Status    | Notes                                                       |
+| -------- | --------- | ----------------------------------------------------------- |
+| `All`    | Supported | Every validator must pass, output feeding the next.         |
+| `Any`    | Supported | First accepting validator wins.                             |
+| `And`    | Supported | Alias of `All`.                                             |
+| `Or`     | Supported | Alias of `Any`.                                             |
+| `Union`  | Supported | Like `Any`, with an optional `discriminant`.                |
+| `Switch` | Supported | Alias of `Union`.                                           |
 | `SomeOf` | Supported | Pass between `min_valid` and `max_valid` of the validators. |
 
 ## Validators
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `Coerce` | Supported | Convert with `type(value)`. |
-| `Boolean` | Supported | Factory (`Boolean()`), as in voluptuous. Reads truthy/falsy strings as `bool`. |
-| `Literal` | Supported | Require equality with a literal. |
-| `Equal` | Supported | Require equality with a target. |
-| `In` | Supported | Membership in a container. |
-| `NotIn` | Supported | Non-membership in a container. |
-| `Contains` | Supported | A collection must contain an item. |
-| `Match` | Supported | Match a regular expression. |
-| `Replace` | Supported | Replace regex matches in a string. |
-| `Range` | Supported | Numeric bounds, inclusive by default. |
-| `Clamp` | Supported | Pin a value into a range. |
-| `Number` | Supported | Validate a numeric string, optionally precision and scale. |
-| `Length` | Supported | Bound the length of a sized value. |
-| `Unique` | Supported | Require distinct items. |
-| `Set` | Supported | Convert an iterable into a `set`. |
-| `ExactSequence` | Supported | Validate a fixed-length sequence by position. |
-| `Unordered` | Supported | Validate a sequence in any order. |
-| `Object` | Supported | Validate an object's attributes like a mapping. |
-| `Maybe` | Supported | Allow `None`, otherwise validate. |
-| `Lower` | Supported | Lowercase transform. |
-| `Upper` | Supported | Uppercase transform. |
-| `Capitalize` | Supported | Capitalize transform. |
-| `Title` | Supported | Title-case transform. |
-| `Strip` | Supported | Whitespace-strip transform. |
-| `Email` | Supported | Backtracking-safe email format check. |
-| `Url` | Supported | Backtracking-safe URL format check. |
-| `FqdnUrl` | Supported | URL with a fully qualified domain. |
-| `Datetime` | Supported | Validate a datetime string (default ISO 8601). |
-| `Date` | Supported | Validate a date string (default `%Y-%m-%d`). |
-| `IsDir` | Supported | An existing directory path. |
-| `IsFile` | Supported | An existing file path. |
-| `PathExists` | Supported | A path that exists. |
-| `IsTrue` | Supported | The value must be truthy. |
-| `IsFalse` | Supported | The value must be falsy. |
-| `DefaultTo` | Supported | Replace `None` with a default. |
-| `SetTo` | Supported | Always produce a fixed value. |
-| `Msg` | Supported | Replace a validator's failure message. |
+| Name            | Status    | Notes                                                                          |
+| --------------- | --------- | ------------------------------------------------------------------------------ |
+| `Coerce`        | Supported | Convert with `type(value)`.                                                    |
+| `Boolean`       | Supported | Factory (`Boolean()`), as in voluptuous. Reads truthy/falsy strings as `bool`. |
+| `Literal`       | Supported | Require equality with a literal.                                               |
+| `Equal`         | Supported | Require equality with a target.                                                |
+| `In`            | Supported | Membership in a container.                                                     |
+| `NotIn`         | Supported | Non-membership in a container.                                                 |
+| `Contains`      | Supported | A collection must contain an item.                                             |
+| `Match`         | Supported | Match a regular expression.                                                    |
+| `Replace`       | Supported | Replace regex matches in a string.                                             |
+| `Range`         | Supported | Numeric bounds, inclusive by default.                                          |
+| `Clamp`         | Supported | Pin a value into a range.                                                      |
+| `Number`        | Supported | Validate a numeric string, optionally precision and scale.                     |
+| `Length`        | Supported | Bound the length of a sized value.                                             |
+| `Unique`        | Supported | Require distinct items.                                                        |
+| `Set`           | Supported | Convert an iterable into a `set`.                                              |
+| `ExactSequence` | Supported | Validate a fixed-length sequence by position.                                  |
+| `Unordered`     | Supported | Validate a sequence in any order.                                              |
+| `Object`        | Supported | Validate an object's attributes like a mapping.                                |
+| `Maybe`         | Supported | Allow `None`, otherwise validate.                                              |
+| `Lower`         | Supported | Lowercase transform.                                                           |
+| `Upper`         | Supported | Uppercase transform.                                                           |
+| `Capitalize`    | Supported | Capitalize transform.                                                          |
+| `Title`         | Supported | Title-case transform.                                                          |
+| `Strip`         | Supported | Whitespace-strip transform.                                                    |
+| `Email`         | Supported | Backtracking-safe email format check.                                          |
+| `Url`           | Supported | Backtracking-safe URL format check.                                            |
+| `FqdnUrl`       | Supported | URL with a fully qualified domain.                                             |
+| `Datetime`      | Supported | Validate a datetime string (default ISO 8601).                                 |
+| `Date`          | Supported | Validate a date string (default `%Y-%m-%d`).                                   |
+| `IsDir`         | Supported | An existing directory path.                                                    |
+| `IsFile`        | Supported | An existing file path.                                                         |
+| `PathExists`    | Supported | A path that exists.                                                            |
+| `IsTrue`        | Supported | The value must be truthy.                                                      |
+| `IsFalse`       | Supported | The value must be falsy.                                                       |
+| `DefaultTo`     | Supported | Replace `None` with a default.                                                 |
+| `SetTo`         | Supported | Always produce a fixed value.                                                  |
+| `Msg`           | Supported | Replace a validator's failure message.                                         |
 
 ## Error classes
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `Error` | Supported | Base for everything Probatio raises. |
-| `SchemaError` | Supported | The schema definition itself is invalid. |
-| `Invalid` | Supported | A single validation failure, with a `path`. |
-| `MultipleInvalid` | Supported, with deviation | Collects several errors and proxies the first. See note below. |
-| `RequiredFieldInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ObjectInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `DictInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `SequenceTypeInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `TypeInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ValueInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ScalarInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `LiteralInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `CoerceInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `AnyInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `AllInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `MatchInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `RangeInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `LengthInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `InInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `NotInInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ContainsInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ExactSequenceInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `ExclusiveInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `InclusiveInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `TrueInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `FalseInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `BooleanInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `UrlInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `EmailInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `DirInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `FileInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `PathInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `DatetimeInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `DateInvalid` | Supported | Semantic subclass of `Invalid`. |
-| `NotEnoughValid` | Supported | Raised by `SomeOf`. |
-| `TooManyValid` | Supported | Raised by `SomeOf`. |
+| Name                   | Status                    | Notes                                                          |
+| ---------------------- | ------------------------- | -------------------------------------------------------------- |
+| `Error`                | Supported                 | Base for everything Probatio raises.                           |
+| `SchemaError`          | Supported                 | The schema definition itself is invalid.                       |
+| `Invalid`              | Supported                 | A single validation failure, with a `path`.                    |
+| `MultipleInvalid`      | Supported, with deviation | Collects several errors and proxies the first. See note below. |
+| `RequiredFieldInvalid` | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ObjectInvalid`        | Supported                 | Semantic subclass of `Invalid`.                                |
+| `DictInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `SequenceTypeInvalid`  | Supported                 | Semantic subclass of `Invalid`.                                |
+| `TypeInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ValueInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ScalarInvalid`        | Supported                 | Semantic subclass of `Invalid`.                                |
+| `LiteralInvalid`       | Supported                 | Semantic subclass of `Invalid`.                                |
+| `CoerceInvalid`        | Supported                 | Semantic subclass of `Invalid`.                                |
+| `AnyInvalid`           | Supported                 | Semantic subclass of `Invalid`.                                |
+| `AllInvalid`           | Supported                 | Semantic subclass of `Invalid`.                                |
+| `MatchInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `RangeInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `LengthInvalid`        | Supported                 | Semantic subclass of `Invalid`.                                |
+| `InInvalid`            | Supported                 | Semantic subclass of `Invalid`.                                |
+| `NotInInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ContainsInvalid`      | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ExactSequenceInvalid` | Supported                 | Semantic subclass of `Invalid`.                                |
+| `ExclusiveInvalid`     | Supported                 | Semantic subclass of `Invalid`.                                |
+| `InclusiveInvalid`     | Supported                 | Semantic subclass of `Invalid`.                                |
+| `TrueInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `FalseInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `BooleanInvalid`       | Supported                 | Semantic subclass of `Invalid`.                                |
+| `UrlInvalid`           | Supported                 | Semantic subclass of `Invalid`.                                |
+| `EmailInvalid`         | Supported                 | Semantic subclass of `Invalid`.                                |
+| `DirInvalid`           | Supported                 | Semantic subclass of `Invalid`.                                |
+| `FileInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `PathInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `DatetimeInvalid`      | Supported                 | Semantic subclass of `Invalid`.                                |
+| `DateInvalid`          | Supported                 | Semantic subclass of `Invalid`.                                |
+| `NotEnoughValid`       | Supported                 | Raised by `SomeOf`.                                            |
+| `TooManyValid`         | Supported                 | Raised by `SomeOf`.                                            |
 
 :::note
 `MultipleInvalid` carries an extra `error_type` attribute that proxies the first
@@ -152,14 +152,14 @@ and code that reads it gets the first error's `error_type`.
 
 ## Helpers
 
-| Name | Status | Notes |
-| --- | --- | --- |
-| `validate` | Supported | Decorator that validates a function's arguments and `__return__`. |
-| `message` | Supported | Decorator turning a `ValueError`-raising function into a configurable validator factory. |
-| `truth` | Supported | Decorator turning a predicate into a validator that returns the value when truthy. |
-| `raises` | Supported | Context manager asserting a block raises a given exception. |
-| `humanize_error` | Supported | In `probatio.humanize`. Render an error against the data. |
-| `validate_with_humanized_errors` | Supported | In `probatio.humanize`. Validate, raising a humanized message. |
+| Name                             | Status    | Notes                                                                                    |
+| -------------------------------- | --------- | ---------------------------------------------------------------------------------------- |
+| `validate`                       | Supported | Decorator that validates a function's arguments and `__return__`.                        |
+| `message`                        | Supported | Decorator turning a `ValueError`-raising function into a configurable validator factory. |
+| `truth`                          | Supported | Decorator turning a predicate into a validator that returns the value when truthy.       |
+| `raises`                         | Supported | Context manager asserting a block raises a given exception.                              |
+| `humanize_error`                 | Supported | In `probatio.humanize`. Render an error against the data.                                |
+| `validate_with_humanized_errors` | Supported | In `probatio.humanize`. Validate, raising a humanized message.                           |
 
 ## Additions beyond voluptuous
 
@@ -392,13 +392,13 @@ directly.
 The submodules resolve too, so code that imports voluptuous internals has a
 Probatio counterpart.
 
-| voluptuous module | Probatio module |
-| --- | --- |
-| `voluptuous` | `probatio` |
-| `voluptuous.error` | `probatio.error` |
-| `voluptuous.validators` | `probatio.validators` |
-| `voluptuous.humanize` | `probatio.humanize` |
-| `voluptuous.schema_builder` | `probatio.schema` |
+| voluptuous module           | Probatio module       |
+| --------------------------- | --------------------- |
+| `voluptuous`                | `probatio`            |
+| `voluptuous.error`          | `probatio.error`      |
+| `voluptuous.validators`     | `probatio.validators` |
+| `voluptuous.humanize`       | `probatio.humanize`   |
+| `voluptuous.schema_builder` | `probatio.schema`     |
 
 For dependencies that import voluptuous internals under the `voluptuous` name
 (not Probatio), `probatio.compat.install_as_voluptuous()` aliases Probatio into

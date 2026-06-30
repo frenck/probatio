@@ -10,7 +10,7 @@ value. This page is the mental model the rest of the guides build on.
 ## A schema is a value
 
 You do not call a builder API to construct a schema. You hand `Schema` an
-ordinary Python object, and its shape *is* the rule:
+ordinary Python object, and its shape _is_ the rule:
 
 ```python
 from probatio import Schema
@@ -23,14 +23,14 @@ Schema({"a": int})({"a": 1})  # {'a': 1}
 
 Each kind of object means something:
 
-| You write          | It means                                                    |
-| ------------------ | ----------------------------------------------------------- |
-| a type (`int`)     | the value must be an instance of that type                  |
-| a literal (`"on"`) | the value must equal that literal                           |
-| a `dict`           | a mapping, each key and value validated by its own schema   |
+| You write              | It means                                                  |
+| ---------------------- | --------------------------------------------------------- |
+| a type (`int`)         | the value must be an instance of that type                |
+| a literal (`"on"`)     | the value must equal that literal                         |
+| a `dict`               | a mapping, each key and value validated by its own schema |
 | a `list`/`tuple`/`set` | a sequence, each item matching one of the element schemas |
-| a callable         | called with the value; it returns the result or raises      |
-| a nested `Schema`  | validated as its own schema                                 |
+| a callable             | called with the value; it returns the result or raises    |
+| a nested `Schema`      | validated as its own schema                               |
 
 Because a schema is just data, schemas compose: a dict can hold lists of nested
 dicts, and any value position can be a validator like `All` or `Coerce`.
@@ -86,8 +86,8 @@ except Invalid as err:
     print(err)  # expected int
 ```
 
-Everything Probatio raises for bad *data* is an `Invalid` (or a
-`MultipleInvalid` collecting several). A broken *schema definition*, by contrast,
+Everything Probatio raises for bad _data_ is an `Invalid` (or a
+`MultipleInvalid` collecting several). A broken _schema definition_, by contrast,
 raises `SchemaError`, because that is a programming mistake, not bad input. See
 [error handling](/guides/error-handling/) for the full picture.
 

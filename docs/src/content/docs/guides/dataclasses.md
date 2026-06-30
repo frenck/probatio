@@ -40,6 +40,7 @@ The result is a real `User`, not a dict. A missing required field is reported
 like any other validation error:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from dataclasses import dataclass
 
@@ -87,19 +88,19 @@ schema({"name": "ada", "tags": ["x"], "home": {"street": "Main", "number": 5}})
 
 The full set of mappings:
 
-| Annotation | Schema |
-| --- | --- |
-| `int`, `str`, a plain type | the type (an `isinstance` check) |
-| `list[T]` | `[T]` (element type validated) |
-| `set[T]`, `frozenset[T]` | `{T}` / `frozenset([T])` |
-| `dict[K, V]` | `{K: V}` (key and value validated) |
-| `tuple[X, Y]` | `ExactSequence([X, Y])` (positional) |
-| `tuple[X, ...]` | a homogeneous sequence of `X` |
-| `X \| None` | `Maybe(X)` |
-| `X \| Y` | `Any(X, Y)` |
-| `Literal["a", "b"]` | `In(["a", "b"])` |
-| a nested dataclass | its own generated schema |
-| `Any` | accepts any value |
+| Annotation                 | Schema                               |
+| -------------------------- | ------------------------------------ |
+| `int`, `str`, a plain type | the type (an `isinstance` check)     |
+| `list[T]`                  | `[T]` (element type validated)       |
+| `set[T]`, `frozenset[T]`   | `{T}` / `frozenset([T])`             |
+| `dict[K, V]`               | `{K: V}` (key and value validated)   |
+| `tuple[X, Y]`              | `ExactSequence([X, Y])` (positional) |
+| `tuple[X, ...]`            | a homogeneous sequence of `X`        |
+| `X \| None`                | `Maybe(X)`                           |
+| `X \| Y`                   | `Any(X, Y)`                          |
+| `Literal["a", "b"]`        | `In(["a", "b"])`                     |
+| a nested dataclass         | its own generated schema             |
+| `Any`                      | accepts any value                    |
 
 A tuple field accepts a list or a tuple, since a sequence arrives as a list from
 JSON, and keeps whichever you gave it.
@@ -288,6 +289,68 @@ trying every member, so it still fails cleanly rather than silently.
 The same engine builds a schema from a `TypedDict`. Because that is a different
 tool with a different result (the validated dict, not a constructed instance), it
 has its own page: [Schemas from TypedDicts](/guides/typeddict/).
+
+## Speed
+
+A `DataclassSchema` is the clearest case for the compiled engine. When a schema
+compiles, it fuses field validation and object construction into a single generated
+function with no intermediate dict, which is most of why a hot dataclass schema
+validates several times faster than the interpreted one and lands close to a pure
+deserializer like mashumaro while still checking every field. This happens on its
+own once the schema proves hot; see [Compiled schemas](/guides/compiled-schemas/)
+to opt in eagerly or read the trade-offs.
+
+## Trusted construction, without validation
+
+Probatio is a validation library, but there are spots where validation is not
+needed: the input is your own data round-tripping back in, or it was already
+validated upstream. For those, `DataclassSchema.construct` builds the instance from
+trusted data and skips validation entirely.
+
+```python
+from dataclasses import dataclass
+
+from probatio import DataclassSchema
+
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+
+@dataclass
+class Line:
+    start: Point
+    end: Point
+
+
+schema = DataclassSchema(Line)
+# Trusted input: build straight through, no type checks, no coercion.
+schema.construct({"start": {"x": 0, "y": 0}, "end": {"x": 3, "y": 4}})
+# Line(start=Point(x=0, y=0), end=Point(x=3, y=4))
+```
+
+It reads each field straight from the dict, recursing into nested dataclasses, lists
+of them, `Optional` fields, and a single dataclass inside a union (like
+`Comment | str`), and filling defaults, then constructs. With no checks it is faster
+than validating, fast enough to beat dedicated deserializers like mashumaro on the
+[performance page](/reference/performance/), because it is a purpose-built
+constructor and pure Python.
+
+The catch is in the name: it trusts you. A wrong type lands in the instance unchecked,
+and it does not convert: a field typed `datetime` will hold whatever the dict held
+(a string stays a string), where validation would coerce it. For input that still
+needs decoding, validate.
+
+:::caution
+Use `construct` only for input you already know is correct. For anything from
+outside your boundary, call the schema (`schema(data)`), which validates. A shape
+the fast path does not handle (a recursive dataclass, for instance) falls back to
+validating, so `construct` always returns a correct instance for trusted input,
+just not always faster. `TypedDictSchema.construct` does the same, returning the
+trusted dict unchanged.
+:::
 
 ## Limits
 

@@ -4,7 +4,7 @@ description: What static type checking does and does not give you when you valid
 ---
 
 Probatio is typed, and it ships its types. What that buys you is honest but
-limited: your calls into Probatio are checked, but the *result* of a validation
+limited: your calls into Probatio are checked, but the _result_ of a validation
 is not a statically known shape. This page spells out the difference, so you
 know what the type checker is actually doing for you.
 
@@ -114,7 +114,7 @@ dataclasses](/guides/dataclasses/) for the full field mapping.
 
 `TypedDictSchema` does the same from a `TypedDict`, and it is the interesting case
 for typing. A `TypedDict` is a plain dict at runtime, so there is nothing to
-construct: the validated dict *is* the result, and the schema is generic, so the
+construct: the validated dict _is_ the result, and the schema is generic, so the
 checker types it as the `TypedDict`. You get the static type at no runtime cost,
 and `result["key"]` access keeps working, because it really is a dict.
 

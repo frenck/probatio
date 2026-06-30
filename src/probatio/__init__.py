@@ -14,6 +14,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from probatio._compile_policy import (
+    CompilePolicy,
+    get_compile_policy,
+    set_compile_policy,
+)
 from probatio._type_registry import (
     clear_type_registry,
     register_type,
@@ -349,6 +354,7 @@ __all__ = [
     "Clamp",
     "Coerce",
     "CoerceInvalid",
+    "CompilePolicy",
     "Contains",
     "ContainsInvalid",
     "CreditCard",
@@ -514,6 +520,7 @@ __all__ = [
     "dump_yaml",
     "from_json_schema",
     "from_openapi",
+    "get_compile_policy",
     "is_dataclass",
     "load",
     "load_json",
@@ -524,6 +531,7 @@ __all__ = [
     "raises",
     "register_type",
     "serialize",
+    "set_compile_policy",
     "set_default_options",
     "to_json_schema",
     "to_openapi",
