@@ -357,6 +357,29 @@ def test_non_list_required_is_a_clean_schema_error() -> None:
         from_json_schema({"type": "object", "required": "name"})
 
 
+@pytest.mark.parametrize("entry", [1, ["a"], {"a": 1}])
+def test_non_string_required_entry_is_a_clean_schema_error(entry: object) -> None:
+    """A non-string 'required' entry is refused, not silently ignored.
+
+    A number or nested value never matches a property name, so honoring it would
+    quietly turn a required field into an optional one.
+    """
+    node = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": [entry],
+    }
+    with pytest.raises(SchemaError, match="required"):
+        from_json_schema(node)
+
+
+@pytest.mark.parametrize("key", ["minItems", "maxItems"])
+def test_negative_item_count_is_a_clean_schema_error(key: str) -> None:
+    """A negative item-count keyword is refused; the JSON Schema counts are >= 0."""
+    with pytest.raises(SchemaError, match=key):
+        from_json_schema({"type": "array", key: -1})
+
+
 def test_non_string_type_array_entry_is_a_clean_schema_error() -> None:
     """A non-string entry in a 'type' array is refused rather than widening.
 
