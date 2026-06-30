@@ -138,7 +138,7 @@ bench-world = [
   "pydantic==2.12.4",
   # Renders the benchmark charts (just charts) into the docs assets, themed to the
   # docs. Benchmark-only; never a runtime or test dependency.
-  "matplotlib==3.10.7",
+  "matplotlib==3.11.0",
 ]
 # Everything needed for local development, in one install. Includes the `just`
 # task runner (the `rust-just` wheel bundles the binary), so `uv run just` works
