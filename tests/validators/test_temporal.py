@@ -164,6 +164,8 @@ def test_duration_from_seconds() -> None:
         ("1:30:00", datetime.timedelta(hours=1, minutes=30)),
         ("0:45", datetime.timedelta(minutes=45)),
         ("-0:30", -datetime.timedelta(minutes=30)),
+        # The hour field is a duration, not a clock, so it runs past 24.
+        ("100:30", datetime.timedelta(hours=100, minutes=30)),
     ],
 )
 def test_duration_from_colon_string(value: str, expected: datetime.timedelta) -> None:
@@ -198,7 +200,20 @@ def test_duration_numeric_string_matches_int() -> None:
     assert Schema(Duration())("90") == Schema(Duration())(90)
 
 
-@pytest.mark.parametrize("value", [True, "x:y", "nonsense", "", {"bogus": 1}, [1]])
+@pytest.mark.parametrize(
+    "value",
+    [
+        True,
+        "x:y",
+        "nonsense",
+        "",
+        {"bogus": 1},
+        [1],
+        "1:99",  # 99 minutes is out of the 0..59 clock range
+        "0:60",  # 60 minutes is out of range
+        "1:00:99",  # 99 seconds is out of range
+    ],
+)
 def test_duration_rejects_invalid(value: object) -> None:
     """A bool, a malformed/empty string, bad mapping keys, or a wrong type reject."""
     with pytest.raises(MultipleInvalid) as caught:
