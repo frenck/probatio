@@ -46,8 +46,13 @@ def set_compile_policy(policy: CompilePolicy) -> None:
     """Set the process-wide compile policy.
 
     Call it once, early, from deliberate startup code. A per-schema ``compile``
-    flag still overrides it in either direction.
+    flag still overrides it in either direction. Raises ``TypeError`` for anything
+    that is not a ``CompilePolicy``, so a stray string like ``"off"`` fails loudly
+    rather than being stored and silently breaking every later compile decision.
     """
+    if not isinstance(policy, CompilePolicy):
+        message = f"compile policy must be a CompilePolicy, got {type(policy).__name__}"
+        raise TypeError(message)
     global _policy  # noqa: PLW0603 - a single deliberate process-wide setting
     _policy = policy
 
