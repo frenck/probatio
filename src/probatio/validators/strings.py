@@ -349,21 +349,25 @@ def _validate_url(value: typing.Any, msg: str | None) -> typing.Any:
     return value
 
 
-def Url(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]:
-    """Return a validator for a URL with a scheme and a host (voluptuous factory)."""
+def Url(msg: str | None = None) -> typing.Callable[[typing.Any], str | bytes]:
+    """Return a validator for a URL with a scheme and a host (voluptuous factory).
 
-    def validate(value: typing.Any) -> typing.Any:
+    The validator returns its input unchanged on success: a URL is a ``str`` or
+    ``bytes``, so the result is typed ``str | bytes`` rather than ``Any``.
+    """
+
+    def validate(value: typing.Any) -> str | bytes:
         """Validate a URL, parsing with the standard library."""
-        return _validate_url(value, msg)
+        return typing.cast("str | bytes", _validate_url(value, msg))
 
     setattr(validate, "__probatio_json_format__", "uri")  # noqa: B010
     return validate
 
 
-def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]:
+def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], str | bytes]:
     """Return a validator for a URL whose host is a fully-qualified domain name."""
 
-    def validate(value: typing.Any) -> typing.Any:
+    def validate(value: typing.Any) -> str | bytes:
         """Validate a URL and require its host to contain a dot."""
         _validate_url(value, msg)
 
@@ -377,7 +381,7 @@ def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]
         if host is None or dot not in host:
             raise UrlInvalid(msg or "expected a URL with a fully-qualified domain name")
 
-        return value
+        return typing.cast("str | bytes", value)
 
     setattr(validate, "__probatio_json_format__", "uri")  # noqa: B010
     return validate
