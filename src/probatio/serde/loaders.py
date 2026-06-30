@@ -47,6 +47,17 @@ def _read(source: Any) -> Any:
     raise TypeError(message)
 
 
+# The TypeError messages CPython raises when a call rejects a keyword argument.
+# Matching these (rather than any "argument" in the text) keeps a backend bug or a
+# data-related TypeError, which can also mention "argument", from being misreported
+# as a bad backend option.
+_BAD_OPTION_MARKERS = (
+    "unexpected keyword argument",
+    "got multiple values for keyword argument",
+    "takes no keyword arguments",
+)
+
+
 def _forward_options(
     fn: Callable[..., Any],
     *args: Any,
@@ -64,7 +75,10 @@ def _forward_options(
     try:
         return fn(*args, **options)
     except TypeError as exc:
-        if options and "argument" in str(exc):
+        rejected_option = options and any(
+            marker in str(exc) for marker in _BAD_OPTION_MARKERS
+        )
+        if rejected_option:
             keys = ", ".join(sorted(options))
             message = (
                 f"the active {what} backend ({backend}) does not accept the "
