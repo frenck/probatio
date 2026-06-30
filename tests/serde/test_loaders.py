@@ -79,6 +79,35 @@ def test_load_json_falls_back_to_stdlib(monkeypatch: pytest.MonkeyPatch) -> None
     assert load_json('{"a": 1}') == {"a": 1}
 
 
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("with_orjson", [True, False])
+def test_load_json_rejects_non_standard_constants(
+    token: str,
+    *,
+    with_orjson: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NaN/Infinity are rejected the same way with or without orjson.
+
+    The standard library accepts these JavaScript constants by default while orjson
+    rejects them, which would otherwise make hostile non-standard JSON backend-
+    dependent. Both paths now refuse them.
+    """
+    if not with_orjson:
+        monkeypatch.setattr(_optional, "orjson", None)
+    with pytest.raises(ValueError):  # noqa: PT011 - both backends raise ValueError subtypes
+        load_json(token)
+
+
+def test_load_json_caller_can_opt_into_non_standard_constants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller-supplied parse_constant overrides the default rejection."""
+    monkeypatch.setattr(_optional, "orjson", None)
+    result = load_json("NaN", options={"parse_constant": lambda token: token})
+    assert result == "NaN"
+
+
 def test_load_yaml_with_yamlrocks() -> None:
     """With YAMLRocks installed, it parses YAML."""
     assert load_yaml("a: 1\nb: two\n") == {"a": 1, "b": "two"}
