@@ -199,12 +199,12 @@ def _schema_uses_self(node: Any) -> bool:
         )
     if isinstance(node, list | tuple | set | frozenset):
         return any(_schema_uses_self(element) for element in node)
-    children = getattr(node, "validators", None)
-    if isinstance(children, list):
-        return any(_schema_uses_self(child) for child in children)
-    wrapped = getattr(node, "validator", None)
-    if wrapped is not None:
-        return _schema_uses_self(wrapped)
+    # A validator that wraps other schemas (a combinator, a sequence shaper,
+    # ``Maybe``/``Msg``) exposes them through ``__probatio_child_schemas__``, so the
+    # walk reaches them without guessing which attribute each stored them under.
+    child_schemas = getattr(node, "__probatio_child_schemas__", None)
+    if child_schemas is not None:
+        return any(_schema_uses_self(child) for child in child_schemas())
     return False
 
 
