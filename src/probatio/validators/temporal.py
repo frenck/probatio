@@ -29,6 +29,7 @@ from probatio.validators._base import _SafeValidator
 
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
+_MAX_CLOCK_FIELD = 59  # the minute and second fields of an H:MM:SS duration
 _DURATION_MSG = "expected a duration like H:MM, H:MM:SS, or a number of seconds"
 
 # How many epoch sub-units make one second, per accepted ``Epoch`` unit.
@@ -260,6 +261,11 @@ class Duration(_SafeValidator):
             raise DurationInvalid(self.msg or _DURATION_MSG)
         hours, minutes, *rest = (int(part) for part in parts)
         seconds = rest[0] if rest else 0
+        if minutes > _MAX_CLOCK_FIELD or seconds > _MAX_CLOCK_FIELD:
+            # H:MM:SS is clock notation, so the minute and second fields are 0 to 59;
+            # reject "1:99" rather than overflowing 99 minutes through timedelta. The
+            # hour field is unbounded, since a duration can run past a single day.
+            raise DurationInvalid(self.msg or _DURATION_MSG)
         try:
             return sign * datetime.timedelta(
                 hours=hours,
