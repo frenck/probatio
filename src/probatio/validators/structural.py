@@ -72,7 +72,13 @@ class ExactSequence(_SafeValidator):
                     errors.append(error)
         if errors:
             raise MultipleInvalid(errors)
-        return type(value)(result)
+        # Rebuild the sequence as its own type. A namedtuple takes its fields
+        # positionally (``Point(*result)``), not as a single iterable, so detect it
+        # the way the sequence engine does rather than leak a TypeError.
+        out_type = type(value)
+        if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
+            return out_type(*result)
+        return out_type(result)
 
 
 class Unique(_SafeValidator):
