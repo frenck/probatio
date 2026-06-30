@@ -40,17 +40,28 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-# Tests excluded from the --compiled lane, by a substring of their node id. The
-# property-based and fuzz suites generate thousands of distinct schemas, and
-# compiling each execs a code object that is never reused, so forcing compilation
-# there grows memory without bound. The compile-specific suites drive both modes
-# themselves, so forcing one mode on them is meaningless.
-_COMPILED_LANE_EXCLUDE = (
-    "test_codegen",
-    "test_compile_policy",
-    "fuzz",
-    "safe_contract",
+# Test files excluded from the --compiled lane. The property-based and fuzz suites
+# generate thousands of distinct schemas, and compiling each execs a code object
+# that is never reused, so forcing compilation there grows memory without bound.
+# The compile-specific suites drive both modes themselves, so forcing one mode on
+# them is meaningless. Matched against the test file name only (not the full node
+# id), so a parametrized id or a directory that happens to contain one of these
+# words is never skipped by accident.
+_COMPILED_LANE_EXCLUDE_FILES = frozenset(
+    {
+        "test_codegen.py",
+        "test_compile_policy.py",
+        "test_safe_contract.py",
+    },
 )
+
+
+def _excluded_from_compiled_lane(item: pytest.Item) -> bool:
+    """Whether a test's file is excluded from the ``--compiled`` lane."""
+    name = item.path.name
+    # The fuzz suites are a family (``test_fuzz_*`` across packages), matched by
+    # name; the others are named in full above.
+    return name in _COMPILED_LANE_EXCLUDE_FILES or "fuzz" in name
 
 
 def pytest_collection_modifyitems(
@@ -61,7 +72,7 @@ def pytest_collection_modifyitems(
         return
     skip = pytest.mark.skip(reason="not run under --compiled (property/fuzz/compile)")
     for item in items:
-        if any(token in item.nodeid for token in _COMPILED_LANE_EXCLUDE):
+        if _excluded_from_compiled_lane(item):
             item.add_marker(skip)
 
 
