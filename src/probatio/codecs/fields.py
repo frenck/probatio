@@ -166,7 +166,11 @@ def _allow_none(field: dict[str, Any]) -> dict[str, Any]:
     return {**field, "allow_none": True}
 
 
-def serialize(schema: Any, *, custom_serializer: Any = None) -> Any:
+# A serialized schema is a single value field, or the field list of a mapping.
+_Serialized = dict[str, Any] | list[dict[str, Any]]
+
+
+def serialize(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
     """Render a schema as the field-list shape voluptuous-serialize produces.
 
     A mapping becomes a list of field dicts (``name``, ``type``, ``required``,
@@ -179,7 +183,7 @@ def serialize(schema: Any, *, custom_serializer: Any = None) -> Any:
     return _serialize_node(schema, custom_serializer)
 
 
-def _serialize_node(node: Any, custom: Any) -> Any:
+def _serialize_node(node: Any, custom: Any) -> _Serialized:
     """Render a mapping as a field list, or any other node as a value dict."""
     if isinstance(node, dict):
         # A Forbidden key is a prohibition, not an input field, so it is left out
