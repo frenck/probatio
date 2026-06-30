@@ -73,6 +73,7 @@ def test_auto_bootstrap_is_thread_safe_on_a_cold_schema() -> None:
     """
     set_compile_policy(CompilePolicy.AUTO)
     schema = Schema({"a": int})
+
     workers = 50
     start = threading.Barrier(workers)
     results: list[object] = []

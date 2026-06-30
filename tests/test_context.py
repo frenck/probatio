@@ -30,6 +30,7 @@ def test_validator_reads_the_call_context() -> None:
     """A value in the per-call allow-set passes; one outside it fails."""
     schema = Schema({Required("entity"): _allowed})
     allow = {"allowed": {"light.kitchen"}}
+
     assert schema({"entity": "light.kitchen"}, context=allow) == {
         "entity": "light.kitchen",
     }
@@ -74,6 +75,7 @@ def test_nested_call_overrides_then_restores() -> None:
 
     schema = Schema({Required("v"): outer})
     schema({"v": "z"}, context={"allowed": {"outer.ok"}})
+
     assert seen["after"] == {"allowed": {"outer.ok"}}
 
 
@@ -114,6 +116,7 @@ def test_nested_call_with_explicit_none_clears_the_inherited_context() -> None:
         return inner(value, context=None)
 
     Schema({Required("v"): outer})({"v": "x"}, context={"allowed": {"x"}})
+
     assert seen == [None]  # explicit None won over the inherited {"allowed": ...}
 
 

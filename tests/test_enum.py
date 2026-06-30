@@ -62,8 +62,10 @@ def test_enum_member_as_a_required_key() -> None:
     """Required wraps an enum key; a missing one reports the member in the path."""
     schema = Schema({Required(Svc.TURN_ON): int})
     assert schema({Svc.TURN_ON: 5}) == {Svc.TURN_ON: 5}
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
+
     assert caught.value.errors[0].path == [Svc.TURN_ON]
 
 
@@ -95,6 +97,7 @@ def test_in_accepts_an_enum_class() -> None:
     """In(EnumClass) checks membership against the enum's members."""
     schema = Schema(In(Svc))
     assert schema(Svc.TURN_ON) == Svc.TURN_ON
+
     with pytest.raises(MultipleInvalid):
         schema("nope")
 
@@ -142,6 +145,7 @@ def test_enum_class_rejects_an_unknown_value() -> None:
     """A value that maps to no member raises EnumInvalid listing the values."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Color)("green")
+
     error = caught.value.errors[0]
     assert isinstance(error, EnumInvalid)
     assert error.code == "enum"

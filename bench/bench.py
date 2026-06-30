@@ -151,10 +151,12 @@ def measure() -> list[dict[str, Any]]:
         vol_schema = builder(voluptuous)
         prob_schema = builder(probatio)
         prob_compiled = builder(probatio).compile()
+
         # Warm each once before timing.
         vol_schema(payload)
         prob_schema(payload)
         prob_compiled(payload)
+
         rows.append(
             {
                 "scenario": name,

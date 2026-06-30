@@ -36,8 +36,10 @@ class Sorted(_SafeValidator):
             raise ValueInvalid(
                 self.msg or "value is not sorted", code="sorted"
             ) from exc
+
         if not in_order:
             raise ValueInvalid(self.msg or "value is not sorted", code="sorted")
+
         return value
 
 
@@ -59,6 +61,7 @@ class ExactSequence(_SafeValidator):
         if not isinstance(value, list | tuple) or len(value) != len(self._schemas):
             message = self.msg or f"expected a sequence of {len(self._schemas)} items"
             raise ExactSequenceInvalid(message)
+
         result = []
         errors: list[Invalid] = []
         for index, (schema, item) in enumerate(zip(self._schemas, value, strict=True)):
@@ -70,8 +73,10 @@ class ExactSequence(_SafeValidator):
                 for error in exc.errors:
                     error.prepend([index])
                     errors.append(error)
+
         if errors:
             raise MultipleInvalid(errors)
+
         # Rebuild the sequence as its own type. A namedtuple takes its fields
         # positionally (``Point(*result)``), not as a single iterable, so detect it
         # the way the sequence engine does rather than leak a TypeError.
@@ -109,11 +114,13 @@ class Unique(_SafeValidator):
                 message = self.msg or f"expected a collection: {exc}"
                 raise TypeInvalid(message) from exc
             length = len(value)
+
         try:
             unique = set(value)
         except TypeError as exc:
             message = self.msg or f"contains unhashable elements: {exc}"
             raise TypeInvalid(message) from exc
+
         if len(unique) != length:
             seen: set[typing.Any] = set()
             duplicates: set[typing.Any] = set()
@@ -124,6 +131,7 @@ class Unique(_SafeValidator):
                     seen.add(item)
             message = self.msg or f"contains duplicate items: {list(duplicates)}"
             raise Invalid(message)
+
         return value
 
 
@@ -179,11 +187,13 @@ class Unordered(_SafeValidator):
                 f"!= target:{len(self._schemas)}"
             )
             raise Invalid(message)
+
         consumed: set[int] = set()
         missing: list[tuple[int, typing.Any]] = []
         for index, item in enumerate(value):
             if not self._consume(item, consumed):
                 missing.append((index, item))
+
         if len(missing) == 1:
             position, item = missing[0]
             message = self.msg or (
@@ -203,6 +213,7 @@ class Unordered(_SafeValidator):
                     for position, item in missing
                 ],
             )
+
         return value
 
     def _consume(self, item: typing.Any, consumed: set[int]) -> bool:
@@ -256,6 +267,7 @@ class Maybe(_SafeValidator):
         """Return None unchanged, else the validated value."""
         if value is None:
             return None
+
         try:
             return self._schema(value)
         except Invalid as exc:

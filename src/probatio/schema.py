@@ -178,6 +178,7 @@ def _deferred_self(data: Any) -> Any:
     if root is None:
         message = "Self has no enclosing schema to validate against"
         raise SchemaError(message)
+
     with recursion_guard():
         return root._compiled(data)  # noqa: SLF001
 
@@ -384,11 +385,13 @@ class Schema:
         """
         if context is not _INHERIT_CONTEXT:
             return self._call_with_context(data, context)
+
         # The body is inlined here (no helper call) so recursive ``Self`` and
         # ``$ref`` validation keeps the same stack-frame budget the depth guard is
         # tuned against; an extra frame per level would trip RecursionError early.
         if self._uses_self:
             return self._call_recursive(data)
+
         try:
             return self._compiled(data)
         except MultipleInvalid:
@@ -459,6 +462,7 @@ class Schema:
             # nothing). A literal, type, or sequence schema never generates, so
             # arming it would only add a bootstrap a combinator could capture.
             return
+
         self._interpreted: CompiledSchema = self._compiled
         self._compiled = self._bootstrap
 
@@ -494,6 +498,7 @@ class Schema:
                     self._compiled = self._compile_from(interpreted)
                 else:
                     self._compiled = interpreted
+
         return self._compiled(data)
 
     def _auto_counter(self, interpreted: CompiledSchema) -> CompiledSchema:
@@ -527,12 +532,14 @@ class Schema:
         """
         if self._uses_self:
             return interpreted
+
         if isinstance(interpreted, _MappingValidator):
             generated = compile_mapping(interpreted)
         elif isinstance(interpreted, _SequenceValidator):
             generated = compile_sequence(self.schema, interpreted)
         else:
             return interpreted
+
         return generated if generated is not None else interpreted
 
     def _call_with_context(self, data: Any, context: Any) -> Any:
@@ -564,6 +571,7 @@ class Schema:
             error = exc
         finally:
             _ACTIVE_ROOT.reset(token)
+
         raise MultipleInvalid([error])
 
     def __eq__(self, other: object) -> bool:
@@ -631,8 +639,10 @@ class Schema:
         if not isinstance(self.schema, dict):
             message = "extend is only valid on a mapping schema"
             raise SchemaError(message)
+
         result_required = self.required if required is None else required
         result_extra = self.extra if extra is None else extra
+
         if isinstance(schema, Schema):
             if schema.extra != result_extra:
                 message = (
@@ -649,6 +659,7 @@ class Schema:
         if not isinstance(schema, dict):
             message = "extend expects a mapping schema"
             raise SchemaError(message)
+
         merged = dict(self.schema)
         for key, value in schema.items():
             # ``pop`` finds the existing key by its literal (markers hash by their
@@ -682,6 +693,7 @@ class Schema:
         """
         if not isinstance(schema, dict):
             return schema
+
         result: dict[Any, Any] = {}
         for key, value in schema.items():
             normalized_key = key
@@ -695,6 +707,7 @@ class Schema:
                 schema_required=schema_required,
                 result_required=result_required,
             )
+
         return result
 
     # The serde loaders are imported lazily inside these convenience methods, so
@@ -752,6 +765,7 @@ class Schema:
                 needs = getattr(schema, "__probatio_needs_extra__", None)
                 if rebind is not None and (needs is None or needs()):
                     schema = rebind(self.extra)
+
             # A combinator or wrapper compiled its own branches at construction, so
             # the compile walk never descends into them; detect a ``Self`` nested in
             # one on the branch node itself. Only a node that holds child schemas
@@ -761,6 +775,7 @@ class Schema:
                 hasattr(schema, "validators") or hasattr(schema, "validator")
             ):
                 self._uses_self = _schema_uses_self(schema)
+
             # probatio's own validators always raise Invalid (never leak a
             # ValueError), so they can be called directly. Arbitrary callables go
             # through the guard that turns a ValueError into an Invalid.
@@ -802,6 +817,7 @@ class Schema:
             else:
                 element_checks.append(self._compile(element))
                 remove_flags.append(False)
+
         # Match on the broad category (list/tuple/set/frozenset), not the schema's
         # exact type, so a schema written as a namedtuple instance still accepts a
         # plain tuple (voluptuous semantics). A namedtuple is a tuple subclass, so
@@ -829,6 +845,7 @@ class Schema:
                 remove=False,
                 is_literal=False,
             )
+
         is_marker = isinstance(key, Marker)
         if is_marker:
             # Classify the marker's kind once, then reuse the flags below rather
@@ -863,9 +880,11 @@ class Schema:
             key_schema = key
             default = UNDEFINED
             required = self.required
+
         is_literal = not (isinstance(key_schema, type) or callable(key_schema))
         check_value = self._compile(value_schema)
         check_key = self._compile(key_schema)
+
         return _Candidate(
             key_schema=key_schema,
             check_key=check_key,

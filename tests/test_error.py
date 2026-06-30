@@ -72,12 +72,14 @@ def test_multiple_invalid_collects_errors() -> None:
     assert str(multi) == str(first)
 
     multi.error_type = "dictionary value"
+
     assert first.error_type == "dictionary value"
 
 
 def test_multiple_invalid_add_and_prepend() -> None:
     """add appends, prepend propagates to every wrapped error."""
     multi = MultipleInvalid([Invalid("one", path=["a"])])
+
     multi.add(Invalid("two", path=["b"]))
     multi.prepend(["root"])
 
@@ -99,6 +101,7 @@ def test_empty_multiple_invalid_is_not_a_half_valid_state() -> None:
     assert str(multi) == "no validation errors"
     multi.error_type = "ignored while empty"  # no-op, must not raise
     assert multi.error_type is None
+
     # And once populated incrementally it behaves normally.
     multi.add(Invalid("boom", path=["x"]))
     assert multi.msg == "boom"
@@ -186,8 +189,10 @@ def test_multiple_invalid_delegates_structured_fields() -> None:
 def test_engine_attaches_codes_and_context() -> None:
     """The engine produces coded errors: extra keys and type mismatches."""
     schema = probatio.Schema({"port": int})
+
     with pytest.raises(probatio.MultipleInvalid) as caught:
         schema({"port": "x", "extra": 1})
+
     by_code = {error.code: error for error in caught.value.errors}
     assert "type" in by_code
     assert by_code["type"].context == {"expected": "int"}

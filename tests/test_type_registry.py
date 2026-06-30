@@ -62,6 +62,7 @@ def test_global_registration_coerces_including_containers() -> None:
     result = DataclassSchema(Event)(
         {"when": "2020-01-01T12:00", "items": ["2021-06-01T00:00"]},
     )
+
     assert result.when == datetime(2020, 1, 1, 12, 0)
     assert result.items == [datetime(2021, 6, 1, 0, 0)]
 
@@ -78,6 +79,7 @@ def test_registration_is_baked_in_at_build_time() -> None:
     register_type(datetime, Coerce(_parse))
     schema = DataclassSchema(Event)
     clear_type_registry()
+
     assert schema({"when": "2022-01-01T00:00"}).when == datetime(2022, 1, 1, 0, 0)
 
 
@@ -86,6 +88,7 @@ def test_a_schema_built_after_clear_is_strict_again() -> None:
     register_type(datetime, Coerce(_parse))
     DataclassSchema(Event)  # built-and-baked, then dropped
     clear_type_registry()
+
     with pytest.raises(MultipleInvalid):
         DataclassSchema(Event)({"when": "2022-01-01T00:00"})
 
@@ -95,6 +98,7 @@ def test_scoped_registry_applies_inside_the_block_only() -> None:
     with type_registry({datetime: Coerce(_parse)}):
         inside = DataclassSchema(Event)({"when": "2023-01-01T00:00"})
     assert inside.when == datetime(2023, 1, 1, 0, 0)
+
     with pytest.raises(MultipleInvalid):
         DataclassSchema(Event)({"when": "2023-01-01T00:00"})
 
@@ -125,6 +129,7 @@ def test_registry_composes_with_an_annotated_constraint() -> None:
         1,
         1,
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         DataclassSchema(Bounded)({"when": "1990-01-01T00:00"})
     assert caught.value.errors[0].path == ["when"]
@@ -149,6 +154,7 @@ def test_re_registering_replaces_the_previous_entry() -> None:
     """A second registration for a type replaces the first."""
     register_type(datetime, Coerce(lambda _v: datetime(1970, 1, 1)))
     register_type(datetime, Coerce(_parse))
+
     assert DataclassSchema(Event)({"when": "2025-01-01T00:00"}).when == datetime(
         2025,
         1,

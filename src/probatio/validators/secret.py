@@ -74,9 +74,11 @@ class Secret(_SafeValidator):
         """Return the validated value wrapped in a SecretValue."""
         if isinstance(value, SecretValue):
             value = value.get_secret_value()
+
         try:
             validated = self._validate(value)
         except Invalid as exc:
             # Never echo the secret in the error.
             raise SecretInvalid(self.msg or "secret value is not valid") from exc
+
         return SecretValue(validated)

@@ -93,6 +93,7 @@ def test_complex_required_none_present_reports_at_least_one() -> None:
     """None present raises a single clear 'at least one of ...' error."""
     with pytest.raises(MultipleInvalid) as caught:
         _complex(probatio)({})
+
     errors = caught.value.errors
     assert len(errors) == 1
     assert (
@@ -119,6 +120,7 @@ def test_complex_required_deviation_is_a_single_error() -> None:
     """
     probatio_errors = _detail(probatio, _complex, {})[1]
     voluptuous_errors = _detail(voluptuous, _complex, {})[1]
+
     assert len(probatio_errors) == 1
     assert len(voluptuous_errors) == 2  # the upstream double-report
     assert probatio_errors[0] == voluptuous_errors[0]  # the first error matches

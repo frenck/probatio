@@ -233,8 +233,10 @@ def test_remove_and_forbidden_keys_are_not_suggested() -> None:
         {Optional("keep"): str, Remove("dropme"): str},
         extra=REMOVE_EXTRA,
     )
+
     # Sanity: the Remove key works under REMOVE_EXTRA.
     assert schema({"dropme": "x"}) == {}
+
     # A near-miss for the Remove key must not suggest it back.
     with pytest.raises(MultipleInvalid) as caught:
         Schema({Optional("keep"): str, Remove("dropme"): str})({"dropme": 1})
@@ -323,6 +325,7 @@ def test_remove_validates_its_value_before_dropping() -> None:
     """
     schema = Schema({Required("id"): int, Remove("note"): str})
     assert schema({"id": 1, "note": "drop me"}) == {"id": 1}
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"id": 1, "note": 42})
     assert caught.value.errors[0].path == ["note"]
@@ -355,6 +358,7 @@ def test_dict_value_error_type_is_not_overwritten() -> None:
         raise error
 
     schema = Schema({"a": picky})
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": 1})
     assert caught.value.errors[0].error_type == "special thing"

@@ -11,6 +11,7 @@ from probatio.error import SecretInvalid
 def test_secret_wraps_and_masks() -> None:
     """Secret returns a SecretValue that hides the value in repr and str."""
     result = Schema(Secret())("hunter2")
+
     assert isinstance(result, SecretValue)
     assert result.get_secret_value() == "hunter2"
     assert "hunter2" not in repr(result)
@@ -31,6 +32,7 @@ def test_secret_inner_failure_does_not_echo_the_value() -> None:
     """A failing inner schema raises SecretInvalid without echoing the secret."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Secret(str))(987654)
+
     error = caught.value.errors[0]
     assert isinstance(error, SecretInvalid)
     assert "987654" not in str(error)
@@ -67,5 +69,6 @@ def test_secret_stays_masked_inside_a_mapping() -> None:
     """A SecretValue in a validated mapping does not leak in the mapping's repr."""
     schema = Schema({"password": Secret(str), "user": str})
     result = schema({"password": "s3cr3t", "user": "bob"})
+
     assert "s3cr3t" not in repr(result)
     assert result["password"].get_secret_value() == "s3cr3t"

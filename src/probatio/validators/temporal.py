@@ -145,8 +145,10 @@ class AsDatetime(_SafeValidator):
         except (TypeError, ValueError) as exc:
             message = self.msg or _format_message("datetime", self.format)
             raise DatetimeInvalid(message) from exc
+
         if self.require_timezone and parsed.tzinfo is None:
             raise DatetimeInvalid(self.msg or "expected a timezone-aware datetime")
+
         return parsed
 
 
@@ -225,22 +227,27 @@ class Duration(_SafeValidator):
         """Return the value as a timedelta, else raise DurationInvalid."""
         if isinstance(value, datetime.timedelta):
             return value
+
         if isinstance(value, bool):
-            # A bool is an int, but "true seconds" is never what a config means.
+            # ``bool`` is an ``int`` subclass, but true and false are not durations.
             raise DurationInvalid(self.msg or "expected a duration")
+
         if isinstance(value, int | float):
             try:
                 return datetime.timedelta(seconds=value)
             except (OverflowError, ValueError) as exc:
                 # A huge value overflows; ``float('nan')`` raises ValueError.
                 raise DurationInvalid(self.msg or "expected a duration") from exc
+
         if isinstance(value, str):
             return self._parse_string(value)
+
         if isinstance(value, dict):
             try:
                 return datetime.timedelta(**value)
             except (TypeError, ValueError, OverflowError) as exc:
                 raise DurationInvalid(self.msg or "expected a duration") from exc
+
         raise DurationInvalid(self.msg or "expected a duration")
 
     def _parse_string(self, value: str) -> datetime.timedelta:
@@ -254,18 +261,21 @@ class Duration(_SafeValidator):
         sign = 1
         if text.startswith("-"):
             sign, text = -1, text[1:]
+
         if ":" not in text:
             return sign * self._seconds(text)
+
         parts = text.split(":")
         if len(parts) not in _DURATION_PARTS or not all(p.isdigit() for p in parts):
             raise DurationInvalid(self.msg or _DURATION_MSG)
         hours, minutes, *rest = (int(part) for part in parts)
         seconds = rest[0] if rest else 0
+
+        # In clock-style input, minutes and seconds stay in their usual range.
+        # Hours remain unbounded because durations can be longer than a day.
         if minutes > _MAX_CLOCK_FIELD or seconds > _MAX_CLOCK_FIELD:
-            # H:MM:SS is clock notation, so the minute and second fields are 0 to 59;
-            # reject "1:99" rather than overflowing 99 minutes through timedelta. The
-            # hour field is unbounded, since a duration can run past a single day.
             raise DurationInvalid(self.msg or _DURATION_MSG)
+
         try:
             return sign * datetime.timedelta(
                 hours=hours,
@@ -331,8 +341,8 @@ class Epoch(_SafeValidator):
     def __call__(self, value: typing.Any) -> datetime.datetime:
         """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""
         if isinstance(value, bool) or not isinstance(value, int | float):
-            # A bool is an int, but "true seconds since the epoch" is never meant.
             raise EpochInvalid(self.msg or "expected a Unix timestamp")
+
         try:
             seconds = value / _EPOCH_DIVISORS[self.unit]
             return datetime.datetime.fromtimestamp(seconds, tz=datetime.UTC)

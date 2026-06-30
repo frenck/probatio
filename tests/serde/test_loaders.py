@@ -64,6 +64,7 @@ def test_optional_load_reraises_a_broken_backend(
         raise ModuleNotFoundError(message, name="innards")
 
     monkeypatch.setattr(_optional, "import_module", boom)
+
     with pytest.raises(ModuleNotFoundError, match="innards"):
         _optional._load("orjson")
 
@@ -248,6 +249,7 @@ def test_load_yaml_with_locations_resolves_paths() -> None:
 
     text = "name: web\nlimits:\n  max: 999\n"
     data, locator = load_yaml_with_locations(text)
+
     assert data == {"name": "web", "limits": {"max": 999}}
     loc = locator(["limits", "max"])
     assert isinstance(loc, Location)
@@ -264,6 +266,7 @@ def test_load_yaml_with_locations_resolves_merge_keys_like_load_yaml() -> None:
     )
     plain = load_yaml(text)
     located, _locator = load_yaml_with_locations(text)
+
     assert located == plain
     # Explicit key wins over both sources, and the earlier source wins for shared keys.
     assert located["derived"] == {"c": 3, "a": 7, "b": 2}
@@ -289,6 +292,7 @@ def test_load_yaml_with_locations_fills_file_from_a_path(tmp_path: object) -> No
     config.write_text("nested:\n  level: 1\n")
     _data, locator = load_yaml_with_locations(config)
     loc = locator(["nested", "level"])
+
     assert loc.file == str(config)
     assert str(loc) == f"{config}:2:10"
 
@@ -321,6 +325,7 @@ def test_load_yaml_with_locations_needs_locate_capable_yamlrocks(
         "loads",
         lambda *_args, **_kwargs: _OldDocument(),
     )
+
     with pytest.raises(RuntimeError, match="or newer"):
         load_yaml_with_locations("a: 1")
 

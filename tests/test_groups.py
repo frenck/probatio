@@ -102,8 +102,10 @@ def test_exclusive_required_demands_exactly_one() -> None:
     )
     assert schema({"project_id": 1}) == {"project_id": 1}
     assert schema({"project_name": "x"}) == {"project_name": "x"}
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
+
     error = caught.value.errors[0]
     assert isinstance(error, RequiredFieldInvalid)
     assert (
@@ -181,8 +183,10 @@ def test_at_least_one_of_a_group_via_required_any() -> None:
         "email": "a@b.c",
         "phone": "123",
     }
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
+
     assert (
         caught.value.errors[0].error_message
         == "at least one of ['email', 'phone'] is required"

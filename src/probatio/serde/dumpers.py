@@ -44,13 +44,16 @@ def _normalize(  # noqa: PLR0911
     """
     if isinstance(value, bool) or value is None:
         return value
+
     if isinstance(value, float):
         if fmt == "json" and not math.isfinite(value):
             message = "JSON cannot represent a non-finite float (nan, inf, -inf)"
             raise ValueError(message)
         return value
+
     if isinstance(value, str | int):
         return value
+
     if isinstance(value, dict | list | tuple | set | frozenset):
         if seen is None:
             seen = set()
@@ -65,16 +68,16 @@ def _normalize(  # noqa: PLR0911
             return [_normalize(item, default, fmt=fmt, seen=seen) for item in value]
         finally:
             seen.discard(marker)
+
     if isinstance(value, Decimal):
         return float(value)
+
     if isinstance(value, datetime.date | datetime.time):
-        # datetime is a subclass of date, so this covers all three. TOML has
-        # native temporal types (tomli-w writes them and tomllib reads them back
-        # as the same type), so they pass through; JSON and YAML have none, so
-        # they become ISO 8601 strings.
         return value if fmt == "toml" else value.isoformat()
+
     if default is not None:
         return _normalize(default(value), default, fmt=fmt, seen=seen)
+
     message = f"cannot serialize value of type {type(value).__name__}"
     raise TypeError(message)
 
@@ -90,6 +93,7 @@ def _normalize_dict(
     """
     result: dict[Any, Any] = {}
     coerced_keys: set[str] | None = set() if fmt == "json" else None
+
     for key, item in value.items():
         if coerced_keys is not None:
             coerced = _json_key(key)
@@ -102,6 +106,7 @@ def _normalize_dict(
                     raise ValueError(message)
                 coerced_keys.add(coerced)
         result[key] = _normalize(item, default, fmt=fmt, seen=seen)
+
     return result
 
 
@@ -145,6 +150,7 @@ def dump_json(
     """
     native = _normalize(value, default, fmt="json")
     opts = effective_options("json", "dump", options)
+
     if opts:
         if _optional.orjson is not None:
             return _as_text(
@@ -166,6 +172,7 @@ def dump_json(
                 what="JSON dump",
             ),
         )
+
     if _optional.orjson is not None:
         try:
             return _as_text(_optional.orjson.dumps(native))
@@ -191,6 +198,7 @@ def dump_yaml(
     """
     native = _normalize(value, default, fmt="yaml")
     opts = effective_options("yaml", "dump", options)
+
     if _optional.yamlrocks is not None:
         return _as_text(
             _forward_options(
@@ -201,6 +209,7 @@ def dump_yaml(
                 what="YAML dump",
             )
         )
+
     if _optional.pyyaml is not None:
         return _as_text(
             _forward_options(
@@ -211,6 +220,7 @@ def dump_yaml(
                 what="YAML dump",
             )
         )
+
     message = "no YAML dumper available; install probatio[yaml] or PyYAML"
     raise RuntimeError(message)
 
@@ -234,6 +244,7 @@ def dump_toml(
             f"got {type(value).__name__}"
         )
         raise TypeError(message)
+
     if _optional.tomli_w is not None:
         return _as_text(
             _forward_options(
@@ -271,4 +282,5 @@ def dump(
     except KeyError:
         message = f"unsupported format: {format!r}"
         raise ValueError(message) from None
+
     return dumper(value, default=default, options=options)

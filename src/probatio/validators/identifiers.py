@@ -36,9 +36,11 @@ class ULID(_SafeValidator):
         """Return the normalized ULID, else raise ValueInvalid."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
+
         candidate = value.upper()
         if len(candidate) != _ULID_LENGTH or not _ULID_CHARS.issuperset(candidate):
             raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
+
         return candidate
 
 
@@ -65,9 +67,11 @@ class UUID(_SafeValidator):
             )
         except (ValueError, TypeError) as exc:
             raise UuidInvalid(self.msg or "expected a UUID") from exc
+
         if self.version is not None and result.version != self.version:
             message = self.msg or f"expected a version {self.version} UUID"
             raise UuidInvalid(message)
+
         return result
 
 
@@ -100,11 +104,14 @@ class MacAddress(_SafeValidator):
         """Return the MAC address, normalized unless ``normalize`` is False."""
         if not isinstance(value, str):
             raise MacAddressInvalid(self.msg or "expected a MAC address")
+
         cleaned = value.replace(":", "").replace("-", "").replace(".", "").lower()
         if len(cleaned) != _MAC_LENGTH or not _HEX_CHARS.issuperset(cleaned):
             raise MacAddressInvalid(self.msg or "expected a MAC address")
+
         if not self.normalize:
             return value
+
         octets = cleaned.upper() if self.upper else cleaned
         return self.separator.join(
             octets[index : index + 2] for index in range(0, _MAC_LENGTH, 2)

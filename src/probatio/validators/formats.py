@@ -61,6 +61,7 @@ class CreditCard(_SafeValidator):
             raise ValueInvalid(
                 self.msg or "expected a credit card number", code="credit_card"
             )
+
         digits = value.replace(" ", "").replace("-", "")
         if (
             not _DIGITS.issuperset(digits)
@@ -112,6 +113,7 @@ class IBAN(_SafeValidator):
         """Return the IBAN (compact and upper-cased when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected an IBAN", code="iban")
+
         compact = value.replace(" ", "").upper()
         if not _valid_iban(compact):
             raise ValueInvalid(self.msg or "invalid IBAN", code="iban")
@@ -134,13 +136,16 @@ class DataURI(_SafeValidator):
         """Return the value if it is a well-formed data URI, else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected a data URI", code="data_uri")
+
         header, separator, data = value.partition(",")
         if not header.startswith("data:") or not separator:
             raise ValueInvalid(self.msg or "invalid data URI", code="data_uri")
+
         params = header[len("data:") :].split(";")
         media_type = params[0]
         if media_type and "/" not in media_type:
             raise ValueInvalid(self.msg or "invalid data URI", code="data_uri")
+
         if "base64" in params[1:]:
             try:
                 base64.b64decode(data, validate=True)
@@ -148,6 +153,7 @@ class DataURI(_SafeValidator):
                 raise ValueInvalid(
                     self.msg or "invalid data URI", code="data_uri"
                 ) from exc
+
         return value
 
 
@@ -171,6 +177,7 @@ class E164(_SafeValidator):
         """Return the E.164 number (compact when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected a phone number", code="e164")
+
         candidate = value.translate(_E164_SEPARATORS) if self.normalize else value
         digits = candidate[1:]
         if (
@@ -180,4 +187,5 @@ class E164(_SafeValidator):
             or not _DIGITS.issuperset(digits)
         ):
             raise ValueInvalid(self.msg or "invalid phone number", code="e164")
+
         return candidate

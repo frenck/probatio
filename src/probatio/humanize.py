@@ -56,6 +56,7 @@ def humanize_error(
                 for sub_error in validation_error.errors
             ),
         )
+
     if isinstance(validation_error, SecretInvalid):
         # The value at this path is a secret that failed validation, and it is still
         # the raw, unwrapped value in ``data`` (the SecretValue wrapper only exists
@@ -65,11 +66,14 @@ def humanize_error(
         offending = repr(_nested_getitem(data, validation_error.path))
         if len(offending) > max_sub_error_length:
             offending = offending[: max_sub_error_length - 3] + "..."
+
     message = f"{validation_error}. Got {offending}"
+
     if locator is not None:
         location = locator(validation_error.path)
         if location is not None:
             message = f"{message} (at {location})"
+
     return message
 
 

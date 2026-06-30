@@ -99,6 +99,7 @@ class _FilesystemCheck(_SafeValidator):
         except (TypeError, ValueError) as exc:
             # ValueError covers a path with an embedded NUL byte (os.stat raises).
             raise self.error(self.empty_msg) from exc
+
         message = self.msg or self.default_msg
         raise self.error(message)
 

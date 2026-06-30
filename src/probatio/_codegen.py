@@ -159,6 +159,7 @@ def _inline_range(schema: Any) -> list[str] | None:
         high is not None and not isinstance(high, (int, float))
     ):
         return None
+
     lines = ["        if type(_v) not in (int, float):", "            raise _Bail"]
     if low is not None:
         op = ">=" if schema.min_included else ">"
@@ -258,12 +259,14 @@ def _inline_any(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
             f"        if {guard}not isinstance(_v, _an{tag}):",
             "            raise _Bail",
         ]
+
     branches = schema.validators
     if all(
         branch is None or isinstance(branch, (str, bytes, int)) for branch in branches
     ):
         namespace[f"_anin{tag}"] = frozenset(branches)
         return _emit_membership(f"_anin{tag}")
+
     non_none = [branch for branch in branches if branch is not None]
     if len(non_none) == 1 and len(non_none) < len(branches):
         inner = _inline_value(non_none[0], namespace, tag)
@@ -375,6 +378,7 @@ def _emit_field(
         if value_type is not None
         else _inline_value(candidate.value_schema, namespace, str(index))
     )
+
     if value_type is not None:
         namespace[f"_t{index}"] = value_type
         store = [
@@ -393,6 +397,7 @@ def _emit_field(
             "        except _Invalid:",
             "            raise _Bail",
         ]
+
     lines = [f"    _v = data.get({krepr}, _MISSING)", "    if _v is _MISSING:"]
     if not isinstance(candidate.default, Undefined):
         namespace[f"_d{index}"] = candidate.default
@@ -405,6 +410,7 @@ def _emit_field(
     else:
         # Optional, no default: an absent key is simply not stored.
         lines.append("        pass")
+
     lines.append("    else:")
     lines.extend(store)
     return lines
@@ -448,6 +454,7 @@ def compile_mapping(
         return None
     if construct is not None and validator._extra == ALLOW_EXTRA:  # noqa: SLF001
         return None
+
     candidates = validator._candidates  # noqa: SLF001
     namespace: dict[str, Any] = {
         "_MISSING": _MISSING,
@@ -467,6 +474,7 @@ def compile_mapping(
             "        _dt = type(data)",
             "        out = {} if _dt is dict else _dt()",
         ]
+
     kwargs: list[str] = []
     for index, candidate in enumerate(candidates):
         if construct is None:
@@ -478,11 +486,13 @@ def compile_mapping(
             "    " + line for line in _emit_field(index, candidate, namespace, target)
         ]
     body += ["    " + line for line in _emit_extra(validator._extra)]  # noqa: SLF001
+
     if not body:
         # A zero-field dataclass with REMOVE_EXTRA emits nothing into the ``try``
         # (no out-dict setup, no fields, no extra-key copy), which would be a syntax
         # error; a bare ``pass`` keeps the block valid and still bails on a non-dict.
         body.append("        pass")
+
     tail = f"    return _Type({', '.join(kwargs)})" if construct else "    return out"
     lines = [
         "def _validate(data):",
@@ -523,6 +533,7 @@ def compile_sequence(
     )
     if inline is None:
         return None
+
     # ``_inline_sequence`` already guards ``type(_v) is not list`` and leaves the
     # rebuilt list in ``_v``; here ``_v`` starts as the incoming data.
     lines = [

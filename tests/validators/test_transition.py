@@ -37,6 +37,7 @@ def test_immutable_rejects_a_change() -> None:
     """Changing an immutable field is rejected, reported at the field."""
     with pytest.raises(MultipleInvalid) as caught:
         _immutable_schema()({"user_id": 2}, context={"user_id": 1})
+
     error = caught.value.errors[0]
     assert isinstance(error, ImmutableInvalid)
     assert error.code == "immutable"
@@ -81,8 +82,10 @@ def test_immutable_across_several_fields_with_a_custom_message() -> None:
             Immutable("a", "b", msg="frozen"),
         ),
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": 1, "b": 9}, context={"a": 1, "b": 2})
+
     assert caught.value.errors[0].error_message == "frozen"
     assert caught.value.errors[0].path == ["b"]
 
@@ -110,6 +113,7 @@ def test_write_once_rejects_a_change_after_set() -> None:
     """Once a write-once field holds a value, a different value is rejected."""
     with pytest.raises(MultipleInvalid) as caught:
         _write_once_schema()({"token": "t2"}, context={"token": "t1"})
+
     assert caught.value.errors[0].path == ["token"]
     assert isinstance(caught.value.errors[0], ImmutableInvalid)
 

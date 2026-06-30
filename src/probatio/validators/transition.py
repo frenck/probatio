@@ -60,6 +60,7 @@ class Immutable(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the mapping, raising if an immutable field changed."""
         previous = current_context()
+
         if isinstance(value, Mapping) and isinstance(previous, Mapping):
             for field in self.fields:
                 if (
@@ -69,6 +70,7 @@ class Immutable(_SafeValidator):
                 ):
                     message = self.msg or f"{field!r} cannot be changed"
                     raise ImmutableInvalid(message, path=[field])
+
         return value
 
 
@@ -89,10 +91,12 @@ class WriteOnce(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the mapping, raising if an already-set field changed."""
         previous = current_context()
+
         if isinstance(value, Mapping) and isinstance(previous, Mapping):
             for field in self.fields:
                 old = previous.get(field)
                 if old is not None and field in value and _changed(old, value[field]):
                     message = self.msg or f"{field!r} is write-once and already set"
                     raise ImmutableInvalid(message, path=[field])
+
         return value

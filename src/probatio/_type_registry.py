@@ -73,9 +73,11 @@ def type_registry(registrations: Mapping[type, Any]) -> Iterator[None]:
         if not isinstance(cls, type):
             message = f"type_registry keys must be types, got {cls!r}"
             raise TypeError(message)
+
     current = _scoped.get() or {}
     updated = {**current, **registrations}
     token = _scoped.set(updated)
+
     try:
         yield
     finally:

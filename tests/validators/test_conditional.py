@@ -48,6 +48,7 @@ def test_required_with_rejects_a_missing_dependency() -> None:
     """A missing required key under a present trigger is reported with its path."""
     with pytest.raises(MultipleInvalid) as caught:
         _with_schema()({"tls": True, "cert": "c"})
+
     error = caught.value.errors[0]
     assert isinstance(error, RequiredFieldInvalid)
     assert error.path == ["key"]
@@ -113,6 +114,7 @@ def test_required_with_any_of_several_triggers() -> None:
     """A list of triggers with mode='any' fires when any one is present."""
     rule = RequiredWith(["a", "b"], "x", mode="any")
     assert Schema(rule)({"b": 1, "x": 1}) == {"b": 1, "x": 1}
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(rule)({"a": 1})
     assert caught.value.errors[0].path == ["x"]
@@ -122,6 +124,7 @@ def test_required_with_all_of_several_triggers() -> None:
     """With mode='all', the rule fires only when every trigger is present."""
     rule = RequiredWith(["a", "b"], "x", mode="all")
     assert Schema(rule)({"a": 1}) == {"a": 1}  # not all triggers, no requirement
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(rule)({"a": 1, "b": 1})
     assert caught.value.errors[0].path == ["x"]
@@ -132,6 +135,7 @@ def test_required_without_requires_when_trigger_absent() -> None:
     rule = RequiredWithout("cert", "cert_path")
     assert Schema(rule)({"cert": "c"}) == {"cert": "c"}  # trigger present, no-op
     assert Schema(rule)({"cert_path": "/x"}) == {"cert_path": "/x"}  # supplied
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(rule)({})
     assert caught.value.errors[0].path == ["cert_path"]
@@ -146,6 +150,7 @@ def test_required_without_all_of_several_triggers() -> None:
     """With mode='all', RequiredWithout fires only when every trigger is absent."""
     rule = RequiredWithout(["a", "b"], "x", mode="all")
     assert Schema(rule)({"a": 1}) == {"a": 1}  # one present, not all absent
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(rule)({})
     assert caught.value.errors[0].path == ["x"]
@@ -155,6 +160,7 @@ def test_required_if_all_conditions_must_match() -> None:
     """With several conditions and mode='all', every condition must hold to fire."""
     rule = RequiredIf({"a": 1, "b": 2}, "x", mode="all")
     assert Schema(rule)({"a": 1, "b": 9}) == {"a": 1, "b": 9}  # not all match
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(rule)({"a": 1, "b": 2})
     assert caught.value.errors[0].path == ["x"]
@@ -193,6 +199,7 @@ def test_required_if_non_matching_comparison_does_not_fire() -> None:
     # A signaling NaN raises on ==, which the rule treats as no match, not a leak.
     # Assert by identity, since == on the sNaN would raise in the assertion itself.
     data = {"a": Decimal("sNaN")}
+
     assert Schema(RequiredIf({"a": Decimal("sNaN")}, "x"))(data) is data
 
 
@@ -201,6 +208,7 @@ def test_check_passes_when_predicate_holds() -> None:
     schema = Schema(
         All({"a": int, "b": int}, Check(lambda d: d["a"] < d["b"], "a < b"))
     )
+
     assert schema({"a": 1, "b": 2}) == {"a": 1, "b": 2}
 
 
@@ -209,6 +217,7 @@ def test_check_fails_when_predicate_is_falsy() -> None:
     schema = Schema(
         All({"a": int, "b": int}, Check(lambda d: d["a"] < d["b"], "a < b"))
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": 5, "b": 1})
     assert caught.value.errors[0].error_message == "a < b"
@@ -237,6 +246,7 @@ def test_check_propagates_an_invalid_from_the_predicate() -> None:
 def test_at_least_one_passes_with_a_key_present() -> None:
     """At least one of the named keys present validates and passes through."""
     schema = Schema(All(dict, AtLeastOne("host", "url")))
+
     assert schema({"host": "nas"}) == {"host": "nas"}
     assert schema({"host": "nas", "url": "x"}) == {"host": "nas", "url": "x"}
 
@@ -251,6 +261,7 @@ def test_at_least_one_rejects_when_none_present() -> None:
 def test_at_most_one_passes_with_zero_or_one() -> None:
     """Zero or one of the named keys present validates."""
     schema = Schema(All(dict, AtMostOne("include", "exclude")))
+
     assert schema({}) == {}
     assert schema({"include": 1}) == {"include": 1}
 
@@ -290,6 +301,7 @@ def test_key_group_rejects_a_non_mapping_by_default(validator: type) -> None:
     """A non-mapping is rejected with the dict schema's own wording (HA/ESPHome parity)."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(validator("a", "b"))("not a dict")
+
     error = caught.value.errors[0]
     assert isinstance(error, DictInvalid)
     assert error.error_message == "expected a dictionary"
@@ -306,6 +318,7 @@ def test_at_most_one_reports_each_conflicting_key_with_its_path() -> None:
     """Two present keys each raise with their own path, so an editor can point at both."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AtMostOne("a", "b"))({"a": 1, "b": 2})
+
     assert sorted(error.path for error in caught.value.errors) == [["a"], ["b"]]
     assert all(isinstance(error, ExclusiveInvalid) for error in caught.value.errors)
 
@@ -321,6 +334,7 @@ def test_exactly_one_none_present_is_a_single_pathless_error() -> None:
     """None present has no specific key to blame, so it is one pathless error."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(ExactlyOne("a", "b"))({"c": 1})
+
     assert len(caught.value.errors) == 1
     error = caught.value.errors[0]
     assert isinstance(error, RequiredFieldInvalid)
@@ -330,6 +344,7 @@ def test_exactly_one_none_present_is_a_single_pathless_error() -> None:
 def test_all_or_none_passes_with_none_or_all() -> None:
     """AllOrNone accepts none of the keys, or all of them."""
     schema = Schema(AllOrNone("lat", "lon"))
+
     assert schema({}) == {}
     assert schema({"lat": 1, "lon": 2}) == {"lat": 1, "lon": 2}
 
@@ -338,6 +353,7 @@ def test_all_or_none_reports_the_missing_keys_with_their_paths() -> None:
     """One key without its partner reports the missing one, with its path."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AllOrNone("lat", "lon"))({"lat": 1})
+
     assert [error.path for error in caught.value.errors] == [["lon"]]
     assert isinstance(caught.value.errors[0], InclusiveInvalid)
 

@@ -111,6 +111,7 @@ def _class_set(body: str) -> _CharSet:
     chars = body[1:] if negated else body
     if "\\" in chars:
         return None  # Escapes inside a class: do not try to analyze, assume ANY.
+
     collected: set[str] = set()
     index = 0
     while index < len(chars):
@@ -126,6 +127,7 @@ def _class_set(body: str) -> _CharSet:
             index += 1
         if len(collected) >= _MAX_CLASS_SIZE:
             return None  # Many ranges adding up: still cap the work.
+
     frozen = frozenset(collected)
     return ("neg", frozen) if negated else frozen
 
@@ -180,6 +182,7 @@ def _skip_group(pattern: str, index: int) -> int:
             if depth == 0:
                 return index + 1
         index += 1
+
     return index
 
 
@@ -207,6 +210,7 @@ def _has_adjacent_overlap(pattern: str) -> bool:
             return True
         previous = current if unbounded else "none"
         index = _skip_quantifier(pattern, after) if unbounded else after
+
     return False
 
 
@@ -240,6 +244,7 @@ def is_catastrophic(pattern: str) -> bool:
     """
     if _has_adjacent_overlap(pattern):
         return True
+
     # Per open group: [body_start_index, body_has_unbounded_quantifier].
     stack: list[list[Any]] = []
     index = 0
@@ -260,6 +265,7 @@ def is_catastrophic(pattern: str) -> bool:
             stack.append([index, False])
         elif char == ")":
             start, body_unbounded = stack.pop() if stack else [index, False]
+
             # A repeat of 2+ (``+``, ``*``, ``{2,}``, ``{2}``, ``{,3}`` ...) drives
             # backtracking; a fixed ``{15}`` on an unbounded body is just as
             # exponential as ``+``, so it counts too.
@@ -274,6 +280,7 @@ def is_catastrophic(pattern: str) -> bool:
             # on the group itself later makes the nesting catastrophic.
             stack[-1][1] = True
         index += 1
+
     return False
 
 
@@ -307,6 +314,7 @@ def _brace_repeats(pattern: str, start: int) -> bool:
     end = pattern.find("}", start)
     if end == -1:
         return False
+
     parts = pattern[start + 1 : end].split(",")
     try:
         if len(parts) == 1:
@@ -332,11 +340,13 @@ def _body_is_ambiguous(body: str) -> bool:
         return _is_nullable(body) or _is_homogeneous_run(body)
     if any(_is_nullable(alt) for alt in alternatives):
         return True
+
     # Cap the pairwise comparison so a pattern with a huge alternation cannot turn
     # the detector itself into the denial-of-service it is meant to prevent; a
     # very large alternation under a repeat is treated as ambiguous.
     if len(alternatives) > _MAX_ALTERNATIVES:
         return True
+
     atom_lists = [_atom_sets(alt) for alt in alternatives]
     for first, left in enumerate(atom_lists):
         for right in atom_lists[first + 1 :]:
@@ -390,6 +400,7 @@ def _is_homogeneous_run(body: str) -> bool:
         if _quantifier_is_variable(body, after):
             saw_variable = True
         index = _skip_quantifier(body, after) if _has_quantifier(body, after) else after
+
     return bool(atoms) and saw_variable and _shared_character_exists(atoms)
 
 
@@ -416,6 +427,7 @@ def _brace_is_variable(pattern: str, start: int) -> bool:
     end = pattern.find("}", start)
     if end == -1:
         return False
+
     parts = pattern[start + 1 : end].split(",")
     if len(parts) == 1:
         return False  # ``{n}``: a fixed count.
@@ -439,6 +451,7 @@ def _shared_character_exists(atoms: list[_CharSet]) -> bool:
     positives = [atom for atom in atoms if isinstance(atom, frozenset)]
     if not positives:
         return True
+
     smallest = min(positives, key=len)
     return any(all(_set_matches(atom, char) for atom in atoms) for char in smallest)
 
@@ -506,6 +519,7 @@ def _split_top_level(body: str) -> list[str]:
             parts.append(body[start:index])
             start = index + 1
         index += 1
+
     parts.append(body[start:])
     return parts
 
@@ -547,6 +561,7 @@ def _is_nullable(alternative: str, depth: int = 0) -> bool:
             if _has_quantifier(alternative, after)
             else after
         )
+
     return True
 
 

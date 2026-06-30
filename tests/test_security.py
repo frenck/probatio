@@ -178,9 +178,11 @@ def test_quantifier_is_variable_for_fixed_repeats(quantifier: str) -> None:
 def test_detector_caps_huge_alternations_without_quadratic_cost() -> None:
     """A repeated group with a huge alternation is flagged fast, not analyzed O(n^2)."""
     pattern = "(" + "|".join(["a"] * 5000) + ")+"
+
     start = time.perf_counter()
     flagged = is_catastrophic(pattern)
     elapsed = time.perf_counter() - start
+
     assert flagged is True
     assert elapsed < 1.0  # the pairwise scan is skipped past the cap
 
@@ -189,8 +191,10 @@ def test_detector_does_not_expand_giant_character_classes() -> None:
     """A class spanning the whole codepoint range is handled fast, not materialized."""
     huge = "[ -" + chr(0x10FFFF) + "]"
     pattern = "(" + "|".join(huge for _ in range(40)) + ")+"
+
     start = time.perf_counter()
     is_catastrophic(pattern)
+
     assert time.perf_counter() - start < 1.0  # the range is treated as ANY, not built
 
 
@@ -200,6 +204,7 @@ def test_detector_caps_classes_built_from_many_ranges() -> None:
         chr(0x100 + i * 0x100) + "-" + chr(0x100 + i * 0x100 + 0x90) for i in range(20)
     )
     pattern = "([" + ranges + "]|x)+"
+
     start = time.perf_counter()
     assert is_catastrophic(pattern) is True
     assert time.perf_counter() - start < 1.0
@@ -208,6 +213,7 @@ def test_detector_caps_classes_built_from_many_ranges() -> None:
 def test_detector_bounds_deeply_nested_nullable_groups() -> None:
     """Group nesting past the nullability-recursion cap is treated as nullable, fast."""
     pattern = "(" * 22 + "a?" + ")" * 22 + "*"
+
     start = time.perf_counter()
     assert is_catastrophic(pattern) is True
     assert time.perf_counter() - start < 1.0
@@ -252,6 +258,7 @@ def test_from_json_schema_recursive_ref_is_depth_guarded() -> None:
     for _ in range(5000):
         current["next"] = {}
         current = current["next"]
+
     with pytest.raises(p.MultipleInvalid, match="nested too deeply"):
         schema(deep)
 
@@ -270,6 +277,7 @@ def test_from_json_schema_rejects_too_deep_a_document() -> None:
         child: dict = {"type": "object", "properties": {}}
         deepest["properties"]["next"] = child
         deepest = child
+
     with pytest.raises(SchemaError, match="nests deeper"):
         p.from_json_schema(node)
 
@@ -283,6 +291,7 @@ def test_from_json_schema_rejects_a_deep_contains_chain() -> None:
     node: dict = {"type": "integer"}
     for _ in range(500):
         node = {"contains": node}
+
     with pytest.raises(SchemaError, match="nests deeper"):
         p.from_json_schema(node)
 
@@ -324,5 +333,6 @@ def test_self_rejects_cyclic_data() -> None:
     """Self-referential data is rejected cleanly, not as a RecursionError."""
     cyclic: dict = {"v": 1}
     cyclic["next"] = cyclic
+
     with pytest.raises(p.MultipleInvalid, match="nested too deeply"):
         _recursive_schema()(cyclic)

@@ -64,6 +64,7 @@ def test_object_required_and_optional() -> None:
             "required": ["name"],
         },
     )
+
     assert schema({"name": "ada", "age": 36}) == {"name": "ada", "age": 36}
     assert schema({"name": "ada"}) == {"name": "ada"}
     with pytest.raises(MultipleInvalid):
@@ -100,6 +101,7 @@ def test_object_additional_properties_schema_validates_extra() -> None:
             "additionalProperties": {"type": "string"},
         },
     )
+
     assert schema({"a": 1, "b": "text"}) == {"a": 1, "b": "text"}
     with pytest.raises(MultipleInvalid):
         schema({"a": 1, "b": 2})
@@ -163,6 +165,7 @@ def test_anyof_and_allof() -> None:
     all_schema = from_json_schema(
         {"allOf": [{"type": "string"}, {"type": "string", "minLength": 2}]},
     )
+
     assert all_schema("ok") == "ok"
     with pytest.raises(Invalid):
         all_schema("x")
@@ -173,6 +176,7 @@ def test_string_length_and_pattern() -> None:
     schema = from_json_schema(
         {"type": "string", "minLength": 2, "maxLength": 4, "pattern": r"^[a-z]+$"},
     )
+
     assert schema("abc") == "abc"
     with pytest.raises(Invalid):
         schema("a")
@@ -204,6 +208,7 @@ def test_number_bounds_inclusive_and_exclusive() -> None:
     exclusive = from_json_schema(
         {"type": "integer", "exclusiveMinimum": 1, "exclusiveMaximum": 10},
     )
+
     assert exclusive(2) == 2
     with pytest.raises(Invalid):
         exclusive(1)
@@ -230,6 +235,7 @@ def test_round_trips_through_to_json_schema() -> None:
         },
     )
     rebuilt = from_json_schema(to_json_schema(from_json_schema(original.schema)))
+
     assert rebuilt({"name": "ada", "port": 80}) == {"name": "ada", "port": 80}
     with pytest.raises(MultipleInvalid):
         rebuilt({"port": 80})
@@ -244,8 +250,10 @@ def test_missing_required_reports_its_path() -> None:
             "required": ["name"],
         },
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
+
     assert caught.value.errors[0].path == ["name"]
 
 
@@ -258,8 +266,10 @@ def test_extra_key_reports_its_path() -> None:
             "additionalProperties": False,
         },
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": 1, "extra": 2})
+
     assert caught.value.errors[0].path == ["extra"]
 
 
@@ -280,8 +290,10 @@ def test_additional_properties_schema_reports_the_key_path() -> None:
             "additionalProperties": {"type": "integer"},
         },
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"x": "not an int"})
+
     assert caught.value.errors[0].path == ["x"]
 
 
@@ -301,8 +313,10 @@ def test_recursive_ref_reports_a_nested_path() -> None:
             },
         },
     )
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"value": 1, "next": {"value": "bad"}})
+
     assert caught.value.errors[0].path == ["next", "value"]
 
 
@@ -535,6 +549,7 @@ def test_const_non_scalar_is_an_equality_check() -> None:
     for bad in ([2, 1], [1], []):
         with pytest.raises(Invalid):
             list_schema(bad)
+
     dict_schema = from_json_schema({"const": {"a": 1}})
     assert dict_schema({"a": 1}) == {"a": 1}
     with pytest.raises(Invalid):
@@ -658,6 +673,7 @@ def test_min_and_max_properties() -> None:
             "additionalProperties": True,
         },
     )
+
     assert schema({"a": 1}) == {"a": 1}
     with pytest.raises(Invalid):
         schema({})
@@ -678,6 +694,7 @@ def test_min_and_max_contains() -> None:
     schema = from_json_schema(
         {"type": "array", "contains": {"const": 5}, "minContains": 2, "maxContains": 3},
     )
+
     assert schema([5, 5]) == [5, 5]
     assert schema([5, 5, 5, 1]) == [5, 5, 5, 1]
     with pytest.raises(Invalid):

@@ -16,8 +16,10 @@ def test_type_schema_accepts_matching_type() -> None:
 def test_type_schema_rejects_wrong_type() -> None:
     """A type mismatch raises MultipleInvalid wrapping a TypeInvalid."""
     schema = Schema(int)
+
     with pytest.raises(MultipleInvalid) as caught:
         schema("nope")
+
     (error,) = caught.value.errors
     assert isinstance(error, TypeInvalid)
     assert error.msg == "expected int"
@@ -56,6 +58,7 @@ def test_callable_validator_value_error_becomes_invalid() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(must_parse)("not-a-number")
+
     assert isinstance(caught.value.errors[0], ValueInvalid)
 
 
@@ -68,6 +71,7 @@ def test_callable_value_error_message_is_preserved() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(needs_timezone)("2020-01-01")
+
     assert (
         caught.value.errors[0].error_message
         == "not a valid value: datetime doesn't contain timezone info"
@@ -82,6 +86,7 @@ def test_callable_value_error_without_message_stays_generic() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(reject)("x")
+
     assert caught.value.errors[0].error_message == "not a valid value"
 
 
@@ -94,6 +99,7 @@ def test_callable_validator_invalid_propagates() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(reject)("anything")
+
     assert caught.value.errors[0].msg == "always wrong"
 
 

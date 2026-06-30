@@ -158,6 +158,7 @@ def test_every_safe_validator_subclass_is_covered() -> None:
             cls()
         except Exception:  # noqa: BLE001
             uncovered.append(name)
+
     assert not uncovered, (
         f"add constructor args to _NEEDS_ARGS for: {sorted(uncovered)}"
     )

@@ -159,6 +159,7 @@ def test_custom_serializer_overrides_and_defers() -> None:
 
     schema = Schema({Optional("a"): sentinel, Optional("b"): int})
     result = serialize(schema, custom_serializer=custom)
+
     by_name = {field["name"]: field for field in result}
     assert by_name["a"]["type"] == "custom"
     assert by_name["b"]["type"] == "integer"
@@ -226,6 +227,7 @@ def test_new_validators_serialize_to_fields() -> None:
             },
         ),
     )
+
     by_name = {field["name"]: field for field in fields}
     assert by_name["ip"]["type"] == "string"
     assert by_name["port"] == {
@@ -255,6 +257,7 @@ def test_string_and_no_shape_validators_serialize() -> None:
             {Required("a"): Alpha(), Required("b"): Base64(), Required("c"): NonEmpty()}
         ),
     )
+
     by_name = {field["name"]: field for field in fields}
     assert by_name["a"]["type"] == "string"
     assert by_name["b"]["type"] == "string"
@@ -303,6 +306,7 @@ def test_serialize_matches_voluptuous_serialize(case: str) -> None:
     want = voluptuous_serialize.convert(
         voluptuous.Schema(_parity_build(voluptuous)[case])
     )
+
     assert got == want
 
 

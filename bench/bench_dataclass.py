@@ -89,10 +89,12 @@ def measure() -> list[dict[str, Any]]:
         mash = cls.from_dict
         interp = probatio.DataclassSchema(cls, compile=False)
         compiled = probatio.DataclassSchema(cls).compile()
+
         # Warm each once before timing.
         mash(payload)
         interp(payload)
         compiled(payload)
+
         rows.append(
             {
                 "scenario": name,

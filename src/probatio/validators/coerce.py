@@ -63,6 +63,7 @@ class Coerce[T](_SafeValidator):
         if isinstance(self.type, type) and issubclass(self.type, enum.Enum):
             values = ", ".join(repr(member.value) for member in self.type)
             message = f"{message} or one of {values}"
+
         return message
 
     def _enum_values(self) -> list[str]:
@@ -94,6 +95,7 @@ def Boolean(value: typing.Any) -> bool:
         if lowered in _FALSE_STRINGS:
             return False
         raise ValueError
+
     return bool(value)
 
 
@@ -141,10 +143,12 @@ class Number(_SafeValidator):
             # overflows the C long, which must not leak.
             message = self.msg or "value must be a number enclosed in a string"
             raise Invalid(message) from exc
+
         exponent = number.as_tuple().exponent
         if not isinstance(exponent, int):  # NaN or infinity
             message = self.msg or "value has no precision"
             raise Invalid(message)
+
         precision = len(number.as_tuple().digits)
         scale = -exponent
         if self.precision is not None and precision != self.precision:
@@ -153,6 +157,7 @@ class Number(_SafeValidator):
         if self.scale is not None and scale != self.scale:
             message = self.msg or f"scale must be equal to {self.scale}"
             raise Invalid(message)
+
         return number if self.yield_decimal else value
 
 

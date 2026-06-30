@@ -159,13 +159,16 @@ def cprofile(target: str) -> None:
     """cProfile a warm hot loop and print the top functions by total time."""
     work = _make(target)
     iters = _ITERS[target]
+
     for _ in range(1000):  # warm the lazy paths before measuring
         work()
+
     profiler = cProfile.Profile()
     profiler.enable()
     for _ in range(iters):
         work()
     profiler.disable()
+
     buffer = io.StringIO()
     pstats.Stats(profiler, stream=buffer).sort_stats("tottime").print_stats(20)
     print(f"=== cProfile {target} ({iters:,} iterations) ===")

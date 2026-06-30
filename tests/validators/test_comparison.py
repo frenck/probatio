@@ -122,6 +122,7 @@ def test_range_with_only_one_bound() -> None:
 def test_range_exposes_its_bounds() -> None:
     """Range keeps min, max, and inclusivity for introspection."""
     rng = Range(min=0, max=10, max_included=False)
+
     assert rng.min == 0
     assert rng.max == 10
     assert rng.min_included is True
@@ -168,6 +169,7 @@ def test_in_suggests_close_members_on_a_miss() -> None:
     """A missed string value suggests the closest members and carries candidates."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(In(["auto", "manual"]))("atuo")
+
     error = caught.value.errors[0]
     assert isinstance(error, InInvalid)
     assert error.candidates == ["auto"]
@@ -178,6 +180,7 @@ def test_in_suggestion_surfaces_in_msg_and_context() -> None:
     """The lazily matched suggestion also reaches .msg, .context, and as_dict()."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(In(["auto", "manual"]))("atuo")
+
     error = caught.value.errors[0]
     assert "did you mean 'auto'?" in error.msg
     assert error.context["candidates"] == ["auto"]
@@ -188,6 +191,7 @@ def test_in_offers_no_suggestion_when_nothing_is_close() -> None:
     """A miss with no close member has empty candidates and no hint."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(In(["auto", "manual"]))("zzzzz")
+
     error = caught.value.errors[0]
     assert error.candidates == []
     assert "did you mean" not in error.error_message
@@ -205,6 +209,7 @@ def test_in_custom_message_wins_but_keeps_candidates() -> None:
     """A custom message replaces the text, yet the candidates are still recorded."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(In(["auto"], msg="bad mode"))("atuo")
+
     error = caught.value.errors[0]
     assert error.error_message == "bad mode"
     assert error.candidates == ["auto"]
@@ -213,6 +218,7 @@ def test_in_custom_message_wins_but_keeps_candidates() -> None:
 def test_in_fold_case_matches_and_returns_the_normalized_value() -> None:
     """fold_case matches case-insensitively and returns the folded value."""
     schema = Schema(In(["Auto", "Manual"], fold_case=True))
+
     assert schema("auto") == "auto"
     assert schema("MANUAL") == "manual"
     with pytest.raises(MultipleInvalid):
@@ -386,6 +392,7 @@ def test_latitude_and_longitude_bounds() -> None:
 def test_membership_and_equality_reject_signaling_nan() -> None:
     """A signaling Decimal('sNaN') raises on every comparison; report it cleanly."""
     snan = Decimal("sNaN")
+
     for validator in (Equal(5), Literal(5), In([1, 2]), NotIn([1, 2])):
         with pytest.raises(Invalid):
             validator(snan)

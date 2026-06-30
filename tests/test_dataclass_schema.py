@@ -97,6 +97,7 @@ def test_required_and_optional_from_defaults() -> None:
     schema = DataclassSchema(User)
     result = schema({"name": "ada"})
     assert result == User(name="ada")
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
     assert caught.value.errors[0].path == ["name"]
@@ -120,6 +121,7 @@ def test_list_element_type_is_validated() -> None:
     """list[str] keeps its element type, so a wrong element is rejected."""
     schema = DataclassSchema(User)
     assert schema({"name": "a", "tags": ["x", "y"]}).tags == ["x", "y"]
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"name": "a", "tags": [1]})
     assert caught.value.errors[0].path == ["tags", 0]
@@ -237,6 +239,7 @@ def test_recursive_dataclass_rejects_pathological_depth() -> None:
     for index in range(1, 5000):
         current["nxt"] = {"value": index}
         current = current["nxt"]
+
     with pytest.raises(MultipleInvalid, match="nested too deeply"):
         DataclassSchema(Node)(data)
 
@@ -245,6 +248,7 @@ def test_recursive_dataclass_rejects_cyclic_data() -> None:
     """Self-referential data is rejected cleanly, not as a RecursionError."""
     cyclic: dict = {"value": 1}
     cyclic["nxt"] = cyclic
+
     with pytest.raises(MultipleInvalid, match="nested too deeply"):
         DataclassSchema(Node)(cyclic)
 
@@ -401,6 +405,7 @@ def test_annotated_applies_an_inline_validator() -> None:
     """A callable in Annotated metadata runs after the base type check."""
     schema = DataclassSchema(AnnotatedFields)
     assert schema({"count": 3}).count == 3
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"count": -1})
     assert caught.value.errors[0].path == ["count"]
@@ -642,6 +647,7 @@ def test_initvar_is_validated_and_passed_to_post_init() -> None:
             self.base += seed + offset
 
     schema = DataclassSchema(Seeded)
+
     assert schema({"base": 1, "seed": 5}).base == 16  # 1 + 5 + 10 (default offset)
     assert schema({"base": 1, "seed": 5, "offset": 0}).base == 6
 
@@ -699,7 +705,9 @@ def test_construct_matches_validation_for_trusted_input() -> None:
     """construct() builds the same instance validation would, without checking."""
     schema = DataclassSchema(_Rec)
     data = {"name": "ada", "age": 30, "tags": ["a"], "loc": {"x": 1, "y": 2}}
+
     built = schema.construct(dict(data))
+
     assert built == schema(dict(data))
     assert built.note == "none"  # default filled
     assert built.extra == []  # factory default filled
@@ -741,6 +749,7 @@ def test_construct_falls_back_for_a_recursive_dataclass() -> None:
     """A self-referential dataclass is not fast-built; construct() validates instead."""
     schema = DataclassSchema(Node)  # nxt: Node | None
     assert schema._fast_constructor() is None
+
     data = {"value": 1, "nxt": {"value": 2}}
     assert schema.construct(dict(data)) == schema(dict(data))
 
@@ -749,6 +758,7 @@ def test_construct_falls_back_for_a_recursive_list_dataclass() -> None:
     """A list-of-self dataclass falls back to validation too."""
     schema = DataclassSchema(Tree)  # children: list[Tree]
     assert schema._fast_constructor() is None
+
     data = {"name": "root", "children": [{"name": "leaf", "children": []}]}
     assert schema.construct(dict(data)) == schema(dict(data))
 
@@ -762,6 +772,7 @@ def test_construct_falls_back_for_a_nested_unbuildable_dataclass() -> None:
 
     schema = DataclassSchema(HasNode)
     assert schema._fast_constructor() is None
+
     data = {"n": {"value": 1}}
     assert schema.construct(dict(data)) == schema(dict(data))
 
@@ -789,6 +800,7 @@ def test_construct_builds_optional_and_union_fields() -> None:
 
     schema = DataclassSchema(Has)
     assert schema._fast_constructor() is not None
+
     built = schema.construct(
         {
             "loc": {"x": 1, "y": 2},
@@ -797,6 +809,7 @@ def test_construct_builds_optional_and_union_fields() -> None:
             "count": 7,
         }
     )
+
     assert built.loc == _Loc(1, 2)
     assert built.items == [_Loc(3, 4), None]
     assert type(built.items[0]) is _Loc
@@ -924,6 +937,7 @@ def test_construct_aliases_a_trusted_plain_list() -> None:
     schema = DataclassSchema(Tagged)
     source = [1, 2, 3]
     assert schema.construct({"tags": source}).tags is source  # aliased, trusted
+
     validated = schema({"tags": source})
     assert validated.tags is not source  # validation rebuilds a fresh list
     assert validated.tags == source

@@ -120,10 +120,12 @@ class JSONString(_SafeValidator):
         """Return the decoded (and validated) value, else raise JsonInvalid."""
         if not isinstance(value, str | bytes | bytearray):
             raise JsonInvalid(self.msg or "expected a JSON string")
+
         try:
             decoded = json.loads(value)
         except ValueError as exc:
             raise JsonInvalid(self.msg or "invalid JSON") from exc
+
         return self._validate(decoded) if self._validate is not None else decoded
 
 
@@ -152,10 +154,12 @@ class YAMLString(_SafeValidator):
 
         if not isinstance(value, str | bytes):
             raise YamlInvalid(self.msg or "expected a YAML string")
+
         try:
             decoded = load_yaml(value)
         except Exception as exc:
             # A YAML backend raises its own parse-error type (YAMLRocks, PyYAML);
             # normalize any of them, plus deep-nesting recursion, to YamlInvalid.
             raise YamlInvalid(self.msg or "invalid YAML") from exc
+
         return self._validate(decoded) if self._validate is not None else decoded

@@ -202,11 +202,13 @@ def test_compiled_matches_interpreted(name: str) -> None:
     """A compiled schema returns and raises exactly what the interpreted one does."""
     interpreted = _BUILDERS[name](compile=False)
     compiled = _BUILDERS[name](compile=True)
+
     for data in _INPUTS:
         assert _outcome(interpreted, dict(data)) == _outcome(  # type: ignore[arg-type]
             compiled,
             dict(data),  # type: ignore[arg-type]
         )
+
     # The first call above resolved the lazy bootstrap; confirm it actually compiled.
     assert _is_compiled(compiled)
 
@@ -220,6 +222,7 @@ def test_same_shape_schemas_stay_isolated_through_the_code_cache() -> None:
     """
     a = Schema({"x": int}, compile=True).compile()
     b = Schema({"x": str}, compile=True).compile()
+
     assert _is_compiled(a)
     assert _is_compiled(b)
     assert a({"x": 1}) == {"x": 1}
@@ -272,6 +275,7 @@ def test_compiled_membership_treats_arithmetic_error_like_interpreted() -> None:
     # compares each member to the value and so reaches the value's __eq__.
     interpreted = Schema({"x": In([[1], "a"])}, compile=False)
     compiled = Schema({"x": In([[1], "a"])}, compile=True)
+
     assert _outcome(interpreted, {"x": _Boom()}) == _outcome(compiled, {"x": _Boom()})
     assert _is_compiled(compiled)
 
@@ -389,11 +393,13 @@ def test_recursive_ref_schema_validates_deep_data_cheaply() -> None:
         },
     )
     set_compile_policy(CompilePolicy.ON)
+
     deep: dict = {}
     current = deep
     for _ in range(2000):
         current["next"] = {}
         current = current["next"]
+
     with pytest.raises(MultipleInvalid, match="nested too deeply"):
         schema(deep)
 
@@ -464,6 +470,7 @@ def test_recursive_dataclass_compiles_and_matches() -> None:
     interpreted = DataclassSchema(_Tree)
     compiled = DataclassSchema(_Tree, compile=True).compile()
     assert _is_compiled(compiled)
+
     data = {"value": 1, "children": [{"value": 2, "children": []}]}
     assert interpreted(dict(data)) == compiled(dict(data))
 
@@ -480,6 +487,7 @@ def test_typeddict_compiles_as_a_plain_mapping() -> None:
     interpreted = TypedDictSchema(_Movie)
     compiled = TypedDictSchema(_Movie, compile=True).compile()
     assert _is_compiled(compiled)
+
     for data in ({"title": "x", "year": 2020}, {"title": 1, "year": 2}, {"title": "x"}):
         assert _outcome(interpreted, dict(data)) == _outcome(compiled, dict(data))
 
@@ -557,8 +565,10 @@ def test_compiled_sequence_matches_interpreted(
     """A compiled top-level list schema returns and raises what the engine does."""
     interpreted = Schema(list(schema), compile=False)
     compiled = Schema(list(schema), compile=True)
+
     for data in inputs:
         assert _outcome(interpreted, data) == _outcome(compiled, data)
+
     assert _is_compiled(compiled)
 
 

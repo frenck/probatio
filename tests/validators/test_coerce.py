@@ -15,6 +15,7 @@ from probatio.error import BooleanInvalid, CoerceInvalid, Invalid
 def test_number_precision_and_scale() -> None:
     """Number checks total digits (precision) and decimal places (scale)."""
     assert Schema(Number(precision=6, scale=2))("1234.01") == "1234.01"
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Number(precision=6, scale=2))("1.0")
     assert isinstance(caught.value.errors[0], Invalid)
@@ -120,6 +121,7 @@ def test_coerce_enum_message_lists_the_values() -> None:
         Schema(Coerce(_Color))("purple")
     with pytest.raises(voluptuous.MultipleInvalid) as oracle:
         voluptuous.Schema(voluptuous.Coerce(_Color))("purple")
+
     assert (
         str(caught.value.errors[0])
         == "expected _Color or one of 'red', 'green', 'blue'"
@@ -138,6 +140,7 @@ def test_coerce_enum_suggests_a_close_value() -> None:
     """A near-miss against an enum's string values gets a 'did you mean ...?' hint."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Coerce(_Color))("gren")
+
     error = caught.value.errors[0]
     assert isinstance(error, CoerceInvalid)
     assert error.candidates == ["green"]
@@ -148,6 +151,7 @@ def test_coerce_enum_no_suggestion_when_nothing_is_close() -> None:
     """A far-off value gets no hint and no candidates, matching the value listing."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Coerce(_Color))("purple")
+
     error = caught.value.errors[0]
     assert error.candidates == []
     assert "did you mean" not in error.error_message
@@ -169,6 +173,7 @@ def test_coerce_int_enum_has_no_suggestions() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Coerce(_Size))("small")
+
     assert caught.value.errors[0].candidates == []
 
 

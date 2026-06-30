@@ -118,8 +118,10 @@ def test_extend_normalizes_nested_required() -> None:
     """Required intent is normalized recursively into nested mappings."""
     extension = Schema({"outer": {"inner": int}}, required=True)
     extended = Schema({"a": int}).extend(extension)
+
     with pytest.raises(MultipleInvalid) as caught:
         extended({"a": 1, "outer": {}})
+
     assert caught.value.errors[0].path == ["outer", "inner"]
 
 
@@ -158,5 +160,6 @@ def test_extend_returns_the_same_schema_subclass() -> None:
         pass
 
     extended = StrictSchema({Required("a"): int}).extend({Optional("b"): str})
+
     assert isinstance(extended, StrictSchema)
     assert extended.schema == {Required("a"): int, Optional("b"): str}
