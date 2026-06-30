@@ -28,12 +28,12 @@ never get supported.
 Reaching for validation in Python tends to mean one of a few trades:
 
 - **voluptuous** is the lightweight, schema-is-data choice that Home Assistant
-  and many others standardized on. The model is a pleasure to use, but the
-  project has seen little movement for years, and several rough edges (a
+  and many others standardized on. The model is compact and easy to compose, but
+  the project has seen little movement for years, and several rough edges (a
   `RecursionError` on deep data, a leaked `TypeError` from a built-in validator,
   errors reported twice) sit unfixed.
 - **mashumaro** is a fast, dataclass-first take focused on serialization and
-  deserialization. It is genuinely first-rate at what it does, and several ideas
+  deserialization. It is excellent at what it does, and several ideas
   in Probatio are borrowed from it with credit (see the architecture decision
   records). It is a codec library more than a free-form validator, though, so the
   schema-is-data model is not the problem it set out to solve.
@@ -64,8 +64,8 @@ It is held to a high bar for code and prose, because it is public and read
 closely.
 
 The compatibility is measured, not asserted: Home Assistant's own
-`config_validation` test suite runs against Probatio (142 of 142 passing), and so
-does voluptuous's own 0.16.0 test suite, with every divergence documented. The
+`config_validation` test suite runs against Probatio (the full suite passing), and
+so does voluptuous's own 0.16.0 test suite, with every divergence documented. The
 [voluptuous compatibility](/reference/compatibility-matrix/) reference lists those
 documented deviations name by name.
 

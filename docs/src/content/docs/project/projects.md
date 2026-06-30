@@ -23,8 +23,9 @@ for its design.
 
 Home Assistant validates every integration's configuration with voluptuous, on a
 hot path hit by millions of installations at startup and on every reload.
-Probatio matches that behavior exactly, its compatibility is pinned against Home
-Assistant's own `config_validation` test suite (142 of 142 passing), and it adds
+Probatio tracks that behavior closely (with documented deviations), its
+compatibility is pinned against Home Assistant's own `config_validation` test
+suite (the full suite passing), and it adds
 a cleaner error model with paths, no interpreter-level `RecursionError` on deep
 configuration, and "did you mean ...?" suggestions for misspelled keys. See the
 [Home Assistant recipe](/recipes/home-assistant/).

@@ -17,8 +17,8 @@ beginner-friendly docs site.
 
 **Rationale**:
 
-- Modern, fast, beautiful out of the box.
-- Great search, navigation, dark mode.
+- Modern defaults and fast builds, with no theme to assemble first.
+- Built-in search, navigation, and dark mode.
 - MDX support for interactive examples.
 - Easy to maintain alongside the code.
 - Used by many popular open source projects.

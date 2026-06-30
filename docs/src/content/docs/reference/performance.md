@@ -8,8 +8,8 @@ Probatio is pure Python with no native extension. That is a deliberate choice
 and [ADR-011](https://github.com/frenck/probatio/blob/main/adr/011-opt-in-compiled-schema.md)):
 the drop-in promise and easy installation matter more than a native core. Even so,
 the interpreted engine is well ahead of voluptuous, and a hot schema compiles itself
-into a specialized validator for more. This page explains the cost model and how to
-measure it, with honest numbers.
+into a specialized validator for more speed. This page explains the cost model and
+how to measure it, with honest numbers.
 
 ## The cost model: build once, call cheap
 

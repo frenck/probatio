@@ -25,7 +25,7 @@ for that one dataclass and stays pure Python.
    One less feature, but the schema you already wrote cannot be reused for the fast
    path, and probatio leaves an easy, real win on the table.
 2. A construction-time flag that makes a whole schema skip validation. Rejected: a
-   schema that silently never validates is a footgun waiting at every call site, and
+   schema that silently never validates is a hazard waiting at every call site, and
    it muddies what a `DataclassSchema` _is_.
 3. An opt-in, per-call `construct` method, validation untouched as the default (this
    ADR).
@@ -50,7 +50,7 @@ where validation is genuinely not needed, not a repositioning as a deserializer.
   nesting are already modelled. A trusted constructor is a second, cheaper reading of
   the same model, not a parallel definition.
 - **The default is unchanged and safe.** Validation is still what a call does. The
-  trust is opt-in, per call, and named loudly. The footgun of option 2 (a schema that
+  trust is opt-in, per call, and named loudly. The hazard of option 2 (a schema that
   never validates) does not exist here.
 - **It is honestly fast.** Because it generates a flat constructor per dataclass, it
   beats the dedicated deserializers on the trust path while remaining pure Python,
