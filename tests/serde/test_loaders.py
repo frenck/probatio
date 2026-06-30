@@ -50,6 +50,24 @@ def test_optional_load_returns_none_for_missing_module() -> None:
     assert _optional._load("probatio_no_such_backend") is None
 
 
+def test_optional_load_reraises_a_broken_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An installed-but-broken backend re-raises instead of being masked as absent.
+
+    A ModuleNotFoundError naming a different module (a dependency the backend imports)
+    is a real install problem, not the backend being absent, so it must propagate.
+    """
+
+    def boom(_name: str) -> object:
+        message = "No module named 'innards'"
+        raise ModuleNotFoundError(message, name="innards")
+
+    monkeypatch.setattr(_optional, "import_module", boom)
+    with pytest.raises(ModuleNotFoundError, match="innards"):
+        _optional._load("orjson")
+
+
 def test_load_json_uses_orjson_when_present() -> None:
     """With orjson installed (the test env has it), JSON parses through it."""
     assert load_json('{"a": 1, "b": [2, 3]}') == {"a": 1, "b": [2, 3]}

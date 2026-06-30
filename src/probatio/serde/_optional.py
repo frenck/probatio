@@ -12,11 +12,20 @@ from typing import Any
 
 
 def _load(name: str) -> Any:
-    """Import a module by name, returning None when it is not installed."""
+    """Import a module by name, returning None when it is not installed.
+
+    A genuinely absent backend raises ``ModuleNotFoundError`` naming that module, so
+    return None for it. Any other import failure (a different ``ImportError``, or a
+    ``ModuleNotFoundError`` naming some other module the backend imports) means the
+    backend is installed but broken, so re-raise rather than silently masking it as
+    absent and falling back.
+    """
     try:
         return import_module(name)
-    except ImportError:
-        return None
+    except ModuleNotFoundError as exc:
+        if exc.name == name:
+            return None
+        raise
 
 
 orjson = _load("orjson")
