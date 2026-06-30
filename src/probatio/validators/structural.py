@@ -25,14 +25,14 @@ class Sorted(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is sorted, else raise ValueInvalid.
 
-        A non-iterable, one with incomparable items (a TypeError from ``sorted``),
-        or one whose comparison itself errors (a ``Decimal('NaN')`` raises
-        ``decimal.InvalidOperation``, an ArithmeticError) is reported as a
-        ValueInvalid, not a leaked exception.
+        Iterating and comparing the items runs user code (``__iter__`` and the
+        items' comparison dunders), which may raise anything: a non-iterable, an
+        incomparable pair, a ``Decimal('NaN')``, or a hostile object. Any such
+        failure is reported as a ValueInvalid, not a leaked exception.
         """
         try:
             in_order = list(value) == sorted(value)
-        except (TypeError, ArithmeticError) as exc:
+        except Exception as exc:
             raise ValueInvalid(
                 self.msg or "value is not sorted", code="sorted"
             ) from exc
@@ -107,17 +107,17 @@ class Unique(_SafeValidator):
         """
         try:
             length = len(value)
-        except TypeError:
+        except Exception:  # noqa: BLE001 - __len__ is user code; may raise anything
             try:
                 value = list(value)
-            except TypeError as exc:
+            except Exception as exc:
                 message = self.msg or f"expected a collection: {exc}"
                 raise TypeInvalid(message) from exc
             length = len(value)
 
         try:
             unique = set(value)
-        except TypeError as exc:
+        except Exception as exc:
             message = self.msg or f"contains unhashable elements: {exc}"
             raise TypeInvalid(message) from exc
 
@@ -151,7 +151,7 @@ class Set(_SafeValidator):
         """Return ``set(value)``, or raise TypeInvalid if it cannot be built."""
         try:
             return set(value)
-        except TypeError as exc:
+        except Exception as exc:
             message = self.msg or f"cannot be converted to a set: {exc}"
             raise TypeInvalid(message) from exc
 

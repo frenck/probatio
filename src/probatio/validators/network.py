@@ -199,7 +199,9 @@ class Port(_SafeValidator):
 
         try:
             port = int(value)
-        except (TypeError, ValueError, OverflowError) as exc:
+        except Exception as exc:
+            # ``int(float('inf'))`` raises OverflowError, and a value's ``__int__``
+            # or ``__index__`` is user code that may raise anything; reject cleanly.
             raise RangeInvalid(message) from exc
 
         if not _MIN_PORT <= port <= _MAX_PORT:

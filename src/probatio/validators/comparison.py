@@ -40,7 +40,7 @@ def _sorted_for_message(container: typing.Any) -> list[typing.Any]:
     """
     try:
         return sorted(container)
-    except TypeError:
+    except Exception:  # noqa: BLE001 - a member's comparison dunder may raise anything
         return list(container)
 
 
@@ -59,12 +59,13 @@ class Equal(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it equals the target, else raise Invalid.
 
-        A comparison that itself errors (a signaling ``Decimal('sNaN')`` raises on
-        ``!=``, an ArithmeticError) is reported as a mismatch, not leaked.
+        ``!=`` calls the value's ``__eq__``, which is user code and may raise
+        anything (a signaling ``Decimal('sNaN')`` raises, a hostile object can raise
+        worse). Any such failure is reported as a mismatch, never leaked.
         """
         try:
             unequal = value != self.target
-        except (TypeError, ArithmeticError):
+        except Exception:  # noqa: BLE001 - the value's __eq__ is user code; never leak
             unequal = True
 
         if unequal:
@@ -88,7 +89,7 @@ class Literal(_SafeValidator):
         """Return the literal if the value matches it, else LiteralInvalid."""
         try:
             unequal = self.lit != value
-        except (TypeError, ArithmeticError):
+        except Exception:  # noqa: BLE001 - the value's __eq__ is user code; never leak
             unequal = True
 
         if unequal:
@@ -121,11 +122,11 @@ class Contains(_SafeValidator):
         """Return the value if it contains the item, else ContainsInvalid."""
         try:
             present = self.item in value
-        except (TypeError, ArithmeticError, AttributeError) as exc:
-            # ``in`` calls the container's ``__contains__``, which can raise more
-            # than TypeError: an ``ipaddress`` network checks ``other._version``,
-            # so ``5 in ip_network(...)`` raises AttributeError. Treat any such
-            # mismatch as "not a collection that contains the item".
+        except Exception as exc:
+            # ``in`` calls the container's ``__contains__``, which is user code and
+            # may raise anything: an ``ipaddress`` network checks ``other._version``
+            # (AttributeError), a hostile object can raise worse. Treat any such
+            # failure as "not a collection that contains the item".
             message = self.msg or "value is not a collection"
             raise ContainsInvalid(message) from exc
 
@@ -164,9 +165,9 @@ class Range(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is in range, else raise RangeInvalid.
 
-        A value that cannot be compared to the bounds (a TypeError), or a
-        comparison that itself errors (a ``Decimal('NaN')`` raises
-        ``decimal.InvalidOperation``, an ArithmeticError), is reported as a
+        The bound comparisons call the value's comparison dunders, which are user
+        code and may raise anything (a ``Decimal('NaN')`` raises ``InvalidOperation``,
+        a hostile object can raise worse). Any such failure is reported as a
         RangeInvalid too, so the validator never leaks a raw exception.
         """
         try:
@@ -185,7 +186,11 @@ class Range(_SafeValidator):
                     bound = "at most" if self.max_included else "lower than"
                     message = self.msg or f"value must be {bound} {self.max}"
                     raise RangeInvalid(message)
-        except (TypeError, ArithmeticError) as exc:
+        except Invalid:
+            # An out-of-bounds RangeInvalid raised just above carries the precise
+            # message; let it through rather than redescribing it below.
+            raise
+        except Exception as exc:
             message = self.msg or "invalid value or type"
             raise RangeInvalid(message) from exc
 
@@ -217,7 +222,7 @@ class Clamp(_SafeValidator):
                 return self.min
             if self.max is not None and value > self.max:
                 return self.max
-        except (TypeError, ArithmeticError) as exc:
+        except Exception as exc:
             message = self.msg or "invalid value or type"
             raise RangeInvalid(message) from exc
 
@@ -272,9 +277,10 @@ class MultipleOf(_SafeValidator):
 
         try:
             # ``%`` with a float factor promotes a huge int to float, which can
-            # overflow (an ArithmeticError); report it cleanly, not as a leak.
+            # overflow (an ArithmeticError); an ``int`` subclass can also define a
+            # ``__mod__`` that raises. Report either cleanly, not as a leak.
             remainder = value % self.factor
-        except ArithmeticError as exc:
+        except Exception as exc:
             raise MultipleOfInvalid(message) from exc
 
         if remainder != 0:
@@ -305,10 +311,11 @@ class Percentage(_SafeValidator):
 
         raw = value[:-1] if isinstance(value, str) and value.endswith("%") else value
         try:
-            # ``float`` on an int too large to represent raises OverflowError (an
-            # ArithmeticError); report it cleanly rather than leaking it.
+            # ``float`` on an int too large to represent raises OverflowError, and on
+            # an object it calls a user-defined ``__float__`` that may raise anything;
+            # report either cleanly rather than leaking it.
             number = float(raw)
-        except (TypeError, ValueError, ArithmeticError) as exc:
+        except Exception as exc:
             message = self.msg or "expected a percentage between 0 and 100"
             raise RangeInvalid(message) from exc
 
@@ -360,12 +367,12 @@ class NonEmpty(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it has a non-zero length, else raise LengthInvalid.
 
-        A value with no length (a TypeError from ``len``) is reported as a
-        LengthInvalid too, rather than leaking the TypeError.
+        A value with no usable length (``len`` raising, including a user ``__len__``
+        that raises anything) is reported as a LengthInvalid too, never leaked.
         """
         try:
             empty = len(value) == 0
-        except TypeError as exc:
+        except Exception as exc:
             raise LengthInvalid(self.msg or "value must not be empty") from exc
 
         if empty:
@@ -395,15 +402,15 @@ class Length(_SafeValidator):
         """Return the value if its length is in bounds, else LengthInvalid.
 
         With no bound set, the length is never measured, so any value passes
-        (matching voluptuous). A value with no length (a TypeError from ``len``)
-        is reported as a LengthInvalid rather than leaking the TypeError.
+        (matching voluptuous). A value with no usable length (``len`` raising,
+        including a user ``__len__`` that raises) is a LengthInvalid, never leaked.
         """
         if self.min is None and self.max is None:
             return value
 
         try:
             length = len(value)
-        except TypeError as exc:
+        except Exception as exc:
             message = self.msg or "value has no length"
             raise LengthInvalid(message) from exc
 
@@ -481,7 +488,7 @@ class In(_SafeValidator):
 
         try:
             present = candidate in self.container if fast else self._contains(candidate)
-        except (TypeError, ArithmeticError) as exc:
+        except Exception as exc:
             message = self.msg or "value is not allowed"
             raise InInvalid(message) from exc
 
@@ -516,7 +523,7 @@ class NotIn(_SafeValidator):
         """Return the value if it is not in the container, else NotInInvalid."""
         try:
             present = value in self.container
-        except (TypeError, ArithmeticError) as exc:
+        except Exception as exc:
             message = self.msg or "value is not allowed"
             raise NotInInvalid(message) from exc
 

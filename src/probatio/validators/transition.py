@@ -31,7 +31,7 @@ def _changed(old: typing.Any, new: typing.Any) -> bool:
     """
     try:
         return bool(old != new)
-    except (TypeError, ArithmeticError):
+    except Exception:  # noqa: BLE001 - __eq__/__bool__ are user code; never leak
         return True
 
 
