@@ -256,10 +256,13 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     if isinstance(node, Maybe):
         return _allow_none(_serialize_value(node.validator, custom))
     if isinstance(node, AnyValidator):
-        # ``Maybe(X)`` compiles to ``Any(None, X)``: voluptuous-serialize strips a
-        # leading None and marks the single remaining member allow_none.
-        if len(node.validators) == 2 and node.validators[0] is None:
-            return _allow_none(_serialize_value(node.validators[1], custom))
+        # ``Maybe(X)`` compiles to ``Any(None, X)``: a two-member Any with one None
+        # branch is the nullable form, so strip the None and mark the remaining
+        # member allow_none. voluptuous-serialize only recognized None first;
+        # ``Any(X, None)`` is the same nullable shape, so handle either position.
+        non_none = [member for member in node.validators if member is not None]
+        if len(node.validators) == 2 and len(non_none) == 1:
+            return _allow_none(_serialize_value(non_none[0], custom))
         for validator in node.validators:
             converted = _serialize_value(validator, custom)
             if converted:
