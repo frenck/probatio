@@ -483,7 +483,7 @@ def _strip_group_modifier(body: str) -> str:
 
 
 def _split_top_level(body: str) -> list[str]:
-    """Split a group body on the ``|`` that sit at its own nesting level."""
+    """Split a group body on the ``|`` tokens that sit at its own nesting level."""
     parts: list[str] = []
     depth = 0
     in_class = False

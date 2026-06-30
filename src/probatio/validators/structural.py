@@ -138,7 +138,7 @@ class Set(_SafeValidator):
         try:
             return set(value)
         except TypeError as exc:
-            message = self.msg or f"cannot be presented as set: {exc}"
+            message = self.msg or f"cannot be converted to a set: {exc}"
             raise TypeInvalid(message) from exc
 
 
