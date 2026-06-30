@@ -167,11 +167,25 @@ def test_any_becomes_any_of() -> None:
 
 
 def test_match_exports_pattern() -> None:
-    """Match exports a string pattern."""
+    """Match exports an ECMA-compatible pattern unchanged."""
     assert to_json_schema(Schema(Match(r"^\d+$"))) == {
         "type": "string",
         "pattern": r"^\d+$",
     }
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"(?P<year>\d{4})",  # Python named group
+        r"\A\d+\Z",  # Python-only anchors
+        r"(?i)abc",  # inline flag
+        r"(?#a comment)x",  # inline comment
+    ],
+)
+def test_match_drops_a_python_only_pattern(pattern: str) -> None:
+    """A pattern using Python-only regex syntax is dropped, leaving a valid string."""
+    assert to_json_schema(Schema(Match(pattern))) == {"type": "string"}
 
 
 def test_maybe_is_nullable() -> None:
