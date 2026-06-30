@@ -119,8 +119,20 @@ def test_list_of_several_types() -> None:
 
 
 def test_in_becomes_enum() -> None:
-    """In exports an enum."""
-    assert to_json_schema(Schema(In(["a", "b"]))) == {"enum": ["a", "b"]}
+    """In exports an enum, keeping the author's order for an ordered container."""
+    assert to_json_schema(Schema(In(["b", "a"]))) == {"enum": ["b", "a"]}
+
+
+def test_unordered_containers_emit_a_stable_order() -> None:
+    """A set has no order, so its emitted enum/items are sorted for deterministic output."""
+    assert to_json_schema(Schema(In({"c", "a", "b"}))) == {"enum": ["a", "b", "c"]}
+    assert to_json_schema(Schema(NotIn(frozenset({3, 1, 2})))) == {
+        "not": {"enum": [1, 2, 3]},
+    }
+    # A set of element schemas renders a stable anyOf regardless of iteration order.
+    assert to_json_schema(Schema({Range(min=1), Range(min=2)}))["items"] == {
+        "anyOf": [{"minimum": 1}, {"minimum": 2}],
+    }
 
 
 def test_range_bounds() -> None:

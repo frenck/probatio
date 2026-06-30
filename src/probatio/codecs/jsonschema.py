@@ -180,9 +180,21 @@ def _property(marker: Marker | None, value: Any) -> dict[str, Any]:
     return prop
 
 
+def _ordered(values: Any) -> list[Any]:
+    """List a container's values, sorting a set so the emitted schema is stable.
+
+    A list or tuple keeps the author's order. A set or frozenset has none, so its
+    values are sorted by ``repr`` to keep ``to_json_schema`` output deterministic
+    across runs (stable snapshots, no spurious schema diffs, no cache misses).
+    """
+    if isinstance(values, set | frozenset):
+        return sorted(values, key=repr)
+    return list(values)
+
+
 def _convert_sequence(node: Any) -> dict[str, Any]:
     """Render a sequence/set schema as a JSON Schema array."""
-    items = [_child(element) for element in node]
+    items = [_child(element) for element in _ordered(node)]
 
     result: dict[str, Any] = {"type": "array"}
     if len(items) == 1:
@@ -273,10 +285,10 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
 def _convert_equality(node: Any) -> dict[str, Any] | None:
     """Render the equality/membership validators as enum/const/not, or None."""
     if isinstance(node, In):
-        return {"enum": list(node.container)}
+        return {"enum": _ordered(node.container)}
 
     if isinstance(node, NotIn):
-        return {"not": {"enum": list(node.container)}}
+        return {"not": {"enum": _ordered(node.container)}}
 
     if isinstance(node, Equal):
         return {"const": node.target}
