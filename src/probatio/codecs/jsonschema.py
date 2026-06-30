@@ -787,7 +787,12 @@ def _from_ref(ref: str, ctx: _Decode) -> Any:
 
 
 def _resolve_pointer(ref: str, root: dict[str, Any]) -> Any:
-    """Resolve a local JSON pointer (``#/a/b``, ``#/a/0``) against the document."""
+    """Resolve a local JSON pointer (``#``, ``#/a/b``, ``#/a/0``) against the document."""
+    if ref == "#":
+        # A bare ``#`` is the whole document, the common way a recursive schema
+        # references its own root, so there is nothing to traverse.
+        return root
+
     if not ref.startswith("#/"):
         message = f"only local JSON pointers are supported, got {ref!r}"
         raise SchemaError(message)
