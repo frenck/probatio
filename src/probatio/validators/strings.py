@@ -357,10 +357,14 @@ def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]
     def validate(value: typing.Any) -> typing.Any:
         """Validate a URL and require its host to contain a dot."""
         _validate_url(value, msg)
-        # ``_validate_url`` accepts str or bytes; match the separator to the type
-        # so the dot check on a bytes URL does not leak a TypeError.
+        # Check the dot in the host, not the whole netloc: the netloc also holds the
+        # userinfo and port, so ``http://user.name@localhost`` would otherwise pass
+        # on the dot in ``user.name`` even though the host ``localhost`` has none.
+        # ``hostname`` is bytes for a bytes URL and None when there is no host, so
+        # match the separator to the type and reject a missing host.
+        host = urlparse(value).hostname
         dot = b"." if isinstance(value, bytes) else "."
-        if dot not in urlparse(value).netloc:
+        if host is None or dot not in host:
             raise UrlInvalid(msg or "expected a URL with a fully-qualified domain name")
         return value
 
