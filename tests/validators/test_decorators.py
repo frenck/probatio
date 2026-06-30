@@ -37,6 +37,23 @@ def test_validate_rejects_a_bad_argument() -> None:
         echo("not an int")
 
 
+def test_validate_preserves_positional_only_parameters() -> None:
+    """A parameter before the ``/`` is passed positionally, not as a keyword.
+
+    Calling the wrapped function with every argument as a keyword would raise a
+    TypeError for a positional-only parameter, so they have to go back positionally.
+    """
+
+    @validate(arg1=int, arg2=int)
+    def multiply(arg1: int, /, arg2: int) -> int:
+        return arg1 * arg2
+
+    assert multiply(3, 4) == 12
+    assert multiply(3, arg2=4) == 12
+    with pytest.raises(MultipleInvalid):
+        multiply("x", 4)
+
+
 def test_validate_checks_the_return_value() -> None:
     """A __return__ schema validates the function's result."""
 
