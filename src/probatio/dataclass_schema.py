@@ -44,7 +44,6 @@ from typing import (
     Annotated,
     Literal,
     NotRequired,
-    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -54,6 +53,8 @@ from typing import Any as TypingAny
 from typing import Required as RequiredHint
 from typing import Union as TypingUnion
 
+from probatio._codegen import compile_mapping
+from probatio._engine import _MappingValidator
 from probatio._type_registry import resolve_type_validator
 from probatio.error import SchemaError
 from probatio.markers import Optional, Required
@@ -437,10 +438,149 @@ def create_dataclass_schema(
     ref = _RecursiveSchemaRef()
     self_refs[dataclass_type] = ref
     mapping = _field_mapping(dataclass_type, additional_constraints or {}, self_refs)
-    inner = Schema(mapping, required=required, extra=extra)
+    # The inner mapping stays interpreted (compile=False); DataclassSchema compiles
+    # the whole thing (mapping plus construction) as one fused validator, and needs
+    # a plain _MappingValidator here to read.
+    inner = Schema(mapping, required=required, extra=extra, compile=False)
     schema = Schema(All(inner, _Constructor(dataclass_type)))
     ref.bind(schema)
     return schema
+
+
+# Distinguishes "the fast constructor has not been built yet" from "built, and the
+# shape is not handled, so it is None and we fall back to validating".
+_UNSET = object()
+
+
+def _mentions_dataclass(annotation: TypingAny) -> bool:
+    """Whether a dataclass type appears anywhere in ``annotation`` (incl. its args)."""
+    if _is_dataclass_type(annotation):
+        return True
+    return any(_mentions_dataclass(arg) for arg in get_args(annotation))
+
+
+def _union_expr(
+    annotation: TypingAny,
+    var: str,
+    namespace: dict[str, TypingAny],
+    building: frozenset[type],
+    tag: str,
+) -> str | None:
+    """Build a value from a ``Union`` (including ``Optional``), or ``None``.
+
+    Handles the two shapes worth fast-building: a single non-``None`` member (an
+    ``Optional[X]``), guarded so a ``None`` passes through; and one dataclass among
+    plain alternatives (``IssueLabel | str``), told apart at runtime by being a dict.
+    Several dataclasses, or a dict-shaped alternative, are ambiguous and fall back.
+    """
+    members = get_args(annotation)
+    non_none = [member for member in members if member is not types.NoneType]
+    has_none = len(non_none) != len(members)
+    if len(non_none) == 1:
+        inner = _value_expr(non_none[0], var, namespace, building, tag)
+        if inner is None:
+            return None
+        # A passed-through value already carries a ``None`` fine; only a real
+        # construction (a dataclass build) has to be guarded against it.
+        if has_none and inner != var:
+            return f"({inner} if {var} is not None else None)"
+        return inner
+    in_dataclasses = [member for member in non_none if _is_dataclass_type(member)]
+    plain = [member for member in non_none if not _is_dataclass_type(member)]
+    if len(in_dataclasses) == 1 and not any(
+        _mentions_dataclass(member) or get_origin(member) is dict or member is dict
+        for member in plain
+    ):
+        sub = _build_constructor(in_dataclasses[0], building)
+        if sub is None:
+            return None
+        name = f"_b{tag}"
+        namespace[name] = sub
+        inner = f"({name}({var}) if isinstance({var}, dict) else {var})"
+        return f"({inner} if {var} is not None else None)" if has_none else inner
+    return None
+
+
+def _value_expr(  # noqa: PLR0911 - a dispatch with one return per value shape
+    annotation: TypingAny,
+    var: str,
+    namespace: dict[str, TypingAny],
+    building: frozenset[type],
+    tag: str,
+) -> str | None:
+    """Return a source expression building one value of ``annotation`` from ``var``.
+
+    ``None`` means the shape is not one the fast constructor handles, so the caller
+    falls back to validating. A plain value passes straight through (the input is
+    trusted); a dataclass recurses into its own constructor; a ``list``, an
+    ``Optional``, or a single-dataclass ``Union`` recurses into its element or member.
+    """
+    if _is_dataclass_type(annotation):
+        sub = _build_constructor(annotation, building)
+        if sub is None:
+            return None
+        name = f"_b{tag}"
+        namespace[name] = sub
+        # Build from a dict; an already-constructed instance passes through, the same
+        # guard the single-dataclass union uses, so a partially built input does not
+        # crash on the constructor subscripting a non-dict.
+        return f"({name}({var}) if isinstance({var}, dict) else {var})"
+    origin = get_origin(annotation)
+    if origin is list:
+        args = get_args(annotation)
+        if not args or not _mentions_dataclass(args[0]):
+            return var  # a list of plain values passes through
+        element = _value_expr(args[0], "_item", namespace, building, f"{tag}L")
+        if element is None:
+            return None
+        return f"[{element} for _item in {var}]"
+    if origin is TypingUnion or origin is types.UnionType:
+        return _union_expr(annotation, var, namespace, building, tag)
+    if _mentions_dataclass(annotation):
+        return None  # a tuple, set, or dict hiding a dataclass: left to validation
+    return var  # a plain value is trusted as-is
+
+
+def _build_constructor(
+    dataclass_type: type, building: frozenset[type] = frozenset()
+) -> TypingAny:
+    """Generate a flat constructor that builds ``dataclass_type`` from a trusted dict.
+
+    Returns a callable ``data -> instance`` that skips all validation: it reads each
+    field straight from ``data`` (recursing into nested dataclasses and lists of
+    them, filling defaults for absent keys) and calls the constructor. Returns
+    ``None`` if the shape is not one it handles (a recursive dataclass, a dataclass
+    behind an Optional or a tuple, an unresolvable hint), so the caller can fall back
+    to validating. The constructed instance equals what validating then constructing
+    would build, with one trust-path difference: a plain container value (a
+    ``list[int]``) is passed through as-is rather than rebuilt, so it may alias the
+    input where the validating path returns a fresh copy.
+    """
+    if dataclass_type in building:
+        return None  # a recursive dataclass: leave it to the validating path
+    building = building | {dataclass_type}
+    # The hints already resolved when the schema was built (create_dataclass_schema
+    # reads them, recursing into nested types), so this cannot raise here.
+    hints = get_type_hints(dataclass_type)
+    namespace: dict[str, TypingAny] = {"_Type": dataclass_type}
+    parts: list[str] = []
+    for index, field in enumerate(_iter_init_fields(dataclass_type)):
+        annotation = _field_annotation(hints.get(field.name, TypingAny))
+        expr = _value_expr(
+            annotation, f"data[{field.name!r}]", namespace, building, str(index)
+        )
+        if expr is None:
+            return None
+        if field.default is not dataclasses.MISSING:
+            namespace[f"_d{index}"] = field.default
+            expr = f"({expr} if {field.name!r} in data else _d{index})"
+        elif field.default_factory is not dataclasses.MISSING:
+            namespace[f"_f{index}"] = field.default_factory
+            expr = f"({expr} if {field.name!r} in data else _f{index}())"
+        parts.append(f"{field.name}={expr}")
+    source = f"def _construct(data):\n    return _Type({', '.join(parts)})"
+    exec(source, namespace)  # noqa: S102 - generated from the trusted dataclass shape
+    return namespace["_construct"]
 
 
 class DataclassSchema[DataclassT](Schema):
@@ -462,6 +602,7 @@ class DataclassSchema[DataclassT](Schema):
         *,
         required: bool = False,
         extra: int = PREVENT_EXTRA,
+        compile: bool | None = None,  # noqa: A002 - the public, re.compile-style name
     ) -> None:
         """Build and compile the schema for ``dataclass_type``."""
         self.dataclass_type = dataclass_type
@@ -471,13 +612,74 @@ class DataclassSchema[DataclassT](Schema):
             required=required,
             extra=extra,
         )
-        super().__init__(built.schema)
+        super().__init__(built.schema, compile=compile)
+
+    def construct(self, data: TypingAny) -> DataclassT:
+        """Build the dataclass from **trusted** ``data``, skipping validation.
+
+        This is the opt-in fast path for spots where the input is already known to be
+        correct: you validated it upstream, or it is your own data round-tripping
+        back in. It reads each field straight from ``data`` and constructs the
+        instance, recursing into nested dataclasses and lists of them and filling
+        defaults, with no type checks, no constraints, and no coercion. It is faster
+        than validating, but it trusts you: a wrong type lands unchecked in the
+        instance, and a plain container (a ``list``) is used as given, not copied, so
+        it may alias the input where the validating call returns a fresh copy.
+
+        Use the schema's normal call (``schema(data)``) for untrusted input; that
+        validates. For a dataclass shape this fast path does not handle, ``construct``
+        falls back to validating, which builds the same instance.
+        """
+        constructor = self._fast_constructor()
+        if constructor is None:
+            validated: DataclassT = Schema.__call__(self, data)
+            return validated
+        built: DataclassT = constructor(data)
+        return built
+
+    def _fast_constructor(self) -> TypingAny:
+        """Lazily build and cache the trusted constructor (``None`` means fall back)."""
+        cached = self.__dict__.get("_construct_fn", _UNSET)
+        if cached is _UNSET:
+            cached = _build_constructor(self.dataclass_type)
+            self._construct_fn = cached
+        return cached
 
     def __call__(
         self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
     ) -> DataclassT:
         """Validate ``data`` and return the constructed dataclass instance."""
-        return cast("DataclassT", super().__call__(data, context=context))
+        # Call the base directly rather than through ``super()``: the zero-argument
+        # ``super()`` builds a proxy object on every validation, which is the bulk of
+        # this wrapper's cost. The annotated local narrows the base's ``Any`` return
+        # to the dataclass type without a runtime ``cast`` call.
+        validated: DataclassT = Schema.__call__(self, data, context=context)
+        return validated
+
+    def _compilable(self) -> bool:
+        """Report that a dataclass compiles via its inner mapping, under the ``All``."""
+        return isinstance(self.schema.validators[0]._compiled, _MappingValidator)  # noqa: SLF001
+
+    def _compile_from(self, interpreted: CompiledSchema) -> CompiledSchema:
+        """Compile the dataclass into one fused validate-and-construct function.
+
+        The schema is ``All(inner_mapping, _Constructor)``. Compile the inner mapping
+        and splat the validated fields straight into the dataclass, so neither the
+        generic mapping loop nor the constructor's dict-comprehension runs. Any
+        failure bails to ``interpreted`` (the ``All``), which validates and
+        constructs the same way. An ``ALLOW_EXTRA`` dataclass is not generated
+        (``compile_mapping`` returns ``None``), since the constructor would reject
+        the unknown keys the mapping keeps.
+        """
+        mapping = self.schema.validators[0]._compiled  # noqa: SLF001
+        if not isinstance(
+            mapping, _MappingValidator
+        ):  # pragma: no cover - the inner schema is always a mapping
+            return interpreted
+        generated = compile_mapping(
+            mapping, construct=self.dataclass_type, fallback=interpreted
+        )
+        return generated if generated is not None else interpreted
 
 
 def _typeddict_mapping(
@@ -574,6 +776,7 @@ class TypedDictSchema[TypedDictT](Schema):
         additional_constraints: dict[str, TypingAny] | None = None,
         *,
         extra: int = PREVENT_EXTRA,
+        compile: bool | None = None,  # noqa: A002 - the public, re.compile-style name
     ) -> None:
         """Build and compile the schema for ``typeddict_type``."""
         self.typeddict_type = typeddict_type
@@ -585,10 +788,23 @@ class TypedDictSchema[TypedDictT](Schema):
         # ``built.schema`` is the raw mapping, so ``extra`` has to be passed again
         # when re-wrapping; the dataclass path gets away without it because there
         # the ``extra`` is baked into an inner Schema wrapped in ``All``.
-        super().__init__(built.schema, extra=extra)
+        super().__init__(built.schema, extra=extra, compile=compile)
 
     def __call__(
         self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
     ) -> TypedDictT:
         """Validate ``data`` and return it typed as the TypedDict."""
-        return cast("TypedDictT", super().__call__(data, context=context))
+        # Call the base directly, not through ``super()`` (which builds a proxy each
+        # call); the annotated local narrows the base's ``Any`` return without a cast.
+        validated: TypedDictT = Schema.__call__(self, data, context=context)
+        return validated
+
+    def construct(self, data: TypingAny) -> TypedDictT:
+        """Return **trusted** ``data`` typed as the TypedDict, skipping validation.
+
+        A TypedDict is a plain dict at runtime, so for input you already know is
+        correct this is the dict itself, returned unchanged with no checks. It is the
+        opt-in fast path; use the normal call (``schema(data)``) for untrusted input.
+        """
+        trusted: TypedDictT = data
+        return trusted

@@ -42,7 +42,7 @@ tests had not:
   validates is dropped, otherwise the key falls through to the extra-key policy.
 - `Email`, `Url`, and `FqdnUrl` are factories (`Url()` returns the validator),
   matching voluptuous, not direct validators.
-- A failed mapping *value* error is tagged `error_type = "dictionary value"`, so
+- A failed mapping _value_ error is tagged `error_type = "dictionary value"`, so
   `str(error)` reads `"... for dictionary value @ data[...]"`.
 - `All` and `Any` raise `MultipleInvalid` on failure (a bare `AllInvalid` /
   `AnyInvalid` only when a custom `msg` is given), and `Any` surfaces the branch

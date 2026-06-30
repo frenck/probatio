@@ -446,9 +446,11 @@ class In(_SafeValidator):
         return value
 
     def _contains(self, candidate: typing.Any) -> bool:
-        """Whether the normalized candidate is a member, normalizing members to match."""
-        if not self.fold_case and self.space is None:
-            return candidate in self.container
+        """Whether the candidate is a member, normalizing members to match.
+
+        Only the case-folding or space-normalizing ``In`` reaches here; the plain
+        membership test is inlined in ``__call__``.
+        """
         return any(candidate == self._normalize(member) for member in self.container)
 
     def _string_members(self) -> list[str]:
@@ -457,9 +459,14 @@ class In(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the (normalized) value if it is in the container, else raise."""
-        candidate = self._normalize(value)
+        # The common ``In`` has no case-folding and no space normalization, so the
+        # value passes through unchanged and membership is a plain ``in``. Inline that
+        # to skip the ``_normalize`` and ``_contains`` calls on the hot path; only a
+        # folding or space-normalizing ``In`` pays for them.
+        fast = not self.fold_case and self.space is None
+        candidate = value if fast else self._normalize(value)
         try:
-            present = self._contains(candidate)
+            present = candidate in self.container if fast else self._contains(candidate)
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "value is not allowed"
             raise InInvalid(message) from exc

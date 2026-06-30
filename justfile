@@ -19,6 +19,13 @@ setup:
 test *args:
     uv run --no-sync pytest {{args}}
 
+# Run the deterministic behavioral suite with schema compilation forced on, to
+# prove the compiled engine matches the interpreted one across the whole surface.
+# The conftest skips the property-based, fuzz, and compile-specific tests; no
+# coverage gate (the compiled path is a parity check, not a coverage one).
+test-compiled:
+    uv run --no-sync pytest --compiled -o addopts="" -p no:cacheprovider
+
 # Run the workspace packages' own suites (the core coverage gate does not apply).
 test-packages:
     uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
@@ -60,6 +67,24 @@ coverage:
 # Print a rough probatio vs voluptuous throughput comparison.
 bench:
     uv run --no-sync python bench/bench.py
+
+# Print a rough dataclass construction comparison against mashumaro.
+bench-dataclass:
+    uv run --no-sync python bench/bench_dataclass.py
+
+# Print the cross-library "rest of the world" comparison (dict to object).
+bench-world:
+    uv sync --group bench-world
+    uv run --no-sync python bench/bench_world.py
+
+# Render the benchmark charts (themed to the docs) into docs/public/benchmarks.
+charts:
+    uv sync --group bench-world
+    cd bench && uv run --no-sync python charts.py
+
+# cProfile a code generator or generated validator (see bench/profiling.py for targets).
+profile target="run-config":
+    uv run --no-sync python bench/profiling.py cprofile {{ target }}
 
 # Run the CodSpeed benchmarks (walltime locally; tracked in CI).
 codspeed:

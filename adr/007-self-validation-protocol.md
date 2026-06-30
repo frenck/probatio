@@ -15,8 +15,8 @@ every such use in `Coerce(Color)` (which works, but reports a bare `expected
 Color` with no member list) or a hand-written validator, repeated at every use
 site and inside every nested structure.
 
-More generally, probatio has no way for a type to declare *how it validates a raw
-value of itself*. A domain value object that knows how to parse its own string
+More generally, probatio has no way for a type to declare _how it validates a raw
+value of itself_. A domain value object that knows how to parse its own string
 form cannot be a first-class schema citizen; it has to be wrapped externally.
 
 **Decision**: Recognize types that know how to validate themselves, through two
@@ -50,7 +50,7 @@ mechanisms that share one dispatch path in the engine:
 **Consequences**: A new public protocol (`__probatio_validate__`) is a stable
 surface we commit to. The safe-validator contract still binds: an implementation
 must only ever raise `Invalid` on bad input, never leak another exception. The
-boundary to police in docs is that this is *self*-validation (an Enum value to its
+boundary to police in docs is that this is _self_-validation (an Enum value to its
 member, a value object to itself), not a license for arbitrary transformation
 that would break the validate-not-transform identity. Precedence against the
 type-to-validator registry ([ADR-008](008-type-to-validator-registry.md)) is

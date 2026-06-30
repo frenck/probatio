@@ -1,7 +1,7 @@
 # voluptuous drop-in proof
 
 Probatio promises to be a drop-in for voluptuous. The most direct evidence is
-voluptuous's *own* test suite, run against Probatio: its test authors' notion of
+voluptuous's _own_ test suite, run against Probatio: its test authors' notion of
 the contract, at the exact version Probatio targets (0.16.0). This directory
 holds a small harness that does that.
 
@@ -13,7 +13,7 @@ here so the proof is reproducible.
 `conftest.py` calls `probatio.compat.install_as_voluptuous()` before collection,
 so voluptuous's upstream `tests.py` imports Probatio instead. The same conftest
 marks the known divergences `xfail` (with a reason each), so a clean run is "all
-green": everything passes or is an expected, documented `xfail`, and any *new*
+green": everything passes or is an expected, documented `xfail`, and any _new_
 break, a regression, or a divergence that unexpectedly starts passing, shows up
 loudly.
 

@@ -13,10 +13,13 @@ value and returns the validated (and possibly normalized) result, or raises
 from __future__ import annotations
 
 import sys
+import threading
 from contextvars import ContextVar
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 
+from probatio._codegen import compile_mapping, compile_sequence
+from probatio._compile_policy import CompilePolicy, get_compile_policy
 from probatio._engine import (
     ALLOW_EXTRA,
     PREVENT_EXTRA,
@@ -293,6 +296,31 @@ _EXTRA_TO_NAME = {
     REMOVE_EXTRA: "REMOVE_EXTRA",
 }
 
+# Under the AUTO policy, a schema validates interpreted until it has been called
+# this many times, then compiles once. Compiling saves roughly 1 us per validation,
+# but the cost is sharply asymmetric: the first schema of a shape pays the full code
+# generation (~430 us, break-even ~360 calls), while every later schema of the same
+# shape reuses the cached code object (see _codegen._compile_source) and pays only
+# ~20 us (break-even ~20 calls). So compiling almost never pays for one schema on its
+# own; it pays through reuse, the first instance populating the cache for the rest.
+# A single conservative "recurring, not a one-shot" threshold captures that: the
+# first-of-shape gambles here, and if the shape recurs the others ride the cache.
+#
+# Making this shape-aware (compile sooner when the shape is already cached) was
+# measured and rejected: knowing whether a shape is cached needs its source string,
+# the cache key, so the probe has to build the source, which costs about as much as a
+# cache-hit compile itself. There is no cheap "should I compile yet" check, so a flat
+# threshold beats a probe. It is an internal default, not tunable.
+_AUTO_COMPILE_THRESHOLD = 50
+
+# Serializes the one-time bootstrap transition (the pop of ``_interpreted`` and the
+# swap of ``_compiled``) so two threads hitting a cold schema at once cannot leave one
+# of them re-entering ``_bootstrap`` against a half-swapped ``_compiled``. It is held
+# only for that swap, never for validation itself, so the steady state and the AUTO
+# counter stay lock-free; a module-level lock keeps armed schemas from each carrying
+# their own. Concurrency is documented on the Performance page.
+_BOOTSTRAP_LOCK = threading.Lock()
+
 
 class Schema:
     """A compiled, callable schema.
@@ -306,15 +334,26 @@ class Schema:
         schema: Any,
         required: bool = False,  # noqa: FBT001, FBT002
         extra: int = PREVENT_EXTRA,
+        *,
+        compile: bool | None = None,  # noqa: A002 - the public, re.compile-style name
     ) -> None:
         """Compile ``schema``; ``required`` and ``extra`` govern mapping keys.
 
         ``required`` and ``extra`` are positional to match voluptuous, so
         ``Schema({...}, True, ALLOW_EXTRA)`` keeps working.
+
+        ``compile`` opts this schema into a specialized, faster validator: ``True``
+        always, ``False`` never, ``None`` (the default) defers to the process-wide
+        :func:`set_compile_policy`. Compiled and interpreted schemas validate
+        identically; the flag only affects speed. The generator is not built yet,
+        so this is plumbing today (see :meth:`compile`).
         """
         self.schema = schema
         self.required = required
         self.extra = extra
+        # ``None`` defers to the policy, resolved lazily in ``_should_compile`` so a
+        # policy set after this schema was built (at import time) still applies.
+        self._compile_requested = compile
         # Whether ``Self`` appears anywhere in the definition. This is discovered
         # during the compile walk below (set on the first ``Self`` reached, and on
         # a combinator/wrapper branch that holds one), so the tree is walked once,
@@ -330,6 +369,7 @@ class Schema:
             self._compiled = self._compile(schema)
         finally:
             _COMPILING_ROOT.reset(token)
+        self._arm_compile()
 
     def __call__(self, data: Any, *, context: Any = _INHERIT_CONTEXT) -> Any:
         """Validate ``data``, returning the result or raising ``MultipleInvalid``.
@@ -375,6 +415,124 @@ class Schema:
             f"<Schema({self.schema}, extra={extra}, "
             f"required={self.required}) object at 0x{id(self):x}>"
         )
+
+    def _should_compile(self) -> bool:
+        """Resolve, lazily, whether this schema should use a compiled validator.
+
+        The per-schema ``compile`` flag wins when set; an unset flag (``None``)
+        falls back to the process-wide policy. Read on first use rather than at
+        construction, so a policy set after this schema was built still applies.
+        """
+        if self._compile_requested is not None:
+            return self._compile_requested
+        # ON compiles on first use; AUTO compiles once the schema proves hot; OFF
+        # never. Both ON and AUTO mean "set up to compile", so both arm.
+        return get_compile_policy() is not CompilePolicy.OFF
+
+    def compile(self) -> Schema:
+        """Eagerly opt this schema into a compiled validator, and return ``self``.
+
+        The explicit twin of ``compile=True``, spelled to mirror ``re.compile``. It
+        wins over a ``compile=False`` flag, because calling it is a more explicit
+        request than the construction-time default. Unlike the flag, it generates
+        now rather than on first use. A schema shape the generator does not handle
+        stays interpreted (and identical); only the speedup is lost.
+        """
+        self._compile_requested = True
+        # Resolve now. A schema armed for lazy compilation keeps the interpreted
+        # validator in ``_interpreted``; otherwise ``_compiled`` is still it.
+        interpreted = self.__dict__.pop("_interpreted", self._compiled)
+        self._compiled = self._compile_from(interpreted)
+        return self
+
+    def _arm_compile(self) -> None:
+        """Set up first-use compilation when this schema is eligible.
+
+        Eligibility is decided now from the flag and the current policy, so the
+        common default (policy off, no flag) arms nothing and pays nothing. An
+        eligible schema swaps its validator for a one-shot bootstrap that generates
+        on the first call, keeping construction cheap: no code generation at import.
+        """
+        if not self._should_compile() or not self._compilable():
+            # ``compile=False`` or the off policy arms nothing (the default pays
+            # nothing). A literal, type, or sequence schema never generates, so
+            # arming it would only add a bootstrap a combinator could capture.
+            return
+        self._interpreted: CompiledSchema = self._compiled
+        self._compiled = self._bootstrap
+
+    def _compilable(self) -> bool:
+        """Report whether this schema is a shape the generator can compile."""
+        return not self._uses_self and isinstance(
+            self._compiled, (_MappingValidator, _SequenceValidator)
+        )
+
+    def _bootstrap(self, data: Any) -> Any:
+        """Resolve compilation on the first call, then validate ``data``.
+
+        Reads the policy here (so one set after construction still applies) and
+        installs the right validator: the generated one now for the flag or the ON
+        policy, an adaptive counter for AUTO, or the interpreted one if the policy
+        turned off since arming. A combinator may have captured this bootstrap as a
+        branch before the swap; a later call through that stale reference finds
+        ``_interpreted`` gone and just delegates to the resolved validator.
+
+        The pop and the swap run under ``_BOOTSTRAP_LOCK`` so two threads racing a
+        cold schema resolve it once: the loser finds ``_interpreted`` gone and the
+        ``_compiled`` already swapped, so it delegates instead of re-entering this
+        bootstrap against a half-installed validator. The lock covers only the swap,
+        not the validation call after it.
+        """
+        with _BOOTSTRAP_LOCK:
+            interpreted = self.__dict__.pop("_interpreted", None)
+            if interpreted is not None:
+                flag = self._compile_requested
+                if flag is None and get_compile_policy() is CompilePolicy.AUTO:
+                    self._compiled = self._auto_counter(interpreted)
+                elif self._should_compile():
+                    self._compiled = self._compile_from(interpreted)
+                else:
+                    self._compiled = interpreted
+        return self._compiled(data)
+
+    def _auto_counter(self, interpreted: CompiledSchema) -> CompiledSchema:
+        """Return a validator that counts calls and compiles once the schema is hot.
+
+        Below the threshold it validates interpreted, paying only a counter; at the
+        threshold it generates once and installs the compiled validator. A one-shot
+        schema never reaches the threshold, so it is never compiled. A combinator
+        that captured this counter keeps delegating through it to the compiled
+        validator after the swap.
+        """
+        calls = 0
+
+        def validate(data: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == _AUTO_COMPILE_THRESHOLD:
+                self._compiled = self._compile_from(interpreted)
+            if calls >= _AUTO_COMPILE_THRESHOLD:
+                return self._compiled(data)
+            return interpreted(data)
+
+        return validate
+
+    def _compile_from(self, interpreted: CompiledSchema) -> CompiledSchema:
+        """Return a generated validator built from ``interpreted``, or it unchanged.
+
+        A non-recursive simple mapping or single-element list schema is generatable
+        here; any other shape keeps its interpreted validator. ``DataclassSchema``
+        overrides this to fuse the construction step in.
+        """
+        if self._uses_self:
+            return interpreted
+        if isinstance(interpreted, _MappingValidator):
+            generated = compile_mapping(interpreted)
+        elif isinstance(interpreted, _SequenceValidator):
+            generated = compile_sequence(self.schema, interpreted)
+        else:
+            return interpreted
+        return generated if generated is not None else interpreted
 
     def _call_with_context(self, data: Any, context: Any) -> Any:
         """Set the call context, then validate through the common path.
@@ -731,6 +889,7 @@ class Schema:
                 else None
             ),
             alias_input_names=key.input_names if is_alias else (),
+            value_schema=value_schema,
         )
 
     def _compile_self(self) -> CompiledSchema:

@@ -120,7 +120,7 @@ name is importable straight from `probatio`.
   member of `container`. `fold_case` matches case-insensitively; `space` collapses
   each whitespace run in a string to the given character; either returns the
   normalized value. A missed string value suggests the closest members (`did you
-  mean ...?`) and records them on the error's `candidates`.
+mean ...?`) and records them on the error's `candidates`.
 - `NotIn(container, msg=None)`: the value must not be a member of `container`.
 - `Contains(item, msg=None)`: the value (a collection) must contain `item`.
 - `Match(pattern, msg=None)`: the value must match a regular expression.

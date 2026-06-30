@@ -24,7 +24,7 @@ except Invalid as err:
     print(err)  # expected int
 ```
 
-A broken schema *definition* is different: that raises `SchemaError`, because it
+A broken schema _definition_ is different: that raises `SchemaError`, because it
 is a programming mistake, not bad input. The two never overlap.
 
 ## The path to the value

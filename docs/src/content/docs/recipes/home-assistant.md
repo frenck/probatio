@@ -32,7 +32,7 @@ implementation.
 ## The harder case: code that imports voluptuous internals
 
 Not everything imports the public API. Some dependencies reach into voluptuous
-*internals*. Home Assistant's `annotatedyaml`, for example, imports
+_internals_. Home Assistant's `annotatedyaml`, for example, imports
 `voluptuous.schema_builder._compile_scalar` directly. You cannot change the
 import in code you do not own.
 
@@ -40,6 +40,7 @@ For that, Probatio ships `install_as_voluptuous`. Call it once at process
 startup, before anything imports voluptuous:
 
 <!-- verify: skip -->
+
 ```python
 from probatio.compat import install_as_voluptuous
 

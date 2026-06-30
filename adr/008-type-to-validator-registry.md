@@ -51,16 +51,16 @@ stated and held:
   engine's `isinstance` path for hand-written schemas. `Schema(datetime)` written
   by hand stays an `isinstance` check regardless of registry state, so a schema's
   explicit meaning never shifts under it because of distant global state.
-- **Binding time.** The builder reads the registry when it *builds* the schema and
+- **Binding time.** The builder reads the registry when it _builds_ the schema and
   bakes the validator in. A schema is stable once constructed; re-registering
   later does not mutate schemas already built. This keeps a compiled schema a
   fixed thing, like every other compiled schema.
 
-Precedence. The registry supplies the *base* validator for a type, replacing the
+Precedence. The registry supplies the _base_ validator for a type, replacing the
 bare `isinstance` and, since the builder returns it before the engine's
 type-dispatch runs, the type's own self-validation protocol
 ([ADR-007](007-self-validation-protocol.md)) as well. A use-site validator
-(`Annotated`, `additional_constraints`) does not override that base; it *composes*
+(`Annotated`, `additional_constraints`) does not override that base; it _composes_
 on top through `All`, so `Annotated[datetime, Range(...)]` with `datetime`
 registered to a `Coerce` runs the coercion first and the range check on the
 result. That is the useful behavior: the registry handles the type, the use site

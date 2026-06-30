@@ -51,6 +51,7 @@ Schema(Match(r"^[a-z]+$"))("probatio")         # 'probatio'
 `Coerce` raises when the value cannot be converted:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Coerce
 
@@ -430,7 +431,7 @@ the validated mapping.
 `RequiredWith` makes keys conditional on a trigger key being present:
 `RequiredWith("tls", "cert", "key")` requires `cert` and `key` whenever `tls` is
 in the mapping. `RequiredWithout` is the mirror, requiring keys when a trigger is
-*absent*: `RequiredWithout("cert", "cert_path")` requires `cert_path` when `cert`
+_absent_: `RequiredWithout("cert", "cert_path")` requires `cert_path` when `cert`
 is not given. `RequiredIf` keys on a value: `RequiredIf({"auth": "token"}, "token")`
 requires the `token` key only when `auth` equals `"token"`. When the rule does not
 fire, nothing is required and the mapping passes through unchanged.
@@ -533,6 +534,7 @@ Schema(SetTo(42))("anything")           # 42
 `Msg` rewrites the message on failure:
 
 <!-- verify: raises MultipleInvalid -->
+
 ```python
 from probatio import Schema, Msg, Range
 

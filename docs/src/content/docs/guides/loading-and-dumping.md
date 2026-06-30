@@ -223,7 +223,7 @@ library that others import).
 
 ## Source locations
 
-When a config fails validation, the useful question is *where in the file*.
+When a config fails validation, the useful question is _where in the file_.
 `load_yaml_with_locations` answers it: it returns `(data, locator)`, where the
 locator maps a validation error's `path` back to the source position. Hand the
 locator to `humanize_error` and each failure gains the place it points at.

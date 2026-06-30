@@ -12,7 +12,7 @@ Everything Probatio raises descends from one base, `Error`. Below it sit two
 unrelated kinds of failure: a broken schema and bad data.
 
 - `Error`: the base for everything Probatio raises. Catch this to catch all of it.
-- `SchemaError`: the schema *definition* is wrong. That is a programming mistake,
+- `SchemaError`: the schema _definition_ is wrong. That is a programming mistake,
   not bad input, so it is kept separate from `Invalid`.
 - `Invalid`: the data did not match the schema. Carries a `path` to the offending
   value.

@@ -14,7 +14,7 @@ Most code uses voluptuous through its public API. There, swapping
 `import voluptuous` for `import probatio` is enough, and your schemas keep
 working.
 
-Some dependencies are harder. They import voluptuous *internals*, not just the
+Some dependencies are harder. They import voluptuous _internals_, not just the
 public names. A real example is `annotatedyaml`, which imports
 `voluptuous.schema_builder._compile_scalar`. You cannot edit that code, and a
 plain import swap does not reach it.
@@ -27,6 +27,7 @@ the `voluptuous` name. Every later `import voluptuous`, including the ones insid
 your dependencies, then resolves to Probatio for the rest of the process.
 
 <!-- verify: skip -->
+
 ```python
 from probatio.compat import install_as_voluptuous
 
