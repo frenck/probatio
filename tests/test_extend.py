@@ -56,6 +56,33 @@ def test_extend_requires_a_mapping_argument() -> None:
         Schema({"a": int}).extend(int)
 
 
+def test_extend_on_a_dataclass_schema_is_a_clear_error() -> None:
+    """A DataclassSchema is built from a type, so extend refuses with a clear message."""
+    import dataclasses  # noqa: PLC0415
+
+    from probatio import DataclassSchema  # noqa: PLC0415
+
+    @dataclasses.dataclass
+    class User:
+        name: str
+
+    with pytest.raises(SchemaError, match="DataclassSchema"):
+        DataclassSchema(User).extend({"extra": int})
+
+
+def test_extend_on_a_typeddict_schema_is_a_clear_error() -> None:
+    """A TypedDictSchema is built from a type, so extend refuses with a clear message."""
+    from typing import TypedDict  # noqa: PLC0415
+
+    from probatio import TypedDictSchema  # noqa: PLC0415
+
+    class Movie(TypedDict):
+        title: str
+
+    with pytest.raises(SchemaError, match="TypedDictSchema"):
+        TypedDictSchema(Movie).extend({"extra": int})
+
+
 def test_extend_can_make_keys_required() -> None:
     """Passing required=True flips bare keys of the merged schema to required."""
     extended = Schema({"a": int}).extend({"b": int}, required=True)

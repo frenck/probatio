@@ -631,6 +631,21 @@ class DataclassSchema[DataclassT](Schema):
         )
         super().__init__(built.schema, compile=compile)
 
+    def extend(self, *_args: TypingAny, **_kwargs: TypingAny) -> Schema:
+        """Refuse to extend: a ``DataclassSchema`` is built from a type, not a mapping.
+
+        ``extend`` merges keys into a mapping schema and rebuilds the same class, but
+        a ``DataclassSchema`` is defined by its dataclass type and could not construct
+        anything coherent from the extra keys. Build a new ``DataclassSchema``, or
+        extend a plain ``Schema`` of the fields instead, rather than fail obscurely.
+        """
+        message = (
+            "extend is not supported on a DataclassSchema; it is built from a "
+            "dataclass type, not a mapping. Build a new DataclassSchema, or extend a "
+            "plain Schema of the fields."
+        )
+        raise SchemaError(message)
+
     def construct(self, data: TypingAny) -> DataclassT:
         """Build the dataclass from **trusted** ``data``, skipping validation.
 
@@ -806,6 +821,20 @@ class TypedDictSchema[TypedDictT](Schema):
         # when re-wrapping; the dataclass path gets away without it because there
         # the ``extra`` is baked into an inner Schema wrapped in ``All``.
         super().__init__(built.schema, extra=extra, compile=compile)
+
+    def extend(self, *_args: TypingAny, **_kwargs: TypingAny) -> Schema:
+        """Refuse to extend: a ``TypedDictSchema`` is built from a type, not a mapping.
+
+        ``extend`` merges keys and rebuilds the same class, but a ``TypedDictSchema``
+        is defined by its TypedDict type. Build a new ``TypedDictSchema``, or extend a
+        plain ``Schema`` of the fields instead, rather than fail obscurely.
+        """
+        message = (
+            "extend is not supported on a TypedDictSchema; it is built from a "
+            "TypedDict type, not a mapping. Build a new TypedDictSchema, or extend a "
+            "plain Schema of the fields."
+        )
+        raise SchemaError(message)
 
     def __call__(
         self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
