@@ -167,10 +167,46 @@ def test_any_becomes_any_of() -> None:
 
 
 def test_match_exports_pattern() -> None:
-    """Match exports a string pattern."""
+    """Match exports an ECMA-compatible pattern unchanged."""
     assert to_json_schema(Schema(Match(r"^\d+$"))) == {
         "type": "string",
         "pattern": r"^\d+$",
+    }
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"(?P<year>\d{4})",  # named group
+        r"\A\d+\Z",  # Python-only anchors
+        r"(?i)abc",  # global inline flag
+        r"(?i:abc)",  # scoped inline flags
+        r"(?-i:abc)",  # negated scoped flag
+        r"(?i-s:abc)",  # mixed scoped flags
+        r"(?#a comment)x",  # inline comment
+        r"(?>\d+)",  # atomic group
+        r"(\d)(?(1)a|b)",  # conditional
+        r"a*+",  # possessive quantifier
+    ],
+)
+def test_match_drops_a_python_only_pattern(pattern: str) -> None:
+    """A pattern using Python-only regex syntax is dropped, leaving a valid string."""
+    assert to_json_schema(Schema(Match(pattern))) == {"type": "string"}
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        r"(?:ab)+c",  # non-capturing group (valid ECMA, must not be dropped)
+        r"a(?=b)",  # lookahead
+        r"\}+",  # an escaped brace with a quantifier is not a possessive
+    ],
+)
+def test_match_keeps_an_ecma_compatible_pattern(pattern: str) -> None:
+    """An ECMA-compatible pattern, including ones that resemble Python-only, is kept."""
+    assert to_json_schema(Schema(Match(pattern))) == {
+        "type": "string",
+        "pattern": pattern,
     }
 
 

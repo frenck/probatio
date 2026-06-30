@@ -315,7 +315,7 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
         return _convert_length(node)
 
     if isinstance(node, Match):
-        return {"type": "string", "pattern": node.pattern.pattern}
+        return _convert_match(node)
 
     if isinstance(node, Maybe):
         return {"anyOf": [{"type": "null"}, _child(node.validator)]}
@@ -387,6 +387,38 @@ def _convert_named(node: Any) -> dict[str, Any] | None:
         return {"type": "string"}
 
     return None
+
+
+# Regex syntax that Python's ``re`` accepts but JSON Schema's ECMA-262 dialect does
+# not. A ``pattern`` using one of these would be rejected, or silently behave
+# differently, in an external (non-Python) validator. The detection is conservative:
+# a false negative (a Python-only construct not listed) emits an invalid pattern, so
+# err toward listing; a false positive only drops a valid pattern, the safe direction.
+_PYTHON_ONLY_REGEX = re.compile(
+    r"\(\?P[<=]"  # named group (?P<n>...) or backreference (?P=n)
+    r"|\(\?\#"  # inline comment (?#...)
+    r"|\(\?\("  # conditional (?(id)yes|no)
+    r"|\(\?>"  # atomic group (?>...)
+    r"|\(\?[aiLmsux]+[:)]"  # inline flags (?i) or scoped (?im:...)
+    r"|\(\?[aiLmsux]*-[aiLmsux]+:"  # negated/mixed scoped flags (?-i:...)
+    r"|(?<!\\)[*+?}]\+"  # possessive quantifier (*+ ++ ?+ }+), not an escape
+    r"|\\[AZ]",  # \A / \Z anchors, which ECMA-262 spells ^ / $
+)
+
+
+def _convert_match(node: Match) -> dict[str, Any]:
+    """Render a Match as a string, with a JSON Schema ``pattern`` when ECMA-safe.
+
+    JSON Schema patterns are ECMA-262 regular expressions, while ``Match`` holds a
+    Python ``re`` pattern. A pattern that uses Python-only syntax is dropped, leaving
+    a plain ``{"type": "string"}``, so the emitted schema stays valid for an external
+    validator rather than carrying a pattern that validator would reject. An
+    ECMA-compatible pattern is emitted unchanged.
+    """
+    source = node.pattern.pattern
+    if _PYTHON_ONLY_REGEX.search(source):
+        return {"type": "string"}
+    return {"type": "string", "pattern": source}
 
 
 def _convert_range(node: Range) -> dict[str, Any]:
