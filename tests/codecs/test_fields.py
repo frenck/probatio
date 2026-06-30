@@ -304,3 +304,19 @@ def test_serialize_matches_voluptuous_serialize(case: str) -> None:
         voluptuous.Schema(_parity_build(voluptuous)[case])
     )
     assert got == want
+
+
+def test_serialize_marks_allow_none_for_either_any_order() -> None:
+    """A nullable ``Any`` serializes to allow_none whether None is first or last.
+
+    voluptuous-serialize only handled ``Any(None, X)``; probatio also recognizes
+    ``Any(X, None)`` as the same nullable shape rather than dropping the None.
+    """
+    assert serialize(Schema(ProbAny(None, str))) == {
+        "type": "string",
+        "allow_none": True,
+    }
+    assert serialize(Schema(ProbAny(str, None))) == {
+        "type": "string",
+        "allow_none": True,
+    }
