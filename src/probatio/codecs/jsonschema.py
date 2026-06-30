@@ -806,13 +806,19 @@ def _resolve_pointer(ref: str, root: dict[str, Any]) -> Any:
 
 
 def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
-    """Dispatch on the ``type`` keyword, defaulting to an accept-anything schema."""
+    """Dispatch on the ``type`` keyword, one of the seven JSON Schema type names.
+
+    Only reached when ``type`` is present (a typeless node is handled by its
+    constraints upstream), so the keyword must be a string or an array of them.
+    """
     json_type = node.get("type")
     if isinstance(json_type, list):
         return _from_type_list(node, json_type, ctx)
 
-    # Keep malformed ``type`` values from leaking as hashing or membership errors.
-    if json_type is not None and not isinstance(json_type, str):
+    # A non-string, non-array ``type`` (including an explicit ``null``) is malformed.
+    # Reject it rather than letting it leak as a hashing or membership error, or fall
+    # through and widen to an accept-anything schema.
+    if not isinstance(json_type, str):
         message = (
             f"JSON Schema 'type' must be a string or array, "
             f"got {type(json_type).__name__}"
@@ -835,11 +841,12 @@ def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
         base = int if json_type == "integer" else AnyValidator(int, float)
         return _from_number(node, base=base)
 
-    # An unrecognized type keyword: ignore it and honor any constraint keywords on
-    # their own, so the type does not swallow the rest of the schema. A node with
-    # no constraint accepts any value.
-    combined = _combine_constraints(node, ctx)
-    return object if combined is None else combined
+    # A non-empty ``type`` that is none of the seven JSON Schema types is malformed.
+    # The schema may be untrusted, so it fails closed here rather than ignoring the
+    # type and widening to an accept-anything ``object`` that would swallow the
+    # sibling constraint keywords and accept input the author meant to forbid.
+    message = f"JSON Schema 'type' is not a recognized type name: {json_type!r}"
+    raise SchemaError(message)
 
 
 def _from_type_list(node: dict[str, Any], types: list[Any], ctx: _Decode) -> Any:
