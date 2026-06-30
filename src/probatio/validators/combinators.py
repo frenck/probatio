@@ -378,9 +378,13 @@ class Union(_Combinator):
         # A discriminant returns a subset of the raw validators; resolve each to
         # its compiled form, compiling any object it returns that was not among
         # the originals (matching voluptuous, which recompiles the chosen set).
+        # Compile a fresh object under the same required and extra policy as the
+        # originals, so a discriminant-returned mapping does not lose the Union's
+        # ``required`` intent. A fresh object is not cached: it may be short-lived,
+        # and caching it by ``id`` would risk a reused id mapping to a stale branch.
         candidates = [
             self._compiled_by_id.get(id(option))
-            or compile_schema(option, extra=self._extra)
+            or compile_schema(option, required=self.required, extra=self._extra)
             for option in self.discriminant(value, self.validators)
         ]
         # The discriminant chose a subset, so the all-branches label would not

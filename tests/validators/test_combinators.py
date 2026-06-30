@@ -156,6 +156,23 @@ def test_union_with_discriminant_narrows_candidates() -> None:
         schema({"kind": "str", "value": 9})
 
 
+def test_union_discriminant_branch_keeps_the_required_policy() -> None:
+    """A fresh mapping a discriminant returns is compiled under the Union's required.
+
+    The originals are compiled with the Union's ``required`` intent; a branch the
+    discriminant builds fresh (not one of the originals) must be too, or it would
+    silently drop the policy and treat its keys as optional.
+    """
+
+    def make_branch(_value: object, _alternatives: list) -> list:
+        return [{"b": int}]  # a fresh mapping each call, never one of the originals
+
+    schema = Schema(Union({"a": int}, discriminant=make_branch, required=True))
+    assert schema({"b": 1}) == {"b": 1}
+    with pytest.raises(MultipleInvalid):
+        schema({})  # 'b' is required under required=True
+
+
 def test_required_propagates_into_a_nested_mapping() -> None:
     """Any(..., required=True) makes its nested mapping keys required."""
     with pytest.raises(MultipleInvalid) as caught:
