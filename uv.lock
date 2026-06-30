@@ -513,14 +513,14 @@ wheels = [
 
 [[package]]
 name = "mashumaro"
-version = "3.17"
+version = "3.22"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/67/c4e235256baf6837106d2620c7123eb1e5786c704c7f7d7fa488ad6afc61/mashumaro-3.17.tar.gz", hash = "sha256:de1d8b1faffee58969c7f97e35963a92480a38d4c9858e92e0721efec12258ed", size = 189877, upload-time = "2025-10-03T21:09:27.281Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/e3/a06dcd2e6df094c5e294721926f1f76da30f50823e2ac233a9198e804891/mashumaro-3.22.tar.gz", hash = "sha256:64538cc365204402a060ebde683a86505b5a4344acf6870d79021e9fbfe57360", size = 197845, upload-time = "2026-05-26T14:39:21.859Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/2d/edc147aa1dce9e0e377687d453e62fdfcbccc08cd35d0b7413e3485c4b92/mashumaro-3.17-py3-none-any.whl", hash = "sha256:3964e2c804f62de9e4c58fb985de71dcd716f9507cc18374b1bd5c4f1a1b879b", size = 94198, upload-time = "2025-10-03T21:09:25.436Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/1c/92fd926c2e7763535454683250dbdd8d10aa2f2c62f58d6abbcce4d8b3fc/mashumaro-3.22-py3-none-any.whl", hash = "sha256:17dc4d7294c33ef380a8b929dda0608577aa2141988c00a0c4932310108fe71d", size = 95916, upload-time = "2026-05-26T14:39:20.233Z" },
 ]
 
 [[package]]
@@ -957,7 +957,7 @@ bench-world = [
     { name = "dataclasses-json", specifier = "==0.6.7" },
     { name = "hypothesis", specifier = "==6.155.7" },
     { name = "marshmallow", specifier = "==3.26.2" },
-    { name = "mashumaro", specifier = "==3.17" },
+    { name = "mashumaro", specifier = "==3.22" },
     { name = "matplotlib", specifier = "==3.10.7" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pydantic", specifier = "==2.12.4" },
@@ -974,7 +974,7 @@ bench-world = [
 codspeed = [
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", specifier = "==6.155.7" },
-    { name = "mashumaro", specifier = "==3.17" },
+    { name = "mashumaro", specifier = "==3.22" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-codspeed", specifier = "==5.0.3" },
@@ -991,7 +991,7 @@ dev = [
     { name = "codespell", specifier = "==2.4.2" },
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", specifier = "==6.155.7" },
-    { name = "mashumaro", specifier = "==3.17" },
+    { name = "mashumaro", specifier = "==3.22" },
     { name = "mypy", specifier = "==2.1.0" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -1016,7 +1016,7 @@ lint = [
 test = [
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", specifier = "==6.155.7" },
-    { name = "mashumaro", specifier = "==3.17" },
+    { name = "mashumaro", specifier = "==3.22" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },

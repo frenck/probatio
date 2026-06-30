@@ -108,7 +108,7 @@ test = [
   # mashumaro is a benchmark-only comparison for the dataclass path (its codegen
   # from_dict against DataclassSchema). It is not an oracle: it deserializes rather
   # than validates, so it is never compared for correctness. Never a runtime dep.
-  "mashumaro==3.17",
+  "mashumaro==3.22",
   # The optional I/O backends, installed for tests so the real accelerators are
   # exercised (the pure-Python fallbacks are covered by patching these to None).
   # These are the probatio[fast] / probatio[yaml] / probatio[toml] extras.
