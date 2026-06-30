@@ -29,6 +29,7 @@ from probatio.validators import (
     Slug,
     StartsWith,
     TimeZone,
+    TimeZoneInfo,
 )
 
 
@@ -60,6 +61,7 @@ STRING_TYPES = (
     IPNetwork,
     MacAddress,
     TimeZone,
+    TimeZoneInfo,
     Slug,
     Alpha,
     Alphanumeric,

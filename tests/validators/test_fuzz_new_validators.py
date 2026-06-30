@@ -78,6 +78,7 @@ from probatio import (
     StartsWith,
     Time,
     TimeZone,
+    TimeZoneInfo,
     Url,
     YAMLString,
 )
@@ -96,6 +97,7 @@ _VALIDATORS = (
     Time(),
     Duration(),
     TimeZone(),
+    TimeZoneInfo(),
     EnsureList(),
     Slug(),
     Negative(),

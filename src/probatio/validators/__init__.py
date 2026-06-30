@@ -114,6 +114,7 @@ from probatio.validators.temporal import (
     Epoch,
     Time,
     TimeZone,
+    TimeZoneInfo,
 )
 from probatio.validators.transition import Immutable, WriteOnce
 
@@ -218,6 +219,7 @@ __all__ = [
     "Switch",
     "Time",
     "TimeZone",
+    "TimeZoneInfo",
     "Title",
     "Union",
     "Unique",
