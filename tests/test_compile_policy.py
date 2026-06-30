@@ -44,6 +44,13 @@ def test_default_policy_is_auto() -> None:
     assert Schema({"a": int}, compile=False)._should_compile() is False
 
 
+def test_set_compile_policy_rejects_a_non_policy() -> None:
+    """A stray value (a string like "off") is refused, not stored and silently wrong."""
+    with pytest.raises(TypeError, match="CompilePolicy"):
+        set_compile_policy("off")  # type: ignore[arg-type]
+    assert isinstance(get_compile_policy(), CompilePolicy)  # unchanged, still valid
+
+
 def test_policy_on_compiles_an_unset_schema() -> None:
     """Under the ON policy a schema with no flag opts in."""
     set_compile_policy(CompilePolicy.ON)
