@@ -144,6 +144,22 @@ def test_fqdn_url_requires_a_dotted_host() -> None:
     assert isinstance(caught.value.errors[0], UrlInvalid)
 
 
+def test_fqdn_url_ignores_a_dot_in_the_userinfo() -> None:
+    """A dot in the userinfo does not make the host fully-qualified.
+
+    ``http://user.name@localhost`` has the dot in the credentials, not the host
+    ``localhost``, so the check must look at the host alone and reject it.
+    """
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(FqdnUrl())("http://user.name@localhost")
+    assert isinstance(caught.value.errors[0], UrlInvalid)
+    # The host itself being fully-qualified still passes, userinfo and all.
+    assert (
+        Schema(FqdnUrl())("http://user.name@host.example.com")
+        == "http://user.name@host.example.com"
+    )
+
+
 def test_slug_accepts_a_valid_slug() -> None:
     """Slug accepts a lowercase slug and returns it unchanged."""
     assert Schema(Slug())("my_slug-1") == "my_slug-1"
