@@ -183,6 +183,12 @@ class Port(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> int:
         """Return the port as an int if in range, else raise RangeInvalid."""
+        if isinstance(value, bool):
+            # A bool is an int, so ``int(True)`` would otherwise pass as port 1; a
+            # boolean is never a port, so reject it the way the IP and duration
+            # validators reject a bool.
+            message = self.msg or "expected a port number between 1 and 65535"
+            raise RangeInvalid(message)
         if isinstance(value, float) and not value.is_integer():
             # A fractional float is not a port; reject it rather than silently
             # truncating ``8080.7`` to ``8080``.

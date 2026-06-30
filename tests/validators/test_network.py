@@ -153,6 +153,14 @@ def test_port_accepts_an_integral_float() -> None:
     assert Schema(Port())(8080.0) == 8080
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_port_rejects_a_bool(value: object) -> None:
+    """A bool is an int but never a port, so it raises rather than passing as 1 or 0."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Port())(value)
+    assert isinstance(caught.value.errors[0], RangeInvalid)
+
+
 @pytest.mark.parametrize(
     "validator",
     [IPv4Address(), IPv6Address(), IPAddress(), IPNetwork()],
