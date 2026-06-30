@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from probatio.error import Error, Invalid, MultipleInvalid
+from probatio.error import Error, Invalid, MultipleInvalid, SecretInvalid
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from probatio.schema import Schema
 
 MAX_VALIDATION_ERROR_ITEM_LENGTH = 500
+
+# Shown in place of the offending value for a ``Secret`` failure, so the raw
+# (pre-validation) secret never reaches an error message or a log.
+_REDACTED = "<redacted>"
 
 
 def _nested_getitem(data: Any, path: list[Any]) -> Any:
@@ -52,9 +56,15 @@ def humanize_error(
                 for sub_error in validation_error.errors
             ),
         )
-    offending = repr(_nested_getitem(data, validation_error.path))
-    if len(offending) > max_sub_error_length:
-        offending = offending[: max_sub_error_length - 3] + "..."
+    if isinstance(validation_error, SecretInvalid):
+        # The value at this path is a secret that failed validation, and it is still
+        # the raw, unwrapped value in ``data`` (the SecretValue wrapper only exists
+        # on success). Reading and rendering it would leak the credential, so redact.
+        offending = _REDACTED
+    else:
+        offending = repr(_nested_getitem(data, validation_error.path))
+        if len(offending) > max_sub_error_length:
+            offending = offending[: max_sub_error_length - 3] + "..."
     message = f"{validation_error}. Got {offending}"
     if locator is not None:
         location = locator(validation_error.path)

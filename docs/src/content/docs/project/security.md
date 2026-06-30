@@ -179,9 +179,12 @@ str(result)                            # "{'api_token': SecretValue('**********'
 result["api_token"].get_secret_value() # 's3cr3t'
 ```
 
-One boundary to know: this protects the validated value, not `humanize_error`
-called against the raw, pre-validation input. When secrets are involved, humanize
-the validated output, not the original data.
+`humanize_error` redacts a failed `Secret` too: a rejected credential renders as
+`<redacted>`, not the raw value, so the direct case is covered. One boundary
+remains, because `humanize_error` reads the raw, pre-validation data: a secret in
+one field could still surface if a broader error renders a whole container that
+holds it. For full safety with secrets, humanize the validated output, where every
+`SecretValue` masks itself, rather than the original data.
 
 ## Reporting a vulnerability
 
