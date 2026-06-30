@@ -40,14 +40,19 @@ class Coerce[T](_SafeValidator):
     def __call__(self, value: typing.Any) -> T:
         """Return ``type(value)``, or raise CoerceInvalid if it cannot.
 
-        ArithmeticError joins ValueError/TypeError so numeric conversions fail
-        cleanly: ``Coerce(int)`` on infinity (OverflowError) and ``Coerce(Decimal)``
-        on junk (decimal.InvalidOperation) raise CoerceInvalid rather than leaking,
-        keeping the safe-validator contract.
+        Calling the target is user code (``int(value)`` runs the value's
+        ``__int__``/``__index__``, a custom converter runs whatever it likes), so it
+        may raise anything: ``Coerce(int)`` on infinity (OverflowError),
+        ``Coerce(Decimal)`` on junk (decimal.InvalidOperation), a hostile dunder.
+        Any such failure becomes a CoerceInvalid rather than leaking, keeping the
+        safe-validator contract. A target that raises ``Invalid`` itself passes
+        through unchanged.
         """
         try:
             return typing.cast("T", self.type(value))
-        except (ValueError, TypeError, ArithmeticError) as exc:
+        except Invalid:
+            raise
+        except Exception as exc:
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib.
             raise CoerceInvalid(
@@ -96,7 +101,12 @@ def Boolean(value: typing.Any) -> bool:
             return False
         raise ValueError
 
-    return bool(value)
+    try:
+        return bool(value)
+    except Exception as exc:
+        # Surface as ValueError so the ``message`` wrapper renders it as the
+        # configured BooleanInvalid rather than letting the dunder error escape.
+        raise ValueError from exc
 
 
 class SetTo(_SafeValidator):

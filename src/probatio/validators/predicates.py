@@ -49,8 +49,13 @@ class IsTrue(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is truthy, else raise TrueInvalid."""
-        if not value:
-            message = self.msg or "value was not true"
+        message = self.msg or "value was not true"
+        try:
+            truthy = bool(value)
+        except Exception as exc:
+            raise TrueInvalid(message) from exc
+
+        if not truthy:
             raise TrueInvalid(message)
         return value
 
@@ -64,8 +69,13 @@ class IsFalse(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is falsy, else raise FalseInvalid."""
-        if value:
-            message = self.msg or "value was not false"
+        message = self.msg or "value was not false"
+        try:
+            truthy = bool(value)
+        except Exception as exc:
+            raise FalseInvalid(message) from exc
+
+        if truthy:
             raise FalseInvalid(message)
         return value
 
@@ -96,8 +106,13 @@ class _FilesystemCheck(_SafeValidator):
                 raise self.error(self.empty_msg)
             if type(self).test(str(value)):
                 return value
-        except (TypeError, ValueError) as exc:
-            # ValueError covers a path with an embedded NUL byte (os.stat raises).
+        except Invalid:
+            # The empty-value error raised just above is already this validator's
+            # own error type; let it through rather than re-wrapping it.
+            raise
+        except Exception as exc:
+            # ValueError covers a path with an embedded NUL byte (os.stat raises);
+            # the value's ``__bool__``/``__str__`` are user code and may raise anything.
             raise self.error(self.empty_msg) from exc
 
         message = self.msg or self.default_msg

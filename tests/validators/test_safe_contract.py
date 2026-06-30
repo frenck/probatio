@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import contextlib
 from decimal import Decimal
-from typing import Any
+from typing import Any, NoReturn
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -164,6 +164,37 @@ def test_every_safe_validator_subclass_is_covered() -> None:
     )
 
 
+class _HostileDunders:
+    """A value whose validation-path dunders all raise, to enforce the contract.
+
+    Models a malicious or buggy object: comparison, membership, length, truthiness,
+    iteration, and numeric-conversion dunders each raise a non-``Invalid`` exception.
+    A built-in validator that applies one of these operators to the value must
+    contain the failure as ``Invalid``, never let it escape.
+
+    ``__str__``/``__repr__`` stay safe on purpose: a value that cannot even be
+    rendered is degenerate (no code anywhere could format it), so it is out of the
+    contract's scope, which is about validation *operations* on the value.
+    """
+
+    @staticmethod
+    def _boom(*_args: object) -> NoReturn:
+        message = "hostile dunder"
+        raise RuntimeError(message)
+
+    __eq__ = __ne__ = __lt__ = __le__ = __gt__ = __ge__ = _boom
+    __contains__ = __len__ = __bool__ = __iter__ = _boom
+    __float__ = __int__ = __index__ = __mod__ = _boom
+
+    def __hash__(self) -> int:
+        """Stay hashable (hashing the value is not the operation under test)."""
+        return 0
+
+    def __repr__(self) -> str:
+        """Render safely, so an error message about this value never raises."""
+        return "<hostile>"
+
+
 _hostile = st.sampled_from(
     [
         float("nan"),
@@ -179,6 +210,7 @@ _hostile = st.sampled_from(
         "a\x00b",
         (),
         (1, 2),
+        _HostileDunders(),
     ],
 )
 
@@ -210,3 +242,17 @@ def test_no_builtin_validator_leaks_a_non_invalid_exception(value: Any) -> None:
     for schema in _SAFE_SCHEMAS:
         with contextlib.suppress(Invalid):
             schema(value)
+
+
+def test_no_builtin_leaks_on_a_value_whose_dunders_raise() -> None:
+    """A value whose validation dunders all raise still yields only Invalid.
+
+    Deterministic counterpart to the fuzz above: it feeds the dunder-raising value
+    to every built-in so each operator-boundary guard (comparison, membership,
+    length, truthiness, iteration, numeric conversion) is exercised on every run,
+    independent of which inputs Hypothesis happens to generate.
+    """
+    hostile = _HostileDunders()
+    for schema in _SAFE_SCHEMAS:
+        with contextlib.suppress(Invalid):
+            schema(hostile)
