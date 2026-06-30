@@ -889,20 +889,41 @@ def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
     return marker_cls(name, description=description)
 
 
+def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:
+    """Decode a closed positional ``prefixItems`` array into an ``ExactSequence``.
+
+    Only the closed form (``items: false``, what ``to_json_schema`` emits for an
+    ``ExactSequence``) maps cleanly. With ``items`` absent or a schema, JSON Schema
+    allows additional items beyond the prefix, which ``ExactSequence`` (a
+    fixed-length tuple) cannot represent, so the open tail is refused rather than
+    silently rejecting valid arrays that carry extra items.
+    """
+    if not isinstance(prefix, list):
+        message = (
+            f"JSON Schema 'prefixItems' must be an array, got {type(prefix).__name__}"
+        )
+        raise SchemaError(message)
+    if node.get("items") is not False:
+        message = (
+            "JSON Schema 'prefixItems' is only supported with 'items': false "
+            "(a closed, fixed-length array); a schema or open tail does not map "
+            "to a probatio sequence"
+        )
+        raise SchemaError(message)
+    return ExactSequence([_from_node(element, ctx) for element in prefix])
+
+
 def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     """Render a JSON Schema array as a sequence schema, honoring item-count bounds.
 
-    ``prefixItems`` (a positional tuple) round-trips an ``ExactSequence``. A bool
-    ``items`` (``false`` forbids extra items, ``true`` allows any) carries no
-    per-item schema, so it is treated as an unconstrained list rather than fed to
-    the node decoder.
+    ``prefixItems`` with ``items: false`` (a closed, fixed-length positional array)
+    round-trips an ``ExactSequence``. A bool ``items`` (``false`` forbids extra
+    items, ``true`` allows any) carries no per-item schema, so it is treated as an
+    unconstrained list rather than fed to the node decoder.
     """
     prefix = node.get("prefixItems")
     if prefix is not None:
-        if not isinstance(prefix, list):
-            message = f"JSON Schema 'prefixItems' must be an array, got {type(prefix).__name__}"
-            raise SchemaError(message)
-        return ExactSequence([_from_node(element, ctx) for element in prefix])
+        return _from_prefix_items(prefix, node, ctx)
     items = node.get("items")
     if isinstance(items, bool):
         items = None
