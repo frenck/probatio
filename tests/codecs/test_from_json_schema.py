@@ -320,6 +320,28 @@ def test_recursive_ref_reports_a_nested_path() -> None:
     assert caught.value.errors[0].path == ["next", "value"]
 
 
+def test_root_ref_resolves_to_the_whole_document() -> None:
+    """A bare ``#`` references the document root, the recursive-schema idiom."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {
+                "value": {"type": "integer"},
+                "children": {"type": "array", "items": {"$ref": "#"}},
+            },
+        },
+    )
+
+    assert schema({"value": 1, "children": [{"value": 2, "children": []}]}) == {
+        "value": 1,
+        "children": [{"value": 2, "children": []}],
+    }
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"value": 1, "children": [{"value": "bad", "children": []}]})
+
+    assert caught.value.errors[0].path == ["children", 0, "value"]
+
+
 @pytest.mark.parametrize(
     ("json_format", "valid", "invalid"),
     [
