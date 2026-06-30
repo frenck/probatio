@@ -345,8 +345,9 @@ class Schema:
         ``compile`` opts this schema into a specialized, faster validator: ``True``
         always, ``False`` never, ``None`` (the default) defers to the process-wide
         :func:`set_compile_policy`. Compiled and interpreted schemas validate
-        identically; the flag only affects speed. The generator is not built yet,
-        so this is plumbing today (see :meth:`compile`).
+        identically; the flag only affects speed. Generation is lazy: a schema builds
+        its specialized validator on first use (or eagerly through :meth:`compile`),
+        and any shape the generator does not handle stays on the interpreted engine.
         """
         self.schema = schema
         self.required = required

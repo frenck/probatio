@@ -118,7 +118,7 @@ def test_compile_method_wins_over_an_explicit_false() -> None:
 
 
 def test_compiled_schema_still_validates_identically() -> None:
-    """The flag only affects speed; results are unchanged (it falls back today)."""
+    """The flag only affects speed; a compiled mapping returns the same result."""
     interpreted = Schema({"a": int, "b": str})
     compiled = Schema({"a": int, "b": str}, compile=True)
     data = {"a": 1, "b": "x"}

@@ -459,6 +459,24 @@ def _mentions_dataclass(annotation: TypingAny) -> bool:
     return any(_mentions_dataclass(arg) for arg in get_args(annotation))
 
 
+def _is_dict_shaped(annotation: TypingAny) -> bool:
+    """Whether a value of ``annotation`` can arrive as a ``dict`` at runtime.
+
+    A single-dataclass union dispatches on ``isinstance(value, dict)``, so any
+    alternative a dict satisfies is ambiguous with the dataclass branch and must fall
+    back to validation: a plain ``dict``, a ``Mapping``/``MutableMapping`` (whose
+    origin is ``collections.abc.Mapping``, not ``dict``), or a ``TypedDict`` (a plain
+    dict at runtime). Without this, a mapping input would be fed to the dataclass
+    constructor instead of passing through as the mapping alternative.
+    """
+    if is_typeddict(annotation):
+        return True
+    if isinstance(annotation, type):
+        return issubclass(annotation, Mapping)
+    origin = get_origin(annotation)
+    return isinstance(origin, type) and issubclass(origin, Mapping)
+
+
 def _union_expr(
     annotation: TypingAny,
     var: str,
@@ -488,8 +506,7 @@ def _union_expr(
     in_dataclasses = [member for member in non_none if _is_dataclass_type(member)]
     plain = [member for member in non_none if not _is_dataclass_type(member)]
     if len(in_dataclasses) == 1 and not any(
-        _mentions_dataclass(member) or get_origin(member) is dict or member is dict
-        for member in plain
+        _mentions_dataclass(member) or _is_dict_shaped(member) for member in plain
     ):
         sub = _build_constructor(in_dataclasses[0], building)
         if sub is None:

@@ -15,7 +15,7 @@ from collections.abc import (  # noqa: TC003 - resolved at runtime by get_type_h
     Sequence,
 )
 from dataclasses import InitVar, dataclass, field
-from typing import Annotated, Any, Literal, NewType, TypeVar
+from typing import Annotated, Any, Literal, NewType, TypedDict, TypeVar
 
 import pytest
 
@@ -845,6 +845,41 @@ def test_construct_falls_back_for_a_union_with_a_dict_alternative() -> None:
         thing: _Loc | dict[str, int]
 
     assert DataclassSchema(Has)._fast_constructor() is None
+
+
+def test_construct_falls_back_for_a_union_with_a_mapping_alternative() -> None:
+    """A Mapping alternative is dict-shaped at runtime, so the union falls back.
+
+    ``Mapping[...]`` resolves to ``collections.abc.Mapping``, not ``dict``, but a dict
+    still satisfies it, so it is ambiguous with the dataclass branch the same way a
+    plain ``dict`` is. Without falling back, a mapping value would be fed to the
+    dataclass constructor.
+    """
+
+    @dataclass
+    class Has:
+        thing: _Loc | Mapping[str, int]
+
+    schema = DataclassSchema(Has)
+    assert schema._fast_constructor() is None
+    # And it still builds the right thing through the validating fallback.
+    assert schema.construct({"thing": {"k": 1}}) == schema({"thing": {"k": 1}})
+
+
+class _Movie(TypedDict):
+    """A module-level TypedDict, so get_type_hints can resolve it in an annotation."""
+
+    title: str
+
+
+@dataclass
+class _HasMovie:
+    thing: _Loc | _Movie
+
+
+def test_construct_falls_back_for_a_union_with_a_typeddict_alternative() -> None:
+    """A TypedDict alternative is a plain dict at runtime, so the union falls back."""
+    assert DataclassSchema(_HasMovie)._fast_constructor() is None
 
 
 def test_construct_falls_back_for_a_union_with_a_recursive_dataclass() -> None:
