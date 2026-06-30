@@ -23,21 +23,16 @@ building consults the registry.
 from __future__ import annotations
 
 import contextlib
-from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
+
+from probatio._overlay import ContextOverlay
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-# Process-wide registrations (visible to every thread), keyed by exact type.
-_global: dict[type, Any] = {}
-
-# Scoped overlays, per context (thread or async task), pushed by type_registry.
-# The default is None (not a shared mutable ``{}``); readers treat it as empty.
-_scoped: ContextVar[dict[type, Any] | None] = ContextVar(
-    "probatio_type_registry",
-    default=None,
-)
+# Two layers keyed by exact type: a process-wide ``register_type`` map and a
+# ``type_registry`` overlay scoped to the current thread or async task.
+_registry: ContextOverlay[type, Any] = ContextOverlay("probatio_type_registry")
 
 
 def register_type(cls: type, validator: Any) -> None:
@@ -52,12 +47,12 @@ def register_type(cls: type, validator: Any) -> None:
     if not isinstance(cls, type):
         message = f"register_type expects a type, got {cls!r}"
         raise TypeError(message)
-    _global[cls] = validator
+    _registry.glob[cls] = validator
 
 
 def clear_type_registry() -> None:
     """Drop every process-wide registration made with ``register_type``."""
-    _global.clear()
+    _registry.glob.clear()
 
 
 @contextlib.contextmanager
@@ -74,14 +69,10 @@ def type_registry(registrations: Mapping[type, Any]) -> Iterator[None]:
             message = f"type_registry keys must be types, got {cls!r}"
             raise TypeError(message)
 
-    current = _scoped.get() or {}
-    updated = {**current, **registrations}
-    token = _scoped.set(updated)
-
-    try:
+    # A scoped registration wins over a process-wide one, so the overlay carries the
+    # outer scope plus these registrations (later keys overriding).
+    with _registry.pushed({**_registry.current(), **registrations}):
         yield
-    finally:
-        _scoped.reset(token)
 
 
 def resolve_type_validator(cls: type) -> Any | None:
@@ -90,7 +81,7 @@ def resolve_type_validator(cls: type) -> Any | None:
     Consulted by the annotation-driven builders for an exact-type match. Returns
     ``None`` when nothing is registered, so the caller keeps its default handling.
     """
-    scoped = _scoped.get()
+    scoped = _registry.scoped.get()
     if scoped is not None and cls in scoped:
         return scoped[cls]
-    return _global.get(cls)
+    return _registry.glob.get(cls)

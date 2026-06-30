@@ -11,22 +11,19 @@ which wins over the process-wide default.
 from __future__ import annotations
 
 import contextlib
-from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
+
+from probatio._overlay import ContextOverlay
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _FORMATS = frozenset({"json", "yaml", "toml"})
 
-# Process-wide defaults (visible to every thread), keyed by (format, direction).
-_global: dict[tuple[str, str], dict[str, Any]] = {}
-
-# Scoped overrides, per context (thread or async task), pushed by default_options.
-# The default is None (not a shared mutable ``{}``); readers treat it as empty.
-_scoped: ContextVar[dict[tuple[str, str], dict[str, Any]] | None] = ContextVar(
+# Two layers keyed by (format, direction): the process-wide ``set_default_options``
+# map and a ``default_options`` overlay scoped to the current thread or async task.
+_options: ContextOverlay[tuple[str, str], dict[str, Any]] = ContextOverlay(
     "probatio_serde_options",
-    default=None,
 )
 
 
@@ -54,14 +51,14 @@ def set_default_options(
     _check_format(format)
 
     if load is not None:
-        _global[format, "load"] = dict(load)
+        _options.glob[format, "load"] = dict(load)
     if dump is not None:
-        _global[format, "dump"] = dict(dump)
+        _options.glob[format, "dump"] = dict(dump)
 
 
 def clear_default_options() -> None:
     """Drop every process-wide default set by ``set_default_options``."""
-    _global.clear()
+    _options.glob.clear()
 
 
 @contextlib.contextmanager
@@ -79,18 +76,15 @@ def default_options(
     """
     _check_format(format)
 
-    current = _scoped.get() or {}
+    current = _options.current()
     updated = dict(current)
     if load is not None:
         updated[format, "load"] = {**current.get((format, "load"), {}), **load}
     if dump is not None:
         updated[format, "dump"] = {**current.get((format, "dump"), {}), **dump}
 
-    token = _scoped.set(updated)
-    try:
+    with _options.pushed(updated):
         yield
-    finally:
-        _scoped.reset(token)
 
 
 def effective_options(
@@ -105,8 +99,8 @@ def effective_options(
     """
     key = (format, direction)
     merged: dict[str, Any] = {}
-    merged.update(_global.get(key, {}))
-    merged.update((_scoped.get() or {}).get(key, {}))
+    merged.update(_options.glob.get(key, {}))
+    merged.update(_options.current().get(key, {}))
     if per_call:
         merged.update(per_call)
 
