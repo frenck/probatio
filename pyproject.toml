@@ -131,7 +131,7 @@ codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
 # from one install.
 bench-world = [
   { include-group = "test" },
-  "cattrs==25.3.0",
+  "cattrs==26.1.0",
   "dacite==1.9.2",
   "dataclasses-json==0.6.7",
   "marshmallow==3.26.2",
