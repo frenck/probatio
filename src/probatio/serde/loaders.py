@@ -75,6 +75,12 @@ def _forward_options(
         raise
 
 
+def _reject_json_constant(token: str) -> Any:
+    """Refuse the non-standard JSON constants NaN/Infinity/-Infinity."""
+    message = f"{token} is not valid JSON"
+    raise ValueError(message)
+
+
 def load_json(source: Any, *, options: dict[str, Any] | None = None) -> Any:
     """Parse JSON from a string, bytes, path, or file-like object.
 
@@ -86,11 +92,17 @@ def load_json(source: Any, *, options: dict[str, Any] | None = None) -> Any:
     if opts:
         # orjson.loads accepts no options at all, so any load option (parse_float,
         # object_hook, and the like) is a standard-library one; honor it there,
-        # whether or not orjson is installed, instead of leaking a TypeError.
-        return json.loads(data, **opts)
+        # whether or not orjson is installed, instead of leaking a TypeError. Default
+        # to rejecting NaN/Infinity (the caller can override parse_constant) so the
+        # result does not depend on which backend is installed.
+        merged: dict[str, Any] = {"parse_constant": _reject_json_constant, **opts}
+        return json.loads(data, **merged)
     if _optional.orjson is not None:
         return _optional.orjson.loads(data)
-    return json.loads(data)
+    # The standard library accepts the JavaScript constants NaN/Infinity/-Infinity by
+    # default, where orjson (strict RFC 8259) rejects them. Reject them here too so
+    # hostile non-standard JSON behaves the same with or without orjson installed.
+    return json.loads(data, parse_constant=_reject_json_constant)
 
 
 def load_yaml(source: Any, *, options: dict[str, Any] | None = None) -> Any:
