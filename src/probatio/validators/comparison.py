@@ -277,8 +277,8 @@ class MultipleOf(_SafeValidator):
 class Percentage(_SafeValidator):
     """Require a percentage in 0 to 100, returning it as a ``float``.
 
-    Accepts a number or a string ending in ``%`` (the sign is stripped before
-    parsing). A bare numeric string works too.
+    Accepts a number or a string ending in ``%`` (the percent sign is stripped
+    before parsing). A bare numeric string works too.
     """
 
     def __init__(self, msg: str | None = None) -> None:

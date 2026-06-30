@@ -436,7 +436,7 @@ class Replace(_SafeValidator):
         return f"Replace({self.pattern.pattern!r}, {self.substitution!r}, msg={self.msg!r})"
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the string with the pattern replaced, else raise Invalid."""
+        """Return the string with the pattern replaced, else raise MatchInvalid."""
         try:
             return self.pattern.sub(self.substitution, value)
         except TypeError as exc:

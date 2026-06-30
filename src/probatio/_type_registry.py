@@ -1,7 +1,7 @@
 """A registry mapping a type to a validator, for the annotation-driven builders.
 
-The structural builders (``create_dataclass_schema`` today, the ``Annotated`` and
-``TypedDict`` paths as they land) turn a field's type into a validator. For a
+The structural builders (``create_dataclass_schema`` and ``create_typeddict_schema``,
+including their ``Annotated`` field paths) turn a field's type into a validator. For a
 scalar type that arrives as a string (a ``datetime``, a ``UUID``, a ``Path``),
 the default is a strict ``isinstance`` check, which rejects the string a loader
 produced. Registering a validator for that type tells the builders to use it
