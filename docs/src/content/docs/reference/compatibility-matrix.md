@@ -187,8 +187,9 @@ carries forward an upstream request.
   `Hostname`, `Fqdn`, `Port`: network and identifier validators; the typed ones
   coerce to their Python object. Common across ecosystems, reinvented across Home
   Assistant and ESPHome.
-- `Time`, `Duration`, `TimeZone`: time-of-day (the sibling of `Date`/`Datetime`),
-  duration parsing to `timedelta`, and an IANA zone to `zoneinfo.ZoneInfo`. `Time`
+- `Time`, `Duration`, `TimeZoneInfo`, `TimeZone`: time-of-day (the sibling of
+  `Date`/`Datetime`), duration parsing to `timedelta`, an IANA zone to
+  `zoneinfo.ZoneInfo`, and a fixed UTC offset to `datetime.timezone`. `Time`
   is voluptuous [issue #335](https://github.com/alecthomas/voluptuous/issues/335); the others recur across ecosystems.
 - `AsDatetime`, `AsDate`, `AsTime`: the object-returning siblings of
   `Datetime`/`Date`/`Time`, parsing the string to a `datetime`/`date`/`time`

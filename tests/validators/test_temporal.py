@@ -19,6 +19,7 @@ from probatio import (
     Schema,
     Time,
     TimeZone,
+    TimeZoneInfo,
 )
 from probatio.error import (
     DateInvalid,
@@ -235,22 +236,47 @@ def test_duration_rejects_overflow(value: object) -> None:
     assert isinstance(caught.value.errors[0], DurationInvalid)
 
 
-def test_timezone_resolves_an_iana_name() -> None:
-    """TimeZone returns a zoneinfo.ZoneInfo for a valid name."""
-    assert Schema(TimeZone())("Europe/Amsterdam") == zoneinfo.ZoneInfo(
+def test_timezoneinfo_resolves_an_iana_name() -> None:
+    """TimeZoneInfo returns a zoneinfo.ZoneInfo for a valid name."""
+    assert Schema(TimeZoneInfo())("Europe/Amsterdam") == zoneinfo.ZoneInfo(
         "Europe/Amsterdam",
     )
 
 
-def test_timezone_passes_through_a_zoneinfo() -> None:
+def test_timezoneinfo_passes_through_a_zoneinfo() -> None:
     """An already-resolved ZoneInfo passes through, so validation is idempotent."""
     zone = zoneinfo.ZoneInfo("Europe/Amsterdam")
-    assert Schema(TimeZone())(zone) is zone
+    assert Schema(TimeZoneInfo())(zone) is zone
 
 
 @pytest.mark.parametrize("value", ["Mars/Phobos", 5])
-def test_timezone_rejects_invalid(value: object) -> None:
+def test_timezoneinfo_rejects_invalid(value: object) -> None:
     """An unknown zone or a non-string raises TimeZoneInvalid."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(TimeZoneInfo())(value)
+    assert isinstance(caught.value.errors[0], TimeZoneInvalid)
+
+
+@pytest.mark.parametrize(
+    ("value", "offset_hours"),
+    [("+01:00", 1), ("-0530", -5.5), ("Z", 0), ("UTC", 0), ("+00:00", 0)],
+)
+def test_timezone_parses_a_fixed_offset(value: str, offset_hours: float) -> None:
+    """TimeZone returns a datetime.timezone for a fixed UTC offset, Z, or UTC."""
+    result = Schema(TimeZone())(value)
+    assert isinstance(result, datetime.timezone)
+    assert result.utcoffset(None) == datetime.timedelta(hours=offset_hours)
+
+
+def test_timezone_passes_through_a_native_timezone() -> None:
+    """An existing datetime.timezone passes through unchanged."""
+    tz = datetime.timezone(datetime.timedelta(hours=2))
+    assert Schema(TimeZone())(tz) is tz
+
+
+@pytest.mark.parametrize("value", ["Europe/Amsterdam", "noon", "", "+25:00", 5])
+def test_timezone_rejects_a_non_offset(value: object) -> None:
+    """A named zone, junk, an empty string, or an out-of-range offset is rejected."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(TimeZone())(value)
     assert isinstance(caught.value.errors[0], TimeZoneInvalid)

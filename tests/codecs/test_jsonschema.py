@@ -53,6 +53,7 @@ from probatio import (
     Slug,
     Time,
     TimeZone,
+    TimeZoneInfo,
     Unique,
     Url,
 )
@@ -411,6 +412,7 @@ def test_as_datetime_round_trips_to_the_string_datetime() -> None:
         (IPNetwork(), {"type": "string"}),
         (MacAddress(), {"type": "string"}),
         (TimeZone(), {"type": "string"}),
+        (TimeZoneInfo(), {"type": "string"}),
         (Slug(), {"type": "string"}),
         (Time(), {"type": "string", "format": "time"}),
         (Port(), {"type": "integer", "minimum": 1, "maximum": 65535}),

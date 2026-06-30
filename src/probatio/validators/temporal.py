@@ -5,14 +5,16 @@ return it unchanged, matching voluptuous's string-in, string-out behavior.
 ``AsDatetime``/``AsDate``/``AsTime`` are the object-returning siblings: they parse
 ISO 8601 out of the box (or a ``format=`` you pass) and hand back the parsed
 ``datetime``/``date``/``time`` instead of the original string. ``Duration``,
-``TimeZone``, and ``Epoch`` are probatio additions that coerce to a Python object
-(``datetime.timedelta``, ``zoneinfo.ZoneInfo``, and a UTC ``datetime`` from a Unix
-timestamp), since that typed value is the point.
+``TimeZoneInfo``, ``TimeZone``, and ``Epoch`` are probatio additions that coerce to
+a Python object (``datetime.timedelta``, a named-zone ``zoneinfo.ZoneInfo``, a
+fixed-offset ``datetime.timezone``, and a UTC ``datetime`` from a Unix timestamp),
+since that typed value is the point.
 """
 
 from __future__ import annotations
 
 import datetime
+import re
 import typing
 import zoneinfo
 
@@ -31,6 +33,11 @@ from probatio.validators._base import _SafeValidator
 _DURATION_PARTS = (2, 3)
 _MAX_CLOCK_FIELD = 59  # the minute and second fields of an H:MM:SS duration
 _DURATION_MSG = "expected a duration like H:MM, H:MM:SS, or a number of seconds"
+
+# A fixed UTC offset: a sign, two-digit hours, optional colon, two-digit minutes.
+# Matched in full, no backtracking, so a crafted string cannot make it hang.
+_UTC_OFFSET = re.compile(r"[+-]\d{2}:?\d{2}")
+_TZ_OFFSET_MSG = "expected a UTC offset like +01:00, Z, or UTC"
 
 # How many epoch sub-units make one second, per accepted ``Epoch`` unit.
 _EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}
@@ -295,8 +302,12 @@ class Duration(_SafeValidator):
             raise DurationInvalid(self.msg or _DURATION_MSG) from exc
 
 
-class TimeZone(_SafeValidator):
-    """Validate an IANA time zone name, returning a ``zoneinfo.ZoneInfo``."""
+class TimeZoneInfo(_SafeValidator):
+    """Validate an IANA time zone name, returning a ``zoneinfo.ZoneInfo``.
+
+    For a fixed UTC offset (``+01:00``) rather than a named zone, use ``TimeZone``,
+    which returns a ``datetime.timezone``.
+    """
 
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
@@ -313,6 +324,46 @@ class TimeZone(_SafeValidator):
             # ZoneInfoNotFoundError is a KeyError; a bad path is a ValueError; a
             # non-string is a TypeError; a tuple trips the weak-cache RuntimeError.
             raise TimeZoneInvalid(self.msg or "expected an IANA time zone") from exc
+
+
+class TimeZone(_SafeValidator):
+    """Coerce a fixed UTC offset into a ``datetime.timezone``.
+
+    Accepts an offset string (``+01:00``, ``-0530``, ``Z``), the literal ``UTC``, or
+    a native ``datetime.timezone`` (passed through). For a named IANA zone
+    (``Europe/Amsterdam``), use ``TimeZoneInfo``, which returns a ``ZoneInfo``.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> datetime.timezone:
+        """Return the parsed fixed-offset timezone, else raise TimeZoneInvalid."""
+        if isinstance(value, datetime.timezone):
+            return value
+        if not isinstance(value, str):
+            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG)
+
+        # ``Z`` and ``UTC`` name the zero offset; otherwise the value must be a signed
+        # ``HH:MM``/``HHMM`` offset. Parsed by hand, not ``strptime("%z")``, whose
+        # accepted set drifts between Python versions (3.15 accepts ``""``).
+        if value.upper() in ("Z", "UTC"):
+            return datetime.UTC
+        if not _UTC_OFFSET.fullmatch(value):
+            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG)
+
+        sign = -1 if value[0] == "-" else 1
+        digits = value[1:].replace(":", "")
+        offset = datetime.timedelta(
+            hours=sign * int(digits[:2]),
+            minutes=sign * int(digits[2:]),
+        )
+        try:
+            return datetime.timezone(offset)
+        except ValueError as exc:
+            # An offset of 24 hours or more is out of range for ``datetime.timezone``.
+            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG) from exc
 
 
 class Epoch(_SafeValidator):

@@ -247,20 +247,22 @@ Schema(Date())("2026-06-25")                        # '2026-06-25'
 Schema(Date(format="%d/%m/%Y"))("25/06/2026")       # '25/06/2026'
 ```
 
-`Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration` and
-`TimeZone` are Probatio additions that coerce to a Python object: `Duration`
-parses a `timedelta`, a number of seconds (an `int`, `float`, or numeric string),
-a `H:MM[:SS]` string, or a mapping into a `datetime.timedelta`; `TimeZone`
-resolves an IANA name to a `zoneinfo.ZoneInfo`.
+`Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration`,
+`TimeZoneInfo`, and `TimeZone` are Probatio additions that coerce to a Python
+object: `Duration` parses a `timedelta`, a number of seconds (an `int`, `float`, or
+numeric string), a `H:MM[:SS]` string, or a mapping into a `datetime.timedelta`;
+`TimeZoneInfo` resolves an IANA name to a `zoneinfo.ZoneInfo`, while `TimeZone`
+parses a fixed UTC offset (`+01:00`, `Z`, `UTC`) into a `datetime.timezone`.
 
 ```python
-from probatio import Schema, Time, Duration, TimeZone
+from probatio import Schema, Time, Duration, TimeZone, TimeZoneInfo
 
-Schema(Time())("14:30:00")             # '14:30:00'
-Schema(Duration())("1:30:00")          # datetime.timedelta(seconds=5400)
-Schema(Duration())(90)                 # datetime.timedelta(seconds=90)
-Schema(Duration())("90")               # datetime.timedelta(seconds=90)
-Schema(TimeZone())("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
+Schema(Time())("14:30:00")                  # '14:30:00'
+Schema(Duration())("1:30:00")               # datetime.timedelta(seconds=5400)
+Schema(Duration())(90)                      # datetime.timedelta(seconds=90)
+Schema(Duration())("90")                    # datetime.timedelta(seconds=90)
+Schema(TimeZoneInfo())("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
+Schema(TimeZone())("+01:00")                # datetime.timezone(datetime.timedelta(seconds=3600))
 ```
 
 `AsDatetime`, `AsDate`, and `AsTime` are the object-returning siblings of
