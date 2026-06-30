@@ -14,12 +14,22 @@ _TRUE_STRINGS = frozenset({"1", "true", "yes", "on", "enable"})
 _FALSE_STRINGS = frozenset({"0", "false", "no", "off", "disable"})
 
 
-class Coerce(_SafeValidator):
-    """Coerce a value to a type, failing cleanly when the conversion does not."""
+class Coerce[T](_SafeValidator):
+    """Coerce a value to a type, failing cleanly when the conversion does not.
 
-    def __init__(self, type: typing.Any, msg: str | None = None) -> None:
+    Generic in the target type, so ``Coerce(int)`` is a ``Coerce[int]`` whose call
+    is typed as returning an ``int`` rather than ``Any``.
+    """
+
+    def __init__(
+        self,
+        type: type[T] | typing.Callable[[typing.Any], T],
+        msg: str | None = None,
+    ) -> None:
         """Store the target type (read as ``.type``) and an optional message."""
-        self.type = type
+        # Kept ``Any`` (not the generic union) so readers of ``.type`` elsewhere (the
+        # codecs) are unaffected; ``T`` is bound from the parameter for the call return.
+        self.type: typing.Any = type
         self.type_name: str = getattr(type, "__name__", str(type))
         self.msg = msg
 
@@ -27,7 +37,7 @@ class Coerce(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"Coerce({self.type_name}, msg={self.msg!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> T:
         """Return ``type(value)``, or raise CoerceInvalid if it cannot.
 
         ArithmeticError joins ValueError/TypeError so numeric conversions fail
@@ -36,7 +46,7 @@ class Coerce(_SafeValidator):
         keeping the safe-validator contract.
         """
         try:
-            return self.type(value)
+            return typing.cast("T", self.type(value))
         except (ValueError, TypeError, ArithmeticError) as exc:
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib.
