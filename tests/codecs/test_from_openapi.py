@@ -48,6 +48,7 @@ def test_nullable_object() -> None:
             "nullable": True,
         },
     )
+
     assert schema({"a": 1}) == {"a": 1}
     assert schema(None) is None
 
@@ -80,6 +81,7 @@ def test_array_item_count_bounds() -> None:
     schema = from_json_schema(
         {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": 2},
     )
+
     assert schema([1, 2]) == [1, 2]
     with pytest.raises(Invalid):
         schema([])
@@ -108,6 +110,7 @@ def test_ref_into_array_index() -> None:
     schema = from_json_schema(
         {"$ref": "#/$defs/choices/0", "$defs": {"choices": [{"type": "integer"}]}},
     )
+
     assert schema(5) == 5
     with pytest.raises(Invalid):
         schema("x")
@@ -123,6 +126,7 @@ def test_ref_into_defs() -> None:
             "$defs": {"port": {"type": "integer", "minimum": 1, "maximum": 65535}},
         },
     )
+
     assert schema({"port": 80}) == {"port": 80}
     with pytest.raises(MultipleInvalid):
         schema({"port": 0})
@@ -136,6 +140,7 @@ def test_ref_into_legacy_definitions() -> None:
             "definitions": {"name": {"type": "string"}},
         },
     )
+
     assert schema("ada") == "ada"
 
 
@@ -159,6 +164,7 @@ def test_recursive_ref_becomes_recursive_validator() -> None:
             },
         },
     )
+
     tree = {"value": 1, "children": [{"value": 2}, {"value": 3, "children": []}]}
     assert schema(tree) == tree
     with pytest.raises(MultipleInvalid):
@@ -188,6 +194,7 @@ def test_recursive_ref_binds_to_the_node_not_the_root() -> None:
             },
         },
     )
+
     data = {"tree": {"tag": "a", "kids": [{"tag": "b"}, {"tag": "c", "kids": []}]}}
     assert schema(data) == data
     with pytest.raises(MultipleInvalid):
@@ -218,7 +225,9 @@ def test_round_trip_through_to_openapi() -> None:
             "required": ["name"],
         },
     )
+
     rebuilt = from_openapi(to_openapi(source, openapi_version="3.1.0"))
+
     assert rebuilt({"name": "ada", "tags": ["x"]}) == {"name": "ada", "tags": ["x"]}
     with pytest.raises(MultipleInvalid):
         rebuilt({"tags": ["x"]})

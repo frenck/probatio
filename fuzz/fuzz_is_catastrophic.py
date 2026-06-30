@@ -23,7 +23,9 @@ def TestOneInput(data: bytes) -> None:  # noqa: N802 (atheris entry point)
     """Run the guard over a fuzzed pattern; it must return a bool, fast, no raise."""
     fdp = atheris.FuzzedDataProvider(data)
     pattern = fdp.ConsumeUnicodeNoSurrogates(256)
+
     result = is_catastrophic(pattern)
+
     if not isinstance(result, bool):  # pragma: no cover - a contract violation
         msg = f"is_catastrophic returned {type(result).__name__}, not bool"
         raise TypeError(msg)

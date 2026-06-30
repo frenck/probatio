@@ -95,6 +95,7 @@ class Invalid(Error):
     ) -> None:
         """Create an error for ``message`` at the given ``path``."""
         super().__init__(message)
+
         self._path = list(path) if path else []
         self._error_message = error_message or message
         self._error_type = error_type
@@ -151,11 +152,13 @@ class Invalid(Error):
     def __str__(self) -> str:
         """Render the message with the error type and data path appended."""
         output = Exception.__str__(self)
+
         if self._error_type:
             output += " for " + self._error_type
         if self._path:
             path = "][".join(_render_segment(segment) for segment in self._path)
             output += f" @ data[{path}]"
+
         return output
 
     def prepend(self, path: list[Any]) -> None:
@@ -209,6 +212,7 @@ class _SuggestionInvalid(Invalid):
         self._with_suffix = suffix
         self._candidates: list[str] | None = None
         self._suffix_cache: str | None = None
+
         super().__init__(
             message,
             path,
@@ -263,11 +267,13 @@ class _SuggestionInvalid(Invalid):
     def __str__(self) -> str:
         """Render the (suffixed) message with the error type and data path."""
         output = self.error_message
+
         if self._error_type:
             output += " for " + self._error_type
         if self._path:
             path = "][".join(_render_segment(segment) for segment in self._path)
             output += f" @ data[{path}]"
+
         return output
 
 

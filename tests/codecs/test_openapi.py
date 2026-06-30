@@ -146,6 +146,7 @@ def test_matches_voluptuous_openapi(case: str, version: str) -> None:
         openapi_version=_ORACLE_VERSION[version],
     )
     actual = to_openapi(build(probatio)[case], openapi_version=version)
+
     assert actual == expected
 
 
@@ -220,6 +221,7 @@ def test_custom_serializer_overrides_and_defers() -> None:
         ),
         custom_serializer=custom_voluptuous,
     )
+
     assert p == v
 
 

@@ -60,6 +60,7 @@ def test_matches_voluptuous(spec: Any, value: Any) -> None:
         # probatio in places); that is not a fair comparison point.
         assume(False)
         return
+
     actual = _result(spec, probatio, value)
     assert actual[0] == expected[0]
     if expected[0] == "ok":

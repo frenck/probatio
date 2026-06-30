@@ -84,21 +84,19 @@ def _reject_json_constant(token: str) -> Any:
 def load_json(source: Any, *, options: dict[str, Any] | None = None) -> Any:
     """Parse JSON from a string, bytes, path, or file-like object.
 
-    ``options`` are forwarded to the active backend's ``loads``. orjson's takes no
-    keyword arguments, so options apply only on the standard-library path.
+    ``options`` are forwarded to the active backend's ``loads``. orjson does not
+    accept keyword arguments, so options use the standard-library loader.
     """
     data = _read(source)
     opts = effective_options("json", "load", options)
+
     if opts:
-        # orjson.loads accepts no options at all, so any load option (parse_float,
-        # object_hook, and the like) is a standard-library one; honor it there,
-        # whether or not orjson is installed, instead of leaking a TypeError. Default
-        # to rejecting NaN/Infinity (the caller can override parse_constant) so the
-        # result does not depend on which backend is installed.
         merged: dict[str, Any] = {"parse_constant": _reject_json_constant, **opts}
         return json.loads(data, **merged)
+
     if _optional.orjson is not None:
         return _optional.orjson.loads(data)
+
     # The standard library accepts the JavaScript constants NaN/Infinity/-Infinity by
     # default, where orjson (strict RFC 8259) rejects them. Reject them here too so
     # hostile non-standard JSON behaves the same with or without orjson installed.
@@ -123,6 +121,7 @@ def load_yaml(source: Any, *, options: dict[str, Any] | None = None) -> Any:
     """
     data = _read(source)
     opts = effective_options("yaml", "load", options)
+
     if _optional.yamlrocks is not None:
         return _forward_options(
             _optional.yamlrocks.loads,
@@ -131,6 +130,7 @@ def load_yaml(source: Any, *, options: dict[str, Any] | None = None) -> Any:
             backend="YAMLRocks",
             what="YAML load",
         )
+
     if _optional.pyyaml is not None:
         return _forward_options(
             _optional.pyyaml.safe_load,
@@ -139,6 +139,7 @@ def load_yaml(source: Any, *, options: dict[str, Any] | None = None) -> Any:
             backend="PyYAML",
             what="YAML load",
         )
+
     message = "no YAML parser available; install probatio[yaml] or PyYAML"
     raise RuntimeError(message)
 
@@ -195,17 +196,20 @@ def load_yaml_with_locations(
             "install probatio[fast]"
         )
         raise RuntimeError(message)
+
     opts = effective_options("yaml", "load", options)
     opts["option"] = yamlrocks.OPT_ROUND_TRIP | opts.get("option", 0)
     document = yamlrocks.loads(_read(source), **opts)
     if isinstance(source, Path):
         document.set_origin(str(source))
+
     if not hasattr(document, "locate"):
         message = (
             "YAML source locations need YAMLRocks 0.5.0 or newer; "
             "upgrade the probatio[fast] backend"
         )
         raise RuntimeError(message)
+
     origin = document.origin
 
     def locator(path: Any) -> Location | None:
@@ -279,4 +283,5 @@ def load(
     except KeyError:
         message = f"unsupported format: {fmt!r}"
         raise ValueError(message) from None
+
     return loader(source, options=options)

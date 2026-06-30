@@ -47,7 +47,9 @@ def test_exact_sequence_rebuilds_a_namedtuple() -> None:
     fields spread positionally.
     """
     point = namedtuple("Point", "x y")  # noqa: PYI024 - a runtime namedtuple fixture
+
     result = Schema(ExactSequence([int, int]))(point(1, 2))
+
     assert result == point(1, 2)
     assert isinstance(result, point)
 
@@ -201,6 +203,7 @@ def test_ensure_list_turns_none_into_empty() -> None:
 def test_sorted_accepts_ordered_and_rejects_unordered() -> None:
     """Sorted accepts an ascending sequence and rejects an unordered one."""
     assert Schema(Sorted())([1, 2, 3]) == [1, 2, 3]
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Sorted())([3, 1, 2])
     assert isinstance(caught.value.errors[0], ValueInvalid)

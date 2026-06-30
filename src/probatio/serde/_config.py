@@ -52,6 +52,7 @@ def set_default_options(
     clear a previously set default.
     """
     _check_format(format)
+
     if load is not None:
         _global[format, "load"] = dict(load)
     if dump is not None:
@@ -77,12 +78,14 @@ def default_options(
     the scoped value.
     """
     _check_format(format)
+
     current = _scoped.get() or {}
     updated = dict(current)
     if load is not None:
         updated[format, "load"] = {**current.get((format, "load"), {}), **load}
     if dump is not None:
         updated[format, "dump"] = {**current.get((format, "dump"), {}), **dump}
+
     token = _scoped.set(updated)
     try:
         yield
@@ -106,4 +109,5 @@ def effective_options(
     merged.update((_scoped.get() or {}).get(key, {}))
     if per_call:
         merged.update(per_call)
+
     return merged

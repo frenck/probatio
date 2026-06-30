@@ -76,6 +76,7 @@ def test_total_false_and_required_are_honored() -> None:
     schema = TypedDictSchema(Partial)
     assert schema({"b": "x"}) == {"b": "x"}  # a is optional
     assert schema({"a": 1, "b": "x"}) == {"a": 1, "b": "x"}
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": 1})  # b is required
     assert caught.value.errors[0].path == ["b"]
@@ -113,6 +114,7 @@ def test_nested_typeddict_and_container_elements() -> None:
         "inner": {"n": 5},
         "tags": ["a", "b"],
     }
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"inner": {"n": "bad"}, "tags": []})
     assert caught.value.errors[0].path == ["inner", "n"]
@@ -190,5 +192,6 @@ def test_construct_returns_trusted_data_unchanged() -> None:
     schema = TypedDictSchema(Movie)
     data = {"title": "x", "year": "not-an-int"}  # wrong type, but trusted
     assert schema.construct(data) == {"title": "x", "year": "not-an-int"}
+
     with pytest.raises(MultipleInvalid):
         schema(data)  # validation would reject it

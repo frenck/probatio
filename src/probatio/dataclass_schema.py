@@ -141,38 +141,38 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         return object
     if annotation is None or annotation is type(None):
         return None
+
     if hasattr(annotation, "__supertype__"):
         # A ``NewType`` is a thin alias; validate against the type it wraps.
         return _annotation_to_schema(annotation.__supertype__, self_refs)
+
     if get_origin(annotation) is Annotated:
-        # ``Annotated[X, *meta]``: validate ``X``, then apply any callable items
-        # from the metadata as extra validators (in order, through ``All``).
-        # Non-callable metadata belongs to other tools, so it is ignored.
+        # Treat callable Annotated metadata as extra validators. Other metadata is
+        # for other tools and is ignored here.
         base, *meta = get_args(annotation)
         base_schema = _annotation_to_schema(base, self_refs)
         extras = [item for item in meta if callable(item)]
         return All(base_schema, *extras) if extras else base_schema
+
     if _is_dataclass_type(annotation):
         if annotation in self_refs:
-            # A back-reference to a type still being built: use its deferred
-            # reference, bound to the finished schema when that build returns.
             return self_refs[annotation]
         return create_dataclass_schema(annotation, _self_refs=self_refs)
+
     if is_typeddict(annotation):
         # A nested TypedDict validates as its own mapping schema (it cannot be an
         # ``isinstance`` check, since a TypedDict has no runtime type).
         if annotation in self_refs:
             return self_refs[annotation]
         return create_typeddict_schema(annotation, _self_refs=self_refs)
+
     origin = get_origin(annotation)
     if origin is None:
-        # A plain type validates by isinstance, unless a validator is registered
-        # for it (ADR-008), in which case that is used (read at build time and
-        # baked in). Anything that is not a type accepts any value.
         if isinstance(annotation, type):
             registered = resolve_type_validator(annotation)
             return registered if registered is not None else annotation
         return object
+
     args = get_args(annotation)
     if origin in (TypingUnion, types.UnionType):
         return _union_to_schema(args, self_refs)
@@ -209,9 +209,8 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
                 args[1], self_refs
             ),
         }
-    # Any other parameterized generic (``Iterable[int]``, a user generic): validate
-    # the container type itself rather than silently accept any value, the same as a
-    # bare generic alias. ``object`` only for the rare non-type origin.
+    # For other generics, validate the container type instead of accepting
+    # everything. Some origins are not runtime types, so those stay open.
     return origin if isinstance(origin, type) else object
 
 
@@ -228,6 +227,7 @@ def _union_to_schema(
     has_none = type(None) in args
     member_types = [a for a in args if a is not type(None)]
     members = [_annotation_to_schema(a, self_refs) for a in member_types]
+
     if len(members) == 1:
         inner: TypingAny = members[0]
     else:
@@ -237,6 +237,7 @@ def _union_to_schema(
             if discriminant is not None
             else Any(*members)
         )
+
     return Maybe(inner) if has_none else inner
 
 
@@ -254,6 +255,7 @@ def _literal_tags(dataclass_type: type) -> dict[str, TypingAny]:
             values = get_args(annotation)
             if len(values) == 1:
                 tags[name] = values[0]
+
     return tags
 
 
@@ -268,10 +270,12 @@ def _build_discriminant(
     """
     if not all(_is_dataclass_type(member_type) for member_type in member_types):
         return None
+
     tag_maps = [_literal_tags(member_type) for member_type in member_types]
     common = set(tag_maps[0])
     for tags in tag_maps[1:]:
         common &= set(tags)
+
     for field_name in sorted(common):
         values = [tags[field_name] for tags in tag_maps]
         if len(set(values)) == len(values):
@@ -339,6 +343,7 @@ def _iter_init_fields(dataclass_type: type) -> list[TypingAny]:
     fields_map = getattr(dataclass_type, "__dataclass_fields__", {})
     regular = getattr(dataclasses, "_FIELD", object())
     initvar = getattr(dataclasses, "_FIELD_INITVAR", object())
+
     return [
         field
         for field in fields_map.values()
@@ -364,12 +369,14 @@ def _field_mapping(
         # definition problem, reported as SchemaError rather than a leaked NameError.
         message = f"cannot resolve type hints for {dataclass_type.__name__!r}: {exc}"
         raise SchemaError(message) from exc
+
     mapping: dict[TypingAny, TypingAny] = {}
     for field in _iter_init_fields(dataclass_type):
         annotation = _field_annotation(hints.get(field.name, TypingAny))
         value_schema = _annotation_to_schema(annotation, self_refs)
         if field.name in constraints:
             value_schema = All(value_schema, constraints[field.name])
+
         if field.default is not dataclasses.MISSING:
             key: TypingAny = Optional(field.name, default=_constant(field.default))
         elif field.default_factory is not dataclasses.MISSING:
@@ -377,6 +384,7 @@ def _field_mapping(
         else:
             key = Required(field.name)
         mapping[key] = value_schema
+
     return mapping
 
 
@@ -431,19 +439,20 @@ def create_dataclass_schema(
             f"create_dataclass_schema expects a dataclass type, got {dataclass_type!r}"
         )
         raise SchemaError(message)
-    # Register this type's deferred reference before building its fields, so a
-    # field that refers back to it (directly or through another recursive type)
-    # resolves to the reference. It is bound to the finished schema below.
+
+    # Register the deferred reference before field schemas are built, so recursive
+    # fields can point at it.
     self_refs = dict(_self_refs or {})
     ref = _RecursiveSchemaRef()
     self_refs[dataclass_type] = ref
     mapping = _field_mapping(dataclass_type, additional_constraints or {}, self_refs)
-    # The inner mapping stays interpreted (compile=False); DataclassSchema compiles
-    # the whole thing (mapping plus construction) as one fused validator, and needs
-    # a plain _MappingValidator here to read.
+
+    # DataclassSchema compiles mapping validation and construction together, so it
+    # needs an interpreted inner mapping to read from.
     inner = Schema(mapping, required=required, extra=extra, compile=False)
     schema = Schema(All(inner, _Constructor(dataclass_type)))
     ref.bind(schema)
+
     return schema
 
 
@@ -494,6 +503,7 @@ def _union_expr(
     members = get_args(annotation)
     non_none = [member for member in members if member is not types.NoneType]
     has_none = len(non_none) != len(members)
+
     if len(non_none) == 1:
         inner = _value_expr(non_none[0], var, namespace, building, tag)
         if inner is None:
@@ -503,6 +513,7 @@ def _union_expr(
         if has_none and inner != var:
             return f"({inner} if {var} is not None else None)"
         return inner
+
     in_dataclasses = [member for member in non_none if _is_dataclass_type(member)]
     plain = [member for member in non_none if not _is_dataclass_type(member)]
     if len(in_dataclasses) == 1 and not any(
@@ -542,6 +553,7 @@ def _value_expr(  # noqa: PLR0911 - a dispatch with one return per value shape
         # guard the single-dataclass union uses, so a partially built input does not
         # crash on the constructor subscripting a non-dict.
         return f"({name}({var}) if isinstance({var}, dict) else {var})"
+
     origin = get_origin(annotation)
     if origin is list:
         args = get_args(annotation)
@@ -576,8 +588,8 @@ def _build_constructor(
     if dataclass_type in building:
         return None  # a recursive dataclass: leave it to the validating path
     building = building | {dataclass_type}
-    # The hints already resolved when the schema was built (create_dataclass_schema
-    # reads them, recursing into nested types), so this cannot raise here.
+
+    # Type hints were already resolved while building the schema.
     hints = get_type_hints(dataclass_type)
     namespace: dict[str, TypingAny] = {"_Type": dataclass_type}
     parts: list[str] = []
@@ -588,6 +600,7 @@ def _build_constructor(
         )
         if expr is None:
             return None
+
         if field.default is not dataclasses.MISSING:
             namespace[f"_d{index}"] = field.default
             expr = f"({expr} if {field.name!r} in data else _d{index})"
@@ -595,6 +608,7 @@ def _build_constructor(
             namespace[f"_f{index}"] = field.default_factory
             expr = f"({expr} if {field.name!r} in data else _f{index}())"
         parts.append(f"{field.name}={expr}")
+
     source = f"def _construct(data):\n    return _Type({', '.join(parts)})"
     exec(source, namespace)  # noqa: S102 - generated from the trusted dataclass shape
     return namespace["_construct"]
@@ -708,6 +722,7 @@ class DataclassSchema[DataclassT](Schema):
             mapping, _MappingValidator
         ):  # pragma: no cover - the inner schema is always a mapping
             return interpreted
+
         generated = compile_mapping(
             mapping, construct=self.dataclass_type, fallback=interpreted
         )
@@ -727,6 +742,7 @@ def _typeddict_mapping(
         # definition problem, reported as SchemaError rather than a leaked NameError.
         message = f"cannot resolve type hints for {typeddict_type.__name__!r}: {exc}"
         raise SchemaError(message) from exc
+
     # Required-ness is read from each resolved annotation, not from
     # ``__required_keys__``: under ``from __future__ import annotations`` the
     # annotations are strings at class-creation time, so ``__required_keys__``
@@ -746,8 +762,10 @@ def _typeddict_mapping(
         value_schema = _annotation_to_schema(field_type, self_refs)
         if name in constraints:
             value_schema = All(value_schema, constraints[name])
+
         key = Required(name) if required else Optional(name)
         mapping[key] = value_schema
+
     return mapping
 
 
@@ -775,16 +793,18 @@ def create_typeddict_schema(
             f"create_typeddict_schema expects a TypedDict type, got {typeddict_type!r}"
         )
         raise SchemaError(message)
-    # Register this type's deferred reference before building its fields, so a
-    # field that refers back to it resolves to the reference (bound below).
+
+    # Register the deferred reference before field schemas are built.
     self_refs = dict(_self_refs or {})
     ref = _RecursiveSchemaRef()
     self_refs[typeddict_type] = ref
     mapping = _typeddict_mapping(
         typeddict_type, additional_constraints or {}, self_refs
     )
+
     inner = Schema(mapping, extra=extra)
     ref.bind(inner)
+
     return inner
 
 

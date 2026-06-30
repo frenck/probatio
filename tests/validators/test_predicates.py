@@ -141,6 +141,7 @@ def test_is_symlink(tmp_path: Path) -> None:
     target.write_text("x")
     link = tmp_path / "link"
     link.symlink_to(target)
+
     assert Schema(IsSymlink())(str(link)) == str(link)
     with pytest.raises(MultipleInvalid) as caught:
         Schema(IsSymlink())(str(target))
@@ -152,6 +153,7 @@ def test_is_fifo(tmp_path: Path) -> None:
     fifo = tmp_path / "pipe"
     os.mkfifo(fifo)
     assert Schema(IsFifo())(str(fifo)) == str(fifo)
+
     regular = tmp_path / "file"
     regular.write_text("x")
     with pytest.raises(MultipleInvalid) as caught:
@@ -168,6 +170,7 @@ def test_is_socket(tmp_path: Path) -> None:
         assert Schema(IsSocket())(str(path)) == str(path)
     finally:
         server.close()
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(IsSocket())(str(tmp_path / "missing"))
     assert isinstance(caught.value.errors[0], SocketInvalid)

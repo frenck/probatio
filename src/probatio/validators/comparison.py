@@ -66,6 +66,7 @@ class Equal(_SafeValidator):
             unequal = value != self.target
         except (TypeError, ArithmeticError):
             unequal = True
+
         if unequal:
             message = self.msg or f"value is not equal to {self.target!r}"
             raise Invalid(message)
@@ -89,6 +90,7 @@ class Literal(_SafeValidator):
             unequal = self.lit != value
         except (TypeError, ArithmeticError):
             unequal = True
+
         if unequal:
             message = msg or f"{value} not match for {self.lit}"
             raise LiteralInvalid(message)
@@ -126,6 +128,7 @@ class Contains(_SafeValidator):
             # mismatch as "not a collection that contains the item".
             message = self.msg or "value is not a collection"
             raise ContainsInvalid(message) from exc
+
         if not present:
             message = self.msg or f"value must contain {self.item!r}"
             raise ContainsInvalid(message)
@@ -175,6 +178,7 @@ class Range(_SafeValidator):
                     bound = "at least" if self.min_included else "higher than"
                     message = self.msg or f"value must be {bound} {self.min}"
                     raise RangeInvalid(message)
+
             if self.max is not None:
                 in_bounds = value <= self.max if self.max_included else value < self.max
                 if not in_bounds:
@@ -184,6 +188,7 @@ class Range(_SafeValidator):
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "invalid value or type"
             raise RangeInvalid(message) from exc
+
         return value
 
 
@@ -215,6 +220,7 @@ class Clamp(_SafeValidator):
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "invalid value or type"
             raise RangeInvalid(message) from exc
+
         return value
 
 
@@ -263,12 +269,14 @@ class MultipleOf(_SafeValidator):
         message = self.msg or f"value must be a multiple of {self.factor}"
         if not isinstance(value, int | float) or isinstance(value, bool):
             raise MultipleOfInvalid(message)
+
         try:
             # ``%`` with a float factor promotes a huge int to float, which can
             # overflow (an ArithmeticError); report it cleanly, not as a leak.
             remainder = value % self.factor
         except ArithmeticError as exc:
             raise MultipleOfInvalid(message) from exc
+
         if remainder != 0:
             raise MultipleOfInvalid(message)
         return value
@@ -294,6 +302,7 @@ class Percentage(_SafeValidator):
         if isinstance(value, bool):
             message = self.msg or "expected a percentage between 0 and 100"
             raise RangeInvalid(message)
+
         raw = value[:-1] if isinstance(value, str) and value.endswith("%") else value
         try:
             # ``float`` on an int too large to represent raises OverflowError (an
@@ -302,6 +311,7 @@ class Percentage(_SafeValidator):
         except (TypeError, ValueError, ArithmeticError) as exc:
             message = self.msg or "expected a percentage between 0 and 100"
             raise RangeInvalid(message) from exc
+
         if not _MIN_PERCENT <= number <= _MAX_PERCENT:
             message = self.msg or "expected a percentage between 0 and 100"
             raise RangeInvalid(message)
@@ -357,6 +367,7 @@ class NonEmpty(_SafeValidator):
             empty = len(value) == 0
         except TypeError as exc:
             raise LengthInvalid(self.msg or "value must not be empty") from exc
+
         if empty:
             raise LengthInvalid(self.msg or "value must not be empty")
         return value
@@ -389,11 +400,13 @@ class Length(_SafeValidator):
         """
         if self.min is None and self.max is None:
             return value
+
         try:
             length = len(value)
         except TypeError as exc:
             message = self.msg or "value has no length"
             raise LengthInvalid(message) from exc
+
         if self.min is not None and length < self.min:
             message = self.msg or f"length of value must be at least {self.min}"
             raise LengthInvalid(message)
@@ -465,11 +478,13 @@ class In(_SafeValidator):
         # folding or space-normalizing ``In`` pays for them.
         fast = not self.fold_case and self.space is None
         candidate = value if fast else self._normalize(value)
+
         try:
             present = candidate in self.container if fast else self._contains(candidate)
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "value is not allowed"
             raise InInvalid(message) from exc
+
         if not present:
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib.
@@ -504,6 +519,7 @@ class NotIn(_SafeValidator):
         except (TypeError, ArithmeticError) as exc:
             message = self.msg or "value is not allowed"
             raise NotInInvalid(message) from exc
+
         if present:
             message = (
                 self.msg

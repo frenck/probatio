@@ -35,6 +35,7 @@ def test_datetime_default_format() -> None:
     """Datetime accepts the default ISO-style format and rejects others."""
     schema = Schema(Datetime())
     assert schema("2026-06-25T12:30:00.000000Z") == "2026-06-25T12:30:00.000000Z"
+
     with pytest.raises(MultipleInvalid) as caught:
         schema("not a datetime")
     assert isinstance(caught.value.errors[0], DatetimeInvalid)
@@ -51,6 +52,7 @@ def test_date_format() -> None:
     """Date accepts the default date format and rejects bad values."""
     schema = Schema(Date())
     assert schema("2026-06-25") == "2026-06-25"
+
     with pytest.raises(MultipleInvalid) as caught:
         schema("2026-13-99")
     assert isinstance(caught.value.errors[0], DateInvalid)
@@ -118,6 +120,7 @@ def test_asdate_returns_a_date_object() -> None:
 def test_asdate_honors_a_custom_format() -> None:
     """AsDate honors a strptime format and rejects a value that does not match it."""
     assert Schema(AsDate(format="%d/%m/%Y"))("28/06/2026") == datetime.date(2026, 6, 28)
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AsDate(format="%d/%m/%Y"))("2026-06-28")
     assert isinstance(caught.value.errors[0], DateInvalid)

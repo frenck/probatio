@@ -43,9 +43,11 @@ def test_self_in_a_list() -> None:
 def test_self_recursion_handles_deep_nesting() -> None:
     """A Self reference validates an arbitrarily deep nested structure."""
     schema = Schema({Required("value"): int, Optional("next"): Self})
+
     data: dict[str, object] = {"value": 0}
     for depth in range(1, 25):
         data = {"value": depth, "next": data}
+
     assert schema(data) == data
 
 
@@ -70,6 +72,7 @@ def test_bare_self_is_a_schema_error() -> None:
 def test_self_inside_any_validates_a_recursive_alternative() -> None:
     """Self works inside Any, so a key can recurse or take an alternative."""
     schema = Schema({"number": int, "follow": Any(Self, "stop")})
+
     assert schema({"follow": {"follow": {"number": 1, "follow": "stop"}}}) == {
         "follow": {"follow": {"number": 1, "follow": "stop"}}
     }
@@ -88,6 +91,7 @@ def test_self_inside_any_falls_through_to_a_sibling_branch() -> None:
     """
     schema = Schema(Any({Any(str, "_"): Self}, str))
     data = {"section": {"title": "a string", "sub": {"item": "x"}}}
+
     assert schema(data) == data
     assert schema("leaf") == "leaf"
     with pytest.raises(MultipleInvalid):
@@ -100,6 +104,7 @@ def test_self_inside_all_chains_recursion_with_another_schema() -> None:
         {"number": int, "follow": All(Self, Schema({"extra": int}, extra=ALLOW_EXTRA))},
         extra=ALLOW_EXTRA,
     )
+
     assert schema({"follow": {"number": 1, "extra": 2}}) == {
         "follow": {"number": 1, "extra": 2}
     }
@@ -114,6 +119,7 @@ def test_self_detection_short_circuits_for_a_trailing_callable() -> None:
     later callable value (``str.strip``) does not re-walk for Self.
     """
     schema = Schema({"next": Any(Self, None), "tag": str.strip})
+
     assert schema._uses_self is True
     assert schema({"next": {"next": None, "tag": " a "}, "tag": " b "}) == {
         "next": {"next": None, "tag": "a"},

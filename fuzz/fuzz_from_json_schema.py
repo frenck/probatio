@@ -83,6 +83,7 @@ def _build(fdp, depth):
     """Build a JSON-Schema-shaped value from the fuzzer's bytes."""
     if depth <= 0 or not fdp.remaining_bytes():
         return fdp.PickValueInList([None, True, 0, "x", []])
+
     choice = fdp.ConsumeIntInRange(0, 7)
     if choice == 0:
         node = {}
@@ -109,10 +110,12 @@ def TestOneInput(data: bytes) -> None:  # noqa: N802 (atheris entry point)
     fdp = atheris.FuzzedDataProvider(data)
     node = _build(fdp, 5)
     decoder = from_openapi if fdp.ConsumeBool() else from_json_schema
+
     try:
         schema = decoder(node)
     except SchemaError:
         return  # A refused schema is correct behavior, not a bug.
+
     # Any non-SchemaError from the decoder propagates here and is a real crash.
     try:
         schema(_build(fdp, 4))

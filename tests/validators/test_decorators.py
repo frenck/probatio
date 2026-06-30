@@ -50,6 +50,7 @@ def test_validate_preserves_positional_only_parameters() -> None:
 
     assert multiply(3, 4) == 12
     assert multiply(3, arg2=4) == 12
+
     with pytest.raises(MultipleInvalid):
         multiply("x", 4)
 
@@ -120,6 +121,7 @@ def test_message_builds_a_validator_with_a_default_message() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(isint())("nope")
+
     assert str(caught.value.errors[0]) == "not an integer"
 
 
@@ -135,6 +137,7 @@ def test_message_allows_per_use_overrides() -> None:
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(isint("bad value", IntegerInvalid))("nope")
+
     assert isinstance(caught.value.errors[0], IntegerInvalid)
     assert str(caught.value.errors[0]) == "bad value"
 

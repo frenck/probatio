@@ -152,6 +152,7 @@ def validate(
         output_schema: typing.Callable[[typing.Any], typing.Any] = (
             Schema(returns) if returns_defined else _identity
         )
+
         # A parameter declared before the ``/`` cannot be passed by keyword, so it
         # has to go back to ``func`` positionally; everything else goes as keywords.
         positional_only = [

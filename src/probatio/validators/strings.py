@@ -152,6 +152,7 @@ class ByteLength(_SafeValidator):
         """Return the value if its UTF-8 byte length is in bounds, else raise."""
         if not isinstance(value, str):
             raise LengthInvalid(self.msg or "expected a string")
+
         # ``surrogatepass`` so a lone surrogate (``'\ud800'``) is measured rather
         # than leaking a UnicodeEncodeError.
         size = len(value.encode("utf-8", "surrogatepass"))
@@ -159,6 +160,7 @@ class ByteLength(_SafeValidator):
             self.max is not None and size > self.max
         ):
             raise LengthInvalid(self.msg or "byte length out of bounds")
+
         return value
 
 
@@ -210,9 +212,11 @@ class Match(_SafeValidator):
         except TypeError as exc:
             message = self.msg or "expected a string"
             raise MatchInvalid(message) from exc
+
         if not matched:
             message = self.msg or "does not match the expected pattern"
             raise MatchInvalid(message)
+
         return value
 
 
@@ -310,6 +314,7 @@ def Email(msg: str | None = None) -> typing.Callable[[typing.Any], str]:
         """Validate a basic email address with simple string checks."""
         if not isinstance(value, str) or value.count("@") != 1:
             raise EmailInvalid(msg or "expected an email address")
+
         local, _, domain = value.partition("@")
         if (
             not local
@@ -317,6 +322,7 @@ def Email(msg: str | None = None) -> typing.Callable[[typing.Any], str]:
             or not _valid_email_domain(domain)
         ):
             raise EmailInvalid(msg or "expected an email address")
+
         return value
 
     # Tag the closure so to_json_schema can render the called form Email() as a
@@ -331,12 +337,15 @@ def _validate_url(value: typing.Any, msg: str | None) -> typing.Any:
     # an AttributeError (it reaches for ``.decode``), so reject it up front.
     if not isinstance(value, str | bytes):
         raise UrlInvalid(msg or "expected a URL")
+
     try:
         parsed = urlparse(value)
     except (ValueError, TypeError) as exc:
         raise UrlInvalid(msg or "expected a URL") from exc
+
     if not parsed.scheme or not parsed.netloc:
         raise UrlInvalid(msg or "expected a URL")
+
     return value
 
 
@@ -357,6 +366,7 @@ def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]
     def validate(value: typing.Any) -> typing.Any:
         """Validate a URL and require its host to contain a dot."""
         _validate_url(value, msg)
+
         # Check the dot in the host, not the whole netloc: the netloc also holds the
         # userinfo and port, so ``http://user.name@localhost`` would otherwise pass
         # on the dot in ``user.name`` even though the host ``localhost`` has none.
@@ -366,6 +376,7 @@ def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], typing.Any]
         dot = b"." if isinstance(value, bytes) else "."
         if host is None or dot not in host:
             raise UrlInvalid(msg or "expected a URL with a fully-qualified domain name")
+
         return value
 
     setattr(validate, "__probatio_json_format__", "uri")  # noqa: B010

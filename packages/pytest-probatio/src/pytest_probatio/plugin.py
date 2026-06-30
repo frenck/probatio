@@ -130,17 +130,20 @@ def pytest_assertrepr_compare(
     """Explain a failed schema comparison by listing each error with its path."""
     if op not in ("==", "!=", "<=", ">="):
         return None
+
     if isinstance(left, _Matcher):
         matcher: _Matcher = left
     elif isinstance(right, _Matcher):
         matcher = right
     else:
         return None
+
     if not matcher.errors:
         # A negated comparison (``!=``) that failed because the data *did* match.
         return [
             f"data matches the probatio schema, but the assertion ({op}) required it not to"
         ]
+
     lines = [f"data does not match the probatio schema ({op}):"]
     lines.extend(
         f"  {_format_path(error.path)}: {error.error_message or str(error)}"

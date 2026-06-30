@@ -142,9 +142,11 @@ class Hostname(_SafeValidator):
         """Return the value if it is a valid hostname, else raise HostnameInvalid."""
         if not isinstance(value, str):
             raise HostnameInvalid(self.msg or "expected a hostname")
+
         host = value.removesuffix(".")
         if not host or len(host) > _MAX_HOSTNAME_LENGTH or not _check_labels(host):
             raise HostnameInvalid(self.msg or "expected a hostname")
+
         return value
 
 
@@ -163,6 +165,7 @@ class Fqdn(_SafeValidator):
         """Return the value if it is a valid FQDN, else raise HostnameInvalid."""
         if not isinstance(value, str):
             raise HostnameInvalid(self.msg or "expected a fully-qualified domain name")
+
         host = value.removesuffix(".")
         if (
             not host
@@ -171,6 +174,7 @@ class Fqdn(_SafeValidator):
             or not _check_labels(host)
         ):
             raise HostnameInvalid(self.msg or "expected a fully-qualified domain name")
+
         return value
 
 
@@ -183,24 +187,22 @@ class Port(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> int:
         """Return the port as an int if in range, else raise RangeInvalid."""
+        message = self.msg or "expected a port number between 1 and 65535"
+
+        # ``bool`` is an ``int`` subclass, but true and false are not port numbers.
         if isinstance(value, bool):
-            # A bool is an int, so ``int(True)`` would otherwise pass as port 1; a
-            # boolean is never a port, so reject it the way the IP and duration
-            # validators reject a bool.
-            message = self.msg or "expected a port number between 1 and 65535"
             raise RangeInvalid(message)
+
+        # Do not quietly turn 8080.7 into 8080.
         if isinstance(value, float) and not value.is_integer():
-            # A fractional float is not a port; reject it rather than silently
-            # truncating ``8080.7`` to ``8080``.
-            message = self.msg or "expected a port number between 1 and 65535"
             raise RangeInvalid(message)
+
         try:
             port = int(value)
         except (TypeError, ValueError, OverflowError) as exc:
-            # ``int(float('inf'))`` raises OverflowError; reject it cleanly.
-            message = self.msg or "expected a port number between 1 and 65535"
             raise RangeInvalid(message) from exc
+
         if not _MIN_PORT <= port <= _MAX_PORT:
-            message = self.msg or "expected a port number between 1 and 65535"
             raise RangeInvalid(message)
+
         return port

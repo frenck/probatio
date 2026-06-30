@@ -115,17 +115,21 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         if node.extra == ALLOW_EXTRA:
             additional = True
         node = node.schema
+
     if custom is not None:
         result = custom(node)
         if result is not UNSUPPORTED:
             return cast("dict[str, Any]", result)
+
     if isinstance(node, dict):
         return _oa_mapping(node, custom, version, additional)
     if isinstance(node, list | tuple | set | frozenset):
         return _oa_sequence(node, custom, version)
+
     generic = _oa_generic(node, custom, version)
     if generic is not None:
         return generic
+
     return _oa_leaf(node, custom, version)
 
 
@@ -140,6 +144,7 @@ def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
     """
     origin = get_origin(node)
     args = get_args(node)
+
     if origin in (list, set, tuple) and args:
         return _oa_sequence([args[0]], custom, version)
     if origin is dict and len(args) == 2:
@@ -160,6 +165,7 @@ def _oa_mapping(
     properties: dict[str, Any] = {}
     required: list[str] = []
     constraint_groups: list[list[str]] = []
+
     for key, value in node.items():
         marker = key if isinstance(key, Marker) else None
         pkey = marker.schema if marker is not None else key
@@ -174,6 +180,7 @@ def _oa_mapping(
         if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
+
         if isinstance(pkey, AnyValidator):
             props, group = _expand_any_key(
                 pkey,
@@ -188,6 +195,7 @@ def _oa_mapping(
             properties[pkey] = pval
         else:
             additional = _absorb_extra(pval, additional)
+
     return _assemble_object(properties, required, additional, constraint_groups)
 
 
@@ -221,6 +229,7 @@ def _assemble_object(
 ) -> dict[str, Any]:
     """Build the final object dict from the collected pieces."""
     result: dict[str, Any] = {"type": "object"}
+
     if properties or not additional:
         result["properties"] = properties
         result["required"] = required
@@ -253,28 +262,27 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
     combinator = _oa_combinator(node, custom, version)
     if combinator is not None:
         return combinator
+
     if isinstance(node, Coerce):
         node = node.type
     if isinstance(node, str | int | float | bool):
         return {"type": _OPENAPI_TYPES[type(node)], "enum": [node]}
     if node is None:
         return _oa_null(version)
+
     typed = _oa_type(node, version)
     if typed or not callable(node):
         return typed
-    # A bare callable that is not a recognized type: read the type annotation of
-    # its first parameter, the way voluptuous-openapi's convert() does.
+
     return _oa_callable(node, custom, version)
 
 
 def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
     """Render a bare callable by the type hint of its first parameter.
 
-    Mirrors voluptuous-openapi: a function or method is inspected directly, a
-    callable instance through its ``__call__``. The first parameter's annotation
-    becomes the schema (a ``Union`` becomes an ``Any`` of its members); an
-    unannotated or ``Any``/``TypeVar`` parameter yields an open ``{}``. Annotations
-    that cannot be resolved fall back to ``{}`` rather than leaking.
+    Mirrors voluptuous-openapi: inspect a function or method directly, or a
+    callable instance through ``__call__``. The first parameter's annotation
+    becomes the schema; missing or unusable annotations become an open schema.
     """
     try:
         hints = get_type_hints(
@@ -282,13 +290,12 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
         )
         params = list(signature(node).parameters.keys())
     except (TypeError, NameError, ValueError):
-        # ValueError: a builtin type with no introspectable signature (``bytes``,
-        # ``object``, ...). voluptuous-openapi leaks this; probatio falls back to an
-        # open schema rather than crash, keeping the codec leak-free.
         return {}
+
     hint = hints.get(params[0], Any) if params else Any
     if hint is Any or isinstance(hint, TypeVar):
         return {}
+
     if isinstance(hint, UnionType) or get_origin(hint) is Union:
         members = [arg for arg in get_args(hint) if not isinstance(arg, TypeVar)]
         if len(members) > 1:
@@ -297,6 +304,7 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
             hint = members[0]
         else:
             return {}
+
     return _ensure_default(_oa(hint, custom, version))
 
 
@@ -308,6 +316,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return _oa_range(node)
     if isinstance(node, Length):
         return _oa_length(node)
+
     # Date and Time subclass Datetime, so they must be matched before it. The As*
     # parsers are not subclasses, but describe the same string on the wire.
     if isinstance(node, Time | AsTime):
@@ -316,6 +325,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return {"type": "string", "format": "date"}
     if isinstance(node, Datetime | AsDatetime):
         return {"type": "string", "format": "date-time"}
+
     if isinstance(node, Epoch):
         # A Unix timestamp is an integer on the wire; the datetime is internal.
         return {"type": "integer"}
@@ -325,10 +335,12 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return _oa_enum(list(node.container))
     if node in _OPENAPI_FORMATS:
         return {"format": _OPENAPI_FORMATS[node]}
+
     if isinstance(node, Maybe):
         return _oa_any([None, node.validator], custom, version)
     if isinstance(node, AnyValidator):
         return _oa_any(list(node.validators), custom, version)
+
     return _oa_typed(node, custom, version)
 
 
@@ -337,6 +349,7 @@ def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
     for validator_type, json_format in FORMAT_BY_TYPE.items():
         if isinstance(node, validator_type):
             return {"type": "string", "format": json_format}
+
     if isinstance(node, STRING_TYPES):
         return {"type": "string"}
     if isinstance(node, Port):
@@ -353,6 +366,7 @@ def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
         return {"type": "string", "contentEncoding": "base64"}
     if isinstance(node, Secret):
         return {**_oa(node.schema, custom, version), "writeOnly": True}
+
     return None
 
 
@@ -361,6 +375,7 @@ def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
     merged: dict[str, Any] = {}
     all_of: list[dict[str, Any]] = []
     fallback = False
+
     for validator in node.validators:
         part = _oa(validator, custom, version)
         if not part or part in all_of or part == _OPEN_OBJECT:
@@ -370,6 +385,7 @@ def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
         all_of.append(part)
         if not fallback:
             merged.update(part)
+
     if fallback:
         return {"allOf": all_of}
     return _ensure_default(merged)
@@ -410,6 +426,7 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
             nullable = True
         else:
             cleaned.append(value)
+
     enum_type = _OPENAPI_TYPES.get(type(cleaned[0]), "string") if cleaned else "string"
     result: dict[str, Any] = {"type": enum_type, "enum": cleaned}
     if nullable:
@@ -435,15 +452,18 @@ def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
     if version == _V3_0 and any(v is None or v is _NONE_TYPE for v in validators):
         validators = [v for v in validators if v is not None and v is not _NONE_TYPE]
         nullable = True
+
     if len(validators) == 1:
         result = _oa(validators[0], custom, version)
         if nullable:
             result["nullable"] = True
         return result
+
     any_of, nested_nullable = _flatten_any(
         [_oa(validator, custom, version) for validator in validators],
     )
     nullable = nullable or nested_nullable
+
     if _OPEN_OBJECT in any_of:
         result = dict(_OPEN_OBJECT)
         if nullable:
@@ -456,12 +476,14 @@ def _flatten_any(any_of: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bo
     """Inline nested anyOf entries, reporting whether any carried ``nullable``."""
     flattened: list[dict[str, Any]] = []
     nullable = False
+
     for item in any_of:
         if item.get("anyOf"):
             flattened.extend(item["anyOf"])
             nullable = nullable or bool(item.get("nullable"))
         else:
             flattened.append(item)
+
     return flattened, nullable
 
 
@@ -510,6 +532,7 @@ def _dedup_any(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 twin["enum"] = _dedup_preserving_order(combined)
             continue
         out.append(item)
+
     return out
 
 
@@ -522,6 +545,7 @@ def _collapse_any(any_of: list[dict[str, Any]], *, nullable: bool) -> dict[str, 
             {key: value for key, value in item.items() if key != "nullable"}
             for item in any_of
         ]
+
     result: dict[str, Any] = any_of[0] if len(any_of) == 1 else {"anyOf": any_of}
     if nullable:
         result["nullable"] = True
@@ -549,6 +573,7 @@ def _oa_type(node: Any, version: str) -> dict[str, Any]:
     """Render a Python type as an OpenAPI Schema object."""
     if node in _OPENAPI_TYPES:
         return {"type": _OPENAPI_TYPES[node]}
+
     if isinstance(node, type):
         if node is dict:
             return dict(_OPEN_OBJECT)
@@ -558,6 +583,7 @@ def _oa_type(node: Any, version: str) -> dict[str, Any]:
             return _oa_enum([item.value for item in node])
         if node is _NONE_TYPE:
             return _oa_null(version)
+
     if node is object:
         return dict(_OPEN_OBJECT)
     return {}

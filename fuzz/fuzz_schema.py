@@ -91,6 +91,7 @@ def _schema(fdp, depth):
     """Build a probatio schema fragment from the fuzzer's bytes."""
     if depth <= 0 or not fdp.remaining_bytes():
         return _leaf(fdp)
+
     choice = fdp.ConsumeIntInRange(0, 6)
     if choice == 0:
         out = {}
@@ -128,6 +129,7 @@ def _value(fdp, depth):
     """Build an arbitrary value to validate from the fuzzer's bytes."""
     if depth <= 0 or not fdp.remaining_bytes():
         return fdp.PickValueInList([None, 0, "", [], {}, True])
+
     choice = fdp.ConsumeIntInRange(0, 8)
     if choice == 0:
         return fdp.PickValueInList([None, True, False])
@@ -154,14 +156,17 @@ def _value(fdp, depth):
 def TestOneInput(data: bytes) -> None:  # noqa: N802 (atheris entry point)
     """Build a schema, validate a value through it, and encode it."""
     fdp = atheris.FuzzedDataProvider(data)
+
     try:
         schema = Schema(_schema(fdp, 3))
     except Invalid:
         return  # A schema that fails to build on bad marker args is not the target.
+
     try:
         schema(_value(fdp, 3))
     except (Invalid, MultipleInvalid, RecursionError):
         pass  # Rejection and depth-guarded recursion are correct.
+
     # The encoders must not crash; serialize may raise a documented ValueError.
     to_json_schema(schema)
     to_openapi(schema)

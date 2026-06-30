@@ -135,6 +135,7 @@ def test_virtual_path_component_renders_in_brackets() -> None:
     """A group path segment renders as ``<group>`` in the error string."""
     with pytest.raises(probatio.MultipleInvalid) as caught:
         exclusive_group(probatio)({"a": 1, "b": 2})
+
     error = caught.value.errors[0]
     assert str(error).endswith("@ data[<grp>]")
     assert error.path == ["grp"]

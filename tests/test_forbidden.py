@@ -32,6 +32,7 @@ def test_present_forbidden_key_fails() -> None:
     schema = Schema({Forbidden("password"): object})
     with pytest.raises(MultipleInvalid) as caught:
         schema({"password": "x"})
+
     error = caught.value.errors[0]
     assert error.path == ["password"]
     assert error.error_message == "key not allowed"
@@ -71,8 +72,10 @@ def test_forbidden_type_key_forbids_matching_keys() -> None:
     """A Forbidden type key rejects any key of that type, via the validator path."""
     schema = Schema({Forbidden(str): object, int: str})
     assert schema({5: "v"}) == {5: "v"}
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"nope": 1})
+
     assert caught.value.errors[0].path == ["nope"]
 
 
@@ -80,6 +83,7 @@ def test_forbidden_exports_a_false_json_schema_property() -> None:
     """to_json_schema renders a Forbidden key as a false property schema."""
     schema = Schema({Required("id"): int, Forbidden("password"): object})
     result = to_json_schema(schema)
+
     assert result["properties"]["password"] is False
     assert "password" not in result.get("required", [])
 
@@ -88,4 +92,5 @@ def test_forbidden_is_omitted_from_the_field_list() -> None:
     """serialize leaves a Forbidden key out of the rendered field list."""
     fields = serialize(Schema({Required("id"): int, Forbidden("password"): object}))
     names = {field["name"] for field in fields}
+
     assert names == {"id"}

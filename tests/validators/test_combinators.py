@@ -65,6 +65,7 @@ def test_any_of_types_lists_the_expected_types() -> None:
     """An all-type Any reports every expected type, not just the first (issue #412)."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Any(int, str))(1.5)
+
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "expected int or str"
@@ -81,8 +82,10 @@ def test_any_surfaces_a_validator_branch_error() -> None:
 def test_any_picks_the_deepest_path_error() -> None:
     """Any raises the error from the branch that reached the deepest path."""
     schema = Schema(Any({"a": int}, int))
+
     with pytest.raises(MultipleInvalid) as caught:
         schema({"a": "x"})
+
     error = caught.value.errors[0]
     assert error.path == ["a"]
     assert error.error_message == "expected int"
@@ -92,6 +95,7 @@ def test_any_with_no_validators_reports_no_valid_value() -> None:
     """An Any with no branches falls back to the generic AnyInvalid message."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Any())("x")
+
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "no valid value found"
@@ -101,6 +105,7 @@ def test_any_custom_message() -> None:
     """A msg on Any is used (as a bare AnyInvalid) when nothing matches."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Any(int, msg="not acceptable"))("x")
+
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "not acceptable"
@@ -135,6 +140,7 @@ def test_aliases() -> None:
 def test_union_without_discriminant_behaves_like_any() -> None:
     """Union with no discriminant tries every validator, like Any."""
     schema = Schema(Union(int, str))
+
     assert schema(5) == 5
     assert schema("a") == "a"
     with pytest.raises(MultipleInvalid):
@@ -150,6 +156,7 @@ def test_union_with_discriminant_narrows_candidates() -> None:
         return [alt for alt in alternatives if alt["kind"] == value.get("kind")]
 
     schema = Schema(Union(int_schema, str_schema, discriminant=by_kind))
+
     assert schema({"kind": "int", "value": 1}) == {"kind": "int", "value": 1}
     # The discriminant routes to the str branch, where value must be a str.
     with pytest.raises(MultipleInvalid):
@@ -195,6 +202,7 @@ def test_someof_passes_within_bounds() -> None:
 def test_someof_not_enough_valid() -> None:
     """Too few passing validators raises NotEnoughValid."""
     schema = Schema(SomeOf(min_valid=2, validators=[Range(1, 5), Any(float, int), 6.6]))
+
     with pytest.raises(MultipleInvalid) as caught:
         schema(6.2)
     assert isinstance(caught.value.errors[0], NotEnoughValid)
@@ -203,6 +211,7 @@ def test_someof_not_enough_valid() -> None:
 def test_someof_too_many_valid() -> None:
     """More passing validators than allowed raises TooManyValid."""
     schema = Schema(SomeOf(max_valid=1, validators=[int, Range(0, 10)]))
+
     with pytest.raises(MultipleInvalid) as caught:
         schema(5)
     assert isinstance(caught.value.errors[0], TooManyValid)
@@ -223,6 +232,7 @@ def test_any_custom_message_with_a_non_type_branch() -> None:
     """A non-type Any with msg surfaces AnyInvalid(msg) on a miss (general path)."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Any(Coerce(int), msg="not acceptable"))("x")
+
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "not acceptable"
@@ -239,6 +249,7 @@ def test_any_of_literals_lists_the_values() -> None:
     """An Any of scalar literals lists them, instead of 'not a valid value'."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Any("a", "b"))("c")
+
     error = caught.value.errors[0]
     assert isinstance(error, AnyInvalid)
     assert error.error_message == "expected 'a' or 'b'"
@@ -254,6 +265,7 @@ def test_allow_extra_propagates_into_any_branch_dicts() -> None:
         ),
         extra=ALLOW_EXTRA,
     )
+
     data = {"write": 1, "state": 2, "passive": []}
     assert schema(data) == data
 
@@ -268,6 +280,7 @@ def test_allow_extra_propagates_into_someof_and_union() -> None:
     """ALLOW_EXTRA reaches dict schemas nested in SomeOf and Union."""
     some = Schema(SomeOf([{Required("a"): int}], min_valid=1), extra=ALLOW_EXTRA)
     assert some({"a": 1, "x": 2}) == {"a": 1, "x": 2}
+
     union = Schema(Union({"kind": "a", "v": int}), extra=ALLOW_EXTRA)
     assert union({"kind": "a", "v": 1, "x": 2}) == {"kind": "a", "v": 1, "x": 2}
 
@@ -289,6 +302,7 @@ def test_extra_rebind_does_not_mutate_a_shared_combinator() -> None:
     """Wrapping a combinator with ALLOW_EXTRA must not change it for another schema."""
     shared = Any({Required("a"): int})
     assert Schema(shared, extra=ALLOW_EXTRA)({"a": 1, "x": 2}) == {"a": 1, "x": 2}
+
     # The same instance, used strictly elsewhere, still rejects the extra key.
     with pytest.raises(Invalid):
         Schema(shared, extra=PREVENT_EXTRA)({"a": 1, "x": 2})

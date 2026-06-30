@@ -36,6 +36,7 @@ def test_uuid_version_pin() -> None:
     """A version-pinned UUID accepts the right version and rejects others."""
     v4 = str(uuid_module.uuid4())
     assert Schema(UUID(version=4))(v4) == uuid_module.UUID(v4)
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(UUID(version=4))(_SAMPLE)  # this sample is version 1-shaped
     assert isinstance(caught.value.errors[0], UuidInvalid)

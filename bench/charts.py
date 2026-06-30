@@ -85,6 +85,7 @@ def _grouped(rows: list[dict[str, Any]], series: list[tuple[str, str, str]]) -> 
     count = len(series)
     height = 0.82 / count
     base = range(len(labels))
+
     for index, (key, label, color) in enumerate(series):
         offset = (index - (count - 1) / 2) * height
         positions = [y - offset for y in base]
@@ -92,6 +93,7 @@ def _grouped(rows: list[dict[str, Any]], series: list[tuple[str, str, str]]) -> 
         ax.barh(
             positions, values, height=height * 0.9, color=color, label=label, zorder=3
         )
+
     ax.set_yticks(list(base))
     ax.set_yticklabels(labels)
     return fig, ax, base, height
@@ -115,6 +117,7 @@ def chart_vs_voluptuous() -> None:
         ("compiled", "probatio (compiled)", CYAN),
     ]
     fig, ax, base, height = _grouped(rows, series)
+
     for index, (key, _, _) in enumerate(series):
         offset = (index - (len(series) - 1) / 2) * height
         for y, row in zip(base, rows, strict=True):
@@ -127,6 +130,7 @@ def chart_vs_voluptuous() -> None:
                 color=MUTED,
                 fontsize=7.5,
             )
+
     ax.set_xlim(right=max(row["compiled"] for row in rows) * 1.18)
     _style(
         ax,
@@ -147,6 +151,7 @@ def chart_vs_mashumaro() -> None:
         ("compiled", "probatio (compiled)", CYAN),
     ]
     fig, ax, base, height = _grouped(rows, series)
+
     for index, (key, _, _) in enumerate(series):
         offset = (index - (len(series) - 1) / 2) * height
         for y, row in zip(base, rows, strict=True):
@@ -159,6 +164,7 @@ def chart_vs_mashumaro() -> None:
                 color=MUTED,
                 fontsize=7.5,
             )
+
     ax.set_xlim(right=max(row["probatio"] for row in rows) * 1.15)
     _style(
         ax,
@@ -186,6 +192,7 @@ def chart_vs_world() -> None:
     fig, ax = plt.subplots(figsize=(8.2, 0.5 * len(rows) + 1.9))
     base = range(len(rows))
     bars = ax.barh(list(base), values, color=colors, height=0.72, zorder=3)
+
     # Deserializers (trust the declared types) are hatched; validators (check every
     # field) are solid. The hatch lines are the card colour, reading as grooves.
     for bar, row in zip(bars, rows, strict=True):
@@ -193,6 +200,7 @@ def chart_vs_world() -> None:
             bar.set_hatch("////")
             bar.set_edgecolor(BG)
             bar.set_linewidth(0)
+
     ax.set_xscale("log")
     for y, value in zip(base, values, strict=True):
         ax.text(
@@ -204,6 +212,7 @@ def chart_vs_world() -> None:
             color=MUTED,
             fontsize=7.5,
         )
+
     ax.set_yticks(list(base))
     ax.set_yticklabels(labels)
     ax.invert_yaxis()  # fastest at the top
@@ -213,6 +222,7 @@ def chart_vs_world() -> None:
         "dict to object, across libraries",
         "microseconds per load (log scale, lower is faster)",
     )
+
     key = [
         Patch(facecolor=GREY, label="validates (checks every field)"),
         Patch(
@@ -233,6 +243,7 @@ def chart_vs_world() -> None:
     )
     for text in legend.get_texts():
         text.set_color(TEXT)
+
     fig.savefig(OUT / "vs-world.svg", format="svg", bbox_inches="tight")
     plt.close(fig)
 
@@ -253,6 +264,7 @@ def chart_validators() -> None:
     fig, ax = plt.subplots(figsize=(8.2, 0.55 * len(rows) + 1.9))
     base = range(len(rows))
     bars = ax.barh(list(base), values, color=colors, height=0.66, zorder=3)
+
     # A native core (pydantic v2's Rust pydantic-core) is hatched; everything else,
     # probatio included, is pure Python and solid.
     for bar, row in zip(bars, rows, strict=True):
@@ -260,6 +272,7 @@ def chart_validators() -> None:
             bar.set_hatch("////")
             bar.set_edgecolor(BG)
             bar.set_linewidth(0)
+
     ax.set_xscale("log")
     for y, value in zip(base, values, strict=True):
         ax.text(
@@ -271,6 +284,7 @@ def chart_validators() -> None:
             color=MUTED,
             fontsize=7.5,
         )
+
     ax.set_yticks(list(base))
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
@@ -280,6 +294,7 @@ def chart_validators() -> None:
         "Validators only, like for like",
         "microseconds per load (log scale, lower is faster)",
     )
+
     key = [
         Patch(facecolor=GREY, label="pure Python"),
         Patch(
@@ -300,6 +315,7 @@ def chart_validators() -> None:
     )
     for text in legend.get_texts():
         text.set_color(TEXT)
+
     fig.savefig(OUT / "validators.svg", format="svg", bbox_inches="tight")
     plt.close(fig)
 

@@ -220,11 +220,13 @@ class Alias(Marker):
         if not aliases:
             message = "Alias needs at least one alias name besides the canonical key"
             raise SchemaError(message)
+
         super().__init__(schema, msg, description)
         self.aliases = tuple(aliases)
         self.accept_canonical = accept_canonical
         self.required = required
         self.default = default_factory(default)
+
         # The input names searched, in declaration order. The canonical name leads
         # when it is accepted, so the real name wins over an alias when both appear.
         self.input_names: tuple[Any, ...] = (

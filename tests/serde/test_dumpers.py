@@ -101,6 +101,7 @@ def test_dump_json_output_matches_across_backends(
     """The JSON text is the same whether orjson is present or not."""
     value = {"name": "app", "ports": [80, 443]}
     with_orjson = dump_json(value)
+
     monkeypatch.setattr(_optional, "orjson", None)
     assert dump_json(value) == with_orjson
 
@@ -244,6 +245,7 @@ def test_dump_refuses_a_circular_reference() -> None:
     """A self-referential structure fails cleanly, not with a RecursionError."""
     data: dict[str, Any] = {}
     data["self"] = data
+
     for fmt in ("json", "yaml", "toml"):
         with pytest.raises(ValueError, match="circular reference"):
             dump(data, fmt)
@@ -253,6 +255,7 @@ def test_dump_json_refuses_a_circular_list() -> None:
     """A list that contains itself is refused as a circular reference."""
     items: list[Any] = []
     items.append(items)
+
     with pytest.raises(ValueError, match="circular reference"):
         dump_json(items)
 

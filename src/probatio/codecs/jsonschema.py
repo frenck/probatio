@@ -106,14 +106,17 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
             required_default=node.required,
             allow_extra=node.extra == ALLOW_EXTRA,
         )
+
     if isinstance(node, dict):
         return _convert_mapping(
             node,
             required_default=required_default,
             allow_extra=allow_extra,
         )
+
     if isinstance(node, list | tuple | set | frozenset):
         return _convert_sequence(node)
+
     return _convert_leaf(node)
 
 
@@ -135,22 +138,23 @@ def _convert_mapping(
     for key, value in node.items():
         if isinstance(key, Remove):
             continue
+
         if isinstance(key, Forbidden):
-            # A forbidden key maps to a ``false`` property schema: if the key is
-            # present it must validate against ``false`` (nothing does), so it
-            # cannot appear, which is exactly what Forbidden enforces.
             properties[key.schema] = False
             continue
+
         marker = key if isinstance(key, Marker) else None
         name = marker.schema if marker is not None else key
         if isinstance(name, type) or callable(name):
             additional = _child(value)
             continue
+
         properties[name] = _property(marker, value)
         if isinstance(marker, Required) or (
             not isinstance(marker, Optional) and required_default
         ):
             required.append(name)
+
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
@@ -158,6 +162,7 @@ def _convert_mapping(
     }
     if required:
         result["required"] = required
+
     return result
 
 
@@ -171,32 +176,39 @@ def _property(marker: Marker | None, value: Any) -> dict[str, Any]:
         Undefined,
     ):
         prop = {**prop, "default": marker.default()}
+
     return prop
 
 
 def _convert_sequence(node: Any) -> dict[str, Any]:
     """Render a sequence/set schema as a JSON Schema array."""
     items = [_child(element) for element in node]
+
     result: dict[str, Any] = {"type": "array"}
     if len(items) == 1:
         result["items"] = items[0]
     elif items:
         result["items"] = {"anyOf": items}
+
     return result
 
 
 def _convert_leaf(node: Any) -> dict[str, Any]:
     """Render a leaf node: a type, a literal, or a validator."""
     json_format = getattr(node, "__probatio_json_format__", None)
+
     if json_format is not None:
-        # The called factory form (Email()/Url()/FqdnUrl()) carries its format tag.
         return {"type": "string", "format": json_format}
+
     if isinstance(node, type):
         return _convert_type(node)
+
     if node is None:
         return {"type": "null"}
+
     if isinstance(node, str | int | float | bool):
         return {"const": node}
+
     validator = _convert_validator(node)
     return validator if validator is not None else {}
 
@@ -206,10 +218,13 @@ def _convert_type(node: type) -> dict[str, Any]:
     name = _PRIMITIVE_TYPES.get(node)
     if name is not None:
         return {"type": name}
+
     if node is dict:
         return {"type": "object"}
+
     if node is list:
         return {"type": "array"}
+
     return {}
 
 
@@ -217,13 +232,16 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
     """Render a combinator, or delegate to the constraint validators."""
     if isinstance(node, Coerce):
         return _convert_type(node.type) if isinstance(node.type, type) else {}
+
     if isinstance(node, AnyValidator):
         return {"anyOf": [_child(validator) for validator in node.validators]}
+
     if isinstance(node, All):
         merged: dict[str, Any] = {}
         for validator in node.validators:
             merged.update(_child(validator))
         return _retarget_length(merged)
+
     return _convert_constraint(node)
 
 
@@ -242,11 +260,13 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
     keys = _LENGTH_KEYS_BY_TYPE.get(merged.get("type", ""))
     if keys is None:
         return merged
+
     min_key, max_key = keys
     if "minLength" in merged:
         merged[min_key] = merged.pop("minLength")
     if "maxLength" in merged:
         merged[max_key] = merged.pop("maxLength")
+
     return merged
 
 
@@ -254,12 +274,16 @@ def _convert_equality(node: Any) -> dict[str, Any] | None:
     """Render the equality/membership validators as enum/const/not, or None."""
     if isinstance(node, In):
         return {"enum": list(node.container)}
+
     if isinstance(node, NotIn):
         return {"not": {"enum": list(node.container)}}
+
     if isinstance(node, Equal):
         return {"const": node.target}
+
     if isinstance(node, Literal):
         return {"const": node.lit}
+
     return None
 
 
@@ -268,29 +292,40 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     equality = _convert_equality(node)
     if equality is not None:
         return equality
+
     if isinstance(node, Range):
         return _convert_range(node)
+
     if isinstance(node, Length):
         return _convert_length(node)
+
     if isinstance(node, Match):
         return {"type": "string", "pattern": node.pattern.pattern}
+
     if isinstance(node, Maybe):
         return {"anyOf": [{"type": "null"}, _child(node.validator)]}
+
     temporal = _convert_temporal_node(node)
     if temporal is not None:
         return temporal
+
+    # A Unix timestamp is an integer on the wire; the datetime is internal.
     if isinstance(node, Epoch):
-        # A Unix timestamp is an integer on the wire; the datetime is internal.
         return {"type": "integer"}
+
     if isinstance(node, Unique):
         return {"uniqueItems": True}
+
     if isinstance(node, Contains):
         return {"contains": _child(node.item)}
+
     if isinstance(node, ExactSequence):
         return _convert_exact_sequence(node)
+
     typed = _convert_typed(node)
     if typed is not None:
         return typed
+
     return _convert_named(node)
 
 
@@ -299,19 +334,26 @@ def _convert_typed(node: Any) -> dict[str, Any] | None:
     for validator_type, json_format in FORMAT_BY_TYPE.items():
         if isinstance(node, validator_type):
             return {"type": "string", "format": json_format}
+
     if isinstance(node, STRING_TYPES):
         return {"type": "string"}
+
     if isinstance(node, Port):
         return {"type": "integer", "minimum": _PORT_MIN, "maximum": _PORT_MAX}
+
     if isinstance(node, Percentage):
         return {"type": "number", "minimum": _PERCENT_MIN, "maximum": _PERCENT_MAX}
+
     if isinstance(node, MultipleOf):
         return {"multipleOf": node.factor}
+
     if isinstance(node, Base64):
         return {"type": "string", "contentEncoding": "base64"}
+
+    # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
     if isinstance(node, Secret):
-        # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
         return {**_child(node.schema), "writeOnly": True}
+
     return None
 
 
@@ -319,12 +361,16 @@ def _convert_named(node: Any) -> dict[str, Any] | None:
     """Render the identity-comparable string and boolean validators."""
     if getattr(node, "__wrapped__", None) is _BOOLEAN_FUNC:
         return {"type": "boolean"}
+
     if node is Email:
         return {"type": "string", "format": "email"}
+
     if node in (Url, FqdnUrl):
         return {"type": "string", "format": "uri"}
+
     if node in _STRING_FUNCS:
         return {"type": "string"}
+
     return None
 
 
@@ -335,6 +381,7 @@ def _convert_range(node: Range) -> dict[str, Any]:
         result["minimum" if node.min_included else "exclusiveMinimum"] = node.min
     if node.max is not None:
         result["maximum" if node.max_included else "exclusiveMaximum"] = node.max
+
     return result
 
 
@@ -345,6 +392,7 @@ def _convert_length(node: Length) -> dict[str, Any]:
         result["minLength"] = node.min
     if node.max is not None:
         result["maxLength"] = node.max
+
     return result
 
 
@@ -357,10 +405,13 @@ def _convert_temporal_node(node: Any) -> dict[str, Any] | None:
     """
     if isinstance(node, Date | AsDate):
         return _convert_temporal(node, "date")
+
     if isinstance(node, Time | AsTime):
         return _convert_temporal(node, "time")
+
     if isinstance(node, Datetime | AsDatetime):
         return _convert_temporal(node, "date-time")
+
     return None
 
 
@@ -445,6 +496,7 @@ class _DeferredRef:
         if self.schema is None:  # pragma: no cover - set before validation
             message = "unresolved schema reference"
             raise RuntimeError(message)
+
         with recursion_guard():
             return self.schema(data)
 
@@ -540,12 +592,15 @@ def _build_node(node: Any, ctx: _Decode) -> Any:
     """
     if isinstance(node, bool):
         return object if node else In([])
+
     if not isinstance(node, dict):
         message = (
             f"JSON Schema node must be an object or boolean, got {type(node).__name__}"
         )
         raise SchemaError(message)
+
     _reject_unsupported(node)
+
     facets = _collect_facets(node, ctx)
     if not facets:
         result: Any = object
@@ -553,21 +608,21 @@ def _build_node(node: Any, ctx: _Decode) -> Any:
         result = facets[0]
     else:
         result = All(*facets)
+
     if node.get("writeOnly") is True:
-        # JSON Schema's secret marker round-trips back into a Secret.
         result = Secret(result)
     if ctx.openapi and node.get("nullable") is True:
         result = Maybe(result)
+
     return result
 
 
 def _collect_facets(node: dict[str, Any], ctx: _Decode) -> list[Any]:
     """Collect every facet of a node, to be ANDed together.
 
-    A JSON Schema object's keywords are conjunctive: a value must satisfy every
-    facet present (a combinator AND a sibling ``type`` AND any constraint). The
-    old decoder picked a single branch and silently dropped the rest, which would
-    widen an untrusted schema (accept data the author meant to forbid).
+    JSON Schema keywords are conjunctive: a value must satisfy every facet
+    present, including combinators, sibling types, and constraints. Dropping any
+    of them would widen an untrusted schema.
     """
     facets: list[Any] = []
     if "$ref" in node:
@@ -584,9 +639,11 @@ def _collect_facets(node: dict[str, Any], ctx: _Decode) -> list[Any]:
         facets.append(_from_combinator(node["anyOf"], "anyOf", AnyValidator, ctx))
     if "oneOf" in node:
         facets.append(_from_oneof(node["oneOf"], ctx))
+
     typed = _typed_facet(node, ctx)
     if typed is not None:
         facets.append(typed)
+
     return facets
 
 
@@ -662,6 +719,7 @@ class _Not:
             self._schema(value)
         except Invalid:
             return value
+
         message = "value must not match the 'not' schema"
         raise Invalid(message)
 
@@ -715,13 +773,16 @@ def _from_ref(ref: str, ctx: _Decode) -> Any:
     if not isinstance(ref, str):
         message = f"JSON Schema '$ref' must be a string, got {type(ref).__name__}"
         raise SchemaError(message)
+
     existing = ctx.refs.get(ref)
     if existing is not None:
         return existing
+
     deferred = _DeferredRef()
     ctx.refs[ref] = deferred
     target = _resolve_pointer(ref, ctx.root)
     deferred.schema = Schema(_from_node(target, ctx))
+
     return deferred
 
 
@@ -730,6 +791,7 @@ def _resolve_pointer(ref: str, root: dict[str, Any]) -> Any:
     if not ref.startswith("#/"):
         message = f"only local JSON pointers are supported, got {ref!r}"
         raise SchemaError(message)
+
     target: Any = root
     for raw in ref[2:].split("/"):
         token = raw.replace("~1", "/").replace("~0", "~")
@@ -739,6 +801,7 @@ def _resolve_pointer(ref: str, root: dict[str, Any]) -> Any:
         except (KeyError, IndexError, ValueError, TypeError) as exc:
             message = f"cannot resolve JSON pointer {ref!r}"
             raise SchemaError(message) from exc
+
     return target
 
 
@@ -747,26 +810,31 @@ def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
     json_type = node.get("type")
     if isinstance(json_type, list):
         return _from_type_list(node, json_type, ctx)
+
+    # Keep malformed ``type`` values from leaking as hashing or membership errors.
     if json_type is not None and not isinstance(json_type, str):
-        # ``type`` must be a string or an array of strings. An object or number
-        # here is malformed (and an unhashable value would crash the membership
-        # check below), so refuse it rather than leak.
         message = (
             f"JSON Schema 'type' must be a string or array, "
             f"got {type(json_type).__name__}"
         )
         raise SchemaError(message)
+
     if json_type in _SIMPLE_TYPES:
         return _SIMPLE_TYPES[json_type]
+
     if json_type == "object":
         return _from_object(node, ctx)
+
     if json_type == "array":
         return _from_array(node, ctx)
+
     if json_type == "string":
         return _from_string(node)
+
     if json_type in ("integer", "number"):
         base = int if json_type == "integer" else AnyValidator(int, float)
         return _from_number(node, base=base)
+
     # An unrecognized type keyword: ignore it and honor any constraint keywords on
     # their own, so the type does not swallow the rest of the schema. A node with
     # no constraint accepts any value.
@@ -788,6 +856,7 @@ def _from_type_list(node: dict[str, Any], types: list[Any], ctx: _Decode) -> Any
                 f"got {type(name).__name__}"
             )
             raise SchemaError(message)
+
     validators = [
         None if name == "null" else _from_typed({**node, "type": name}, ctx)
         for name in types
@@ -812,8 +881,10 @@ def _combine_constraints(node: dict[str, Any], ctx: _Decode) -> Any:
     constraints = _from_constraints(node, ctx)
     if not constraints:
         return None
+
     if len(constraints) == 1:
         return constraints[0]
+
     return All(*constraints)
 
 
@@ -836,6 +907,7 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
         constraints.append(Unique())
     if "contains" in node:
         constraints.append(_from_contains(node, ctx))
+
     return constraints
 
 
@@ -845,10 +917,12 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     if not isinstance(properties, dict):
         message = f"JSON Schema 'properties' must be an object, got {type(properties).__name__}"
         raise SchemaError(message)
+
     required_raw = node.get("required", [])
     if not isinstance(required_raw, list):
         message = f"JSON Schema 'required' must be an array, got {type(required_raw).__name__}"
         raise SchemaError(message)
+
     # ``required`` entries are property names, so every entry must be a string. A
     # non-string entry (a number, or an unhashable nested array or object) never
     # matches a property name, so it would silently make a required field optional;
@@ -856,24 +930,26 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     if not all(isinstance(entry, str) for entry in required_raw):
         message = "JSON Schema 'required' must contain only property names (strings)"
         raise SchemaError(message)
+
     required: set[Any] = set(required_raw)
     mapping: dict[Any, Any] = {}
     for name, subschema in properties.items():
         if subschema is False:
-            # A ``false`` property schema is the inverse of a Forbidden encode: the
-            # key may not appear, which is exactly what Forbidden enforces.
             mapping[Forbidden(name)] = object
             continue
         key = _from_key(name, subschema, required=name in required)
         mapping[key] = _from_node(subschema, ctx)
+
     additional = node.get("additionalProperties")
     if isinstance(additional, dict):
         mapping[str] = _from_node(additional, ctx)
+
     base = _object_base(mapping, additional)
     min_props = _item_count(node, "minProperties")
     max_props = _item_count(node, "maxProperties")
     if min_props is not None or max_props is not None:
         return All(base, Length(min=min_props, max=max_props))
+
     return base
 
 
@@ -887,8 +963,10 @@ def _object_base(mapping: dict[Any, Any], additional: Any) -> Any:
     """
     if additional is True:
         return Schema(mapping, extra=ALLOW_EXTRA)
+
     if not mapping and additional is None:
         return dict
+
     return mapping
 
 
@@ -915,6 +993,7 @@ def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:
             f"JSON Schema 'prefixItems' must be an array, got {type(prefix).__name__}"
         )
         raise SchemaError(message)
+
     if node.get("items") is not False:
         message = (
             "JSON Schema 'prefixItems' is only supported with 'items': false "
@@ -922,6 +1001,7 @@ def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:
             "to a probatio sequence"
         )
         raise SchemaError(message)
+
     return ExactSequence([_from_node(element, ctx) for element in prefix])
 
 
@@ -936,6 +1016,7 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     prefix = node.get("prefixItems")
     if prefix is not None:
         return _from_prefix_items(prefix, node, ctx)
+
     items = node.get("items")
     if isinstance(items, bool):
         items = None
@@ -948,11 +1029,13 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
             "form is not supported (use 'prefixItems')"
         )
         raise SchemaError(message)
+
     min_items = _item_count(node, "minItems")
     max_items = _item_count(node, "maxItems")
     bounded = min_items is not None or max_items is not None
     has_contains = "contains" in node
     has_unique = node.get("uniqueItems") is True
+
     if items is None:
         # No item schema: any list. Length, uniqueItems, and contains still apply,
         # so a constrained array accepts any element ([object]) but must satisfy
@@ -964,6 +1047,7 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
         sequence = [_from_node(sub, ctx) for sub in items["anyOf"]]
     else:
         sequence = [_from_node(items, ctx)]
+
     constraints: list[Any] = []
     if bounded:
         constraints.append(Length(min=min_items, max=max_items))
@@ -973,6 +1057,7 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
         constraints.append(_from_contains(node, ctx))
     if constraints:
         return All(sequence, *constraints)
+
     return sequence
 
 
@@ -1011,6 +1096,7 @@ class _ContainsCount:
         except TypeError as exc:
             message = "value is not a collection"
             raise ContainsInvalid(message) from exc
+
         count = 0
         for element in items:
             try:
@@ -1018,12 +1104,14 @@ class _ContainsCount:
             except Invalid:
                 continue
             count += 1
+
         if count < self._min:
             message = f"expected at least {self._min} matching item(s)"
             raise ContainsInvalid(message)
         if self._max is not None and count > self._max:
             message = f"expected at most {self._max} matching item(s)"
             raise ContainsInvalid(message)
+
         return value
 
 
@@ -1038,18 +1126,19 @@ def _item_count(node: dict[str, Any], key: str) -> int | None:
     value = node.get(key)
     if value is None:
         return None
+
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         message = f"JSON Schema {key!r} must be a non-negative integer, got {value!r}"
         raise SchemaError(message)
+
     return value
 
 
 def _numeric(node: dict[str, Any], key: str) -> Any:
     """Read a numeric bound (``minimum``/``multipleOf``/...), or None.
 
-    A non-numeric bound would otherwise leak a TypeError from the comparison or
-    modulo at validation time (or from the decoder's own bound reconciliation),
-    so it is refused at decode with a clean ``SchemaError``.
+    Reject bad bounds while decoding, before they can leak as comparison or
+    modulo errors during validation.
     """
     value = node.get(key)
     if value is None or (
@@ -1063,24 +1152,22 @@ def _numeric(node: dict[str, Any], key: str) -> Any:
 def _safe_pattern(pattern: Any) -> Any:
     """Reject a catastrophically backtracking ``pattern`` from an untrusted schema.
 
-    A JSON Schema can come from an untrusted source, and its ``pattern`` is
-    compiled into a backtracking ``re``. A non-string ``pattern`` is rejected at
-    decode time (rather than failing obscurely at validation), a pattern that
-    backtracks catastrophically is rejected before it can hang on crafted input,
-    and a pattern that is not a valid regular expression is rejected cleanly
-    rather than leaking a ``re.error`` from the compile.
+    The pattern may come from an untrusted document. Reject non-strings,
+    catastrophic patterns, and invalid regular expressions while decoding.
     """
     if not isinstance(pattern, str):
         message = (
             f"JSON Schema 'pattern' must be a string, got {type(pattern).__name__}"
         )
         raise SchemaError(message)
+
     if is_catastrophic(pattern):
         message = (
             f"refusing to compile a potentially catastrophic regular "
             f"expression from an untrusted schema: {pattern!r}"
         )
         raise SchemaError(message)
+
     try:
         re.compile(pattern)
     except re.error as exc:
@@ -1088,6 +1175,7 @@ def _safe_pattern(pattern: Any) -> Any:
             f"JSON Schema 'pattern' is not a valid regular expression: {pattern!r}"
         )
         raise SchemaError(message) from exc
+
     return pattern
 
 
@@ -1103,12 +1191,14 @@ def _from_string(node: dict[str, Any]) -> Any:
     # is not a hashable lookup key and is not a known format, so treat it as absent.
     fmt = node.get("format", "")
     base = _FROM_FORMATS.get(fmt, str) if isinstance(fmt, str) else str
+
+    # ``contentEncoding: base64`` (JSON Schema) and ``format: byte`` (OpenAPI)
+    # both mean a base64 string.
     if base is str and (
         node.get("contentEncoding") == "base64" or node.get("format") == "byte"
     ):
-        # ``contentEncoding: base64`` (JSON Schema) and ``format: byte`` (OpenAPI)
-        # both mean a base64 string.
         base = Base64()
+
     constraints: list[Any] = []
     if "minLength" in node or "maxLength" in node:
         constraints.append(
@@ -1120,6 +1210,7 @@ def _from_string(node: dict[str, Any]) -> Any:
         constraints.append(Match(_safe_pattern(node["pattern"])))
     if not constraints:
         return base
+
     return All(base, *constraints)
 
 
@@ -1132,6 +1223,7 @@ def _from_number(node: dict[str, Any], *, base: Any) -> Any:
         constraints.append(MultipleOf(_numeric(node, "multipleOf")))
     if not constraints:
         return base
+
     return All(base, *constraints)
 
 
@@ -1166,14 +1258,17 @@ def _resolve_bound(
     """
     inclusive = _numeric(node, inclusive_key)
     raw_exclusive = node.get(exclusive_key)
+
+    # Draft-04: ``exclusiveMinimum: true`` flips ``minimum`` to exclusive.
     if isinstance(raw_exclusive, bool):
-        # Draft-04: ``exclusiveMinimum: true`` flips ``minimum`` to exclusive.
         return inclusive, not raw_exclusive
+
     exclusive = _numeric(node, exclusive_key)
     if exclusive is None:
         return inclusive, True
     if inclusive is None:
         return exclusive, False
+
     # Both present (Draft 2020-12): keep the tighter lower/upper bound.
     if inclusive_key == "minimum":
         return (exclusive, False) if exclusive >= inclusive else (inclusive, True)

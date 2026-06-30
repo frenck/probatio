@@ -32,6 +32,7 @@ def test_humanize_single_error_shows_path_and_value() -> None:
     with pytest.raises(Exception) as caught:  # noqa: PT011
         schema({"port": "nope"})
     message = humanize_error({"port": "nope"}, caught.value)
+
     assert "expected int" in message
     assert "data['port']" in message
     assert "Got 'nope'" in message
@@ -43,6 +44,7 @@ def test_humanize_multiple_errors_joined() -> None:
     with pytest.raises(Exception) as caught:  # noqa: PT011
         schema({"a": "x", "b": "y"})
     message = humanize_error({"a": "x", "b": "y"}, caught.value)
+
     assert len(message.splitlines()) == 2
 
 
@@ -70,6 +72,7 @@ def test_humanize_truncates_long_values() -> None:
     with pytest.raises(Exception) as caught:  # noqa: PT011
         schema({"v": big})
     message = humanize_error({"v": big}, caught.value)
+
     assert message.endswith("...")
 
 
@@ -79,6 +82,7 @@ def test_humanize_missing_key_renders_none() -> None:
     with pytest.raises(Exception) as caught:  # noqa: PT011
         schema({})
     message = humanize_error({}, caught.value)
+
     assert "required key not provided" in message
     assert "Got None" in message
 
@@ -101,6 +105,7 @@ def test_humanize_error_appends_locations_from_a_locator() -> None:
         schema({"port": "nope"})
     except MultipleInvalid as err:
         rendered = humanize_error({"port": "nope"}, err, locator=locator)
+
     assert "(at config.yaml:2:7)" in rendered
 
 
@@ -113,6 +118,7 @@ def test_humanize_error_without_a_locator_is_unchanged() -> None:
         schema({"port": "nope"})
     except MultipleInvalid as err:
         rendered = humanize_error({"port": "nope"}, err)
+
     assert "at " not in rendered
 
 
@@ -125,4 +131,5 @@ def test_humanize_error_locator_returning_none_adds_no_location() -> None:
         schema({"port": "nope"})
     except MultipleInvalid as err:
         rendered = humanize_error({"port": "nope"}, err, locator=lambda _path: None)
+
     assert "(at" not in rendered

@@ -68,6 +68,7 @@ def test_transforms_are_identity_comparable() -> None:
 def test_match_pattern() -> None:
     """Match requires the string to match the pattern."""
     assert Schema(Match(r"^\d+$"))("123") == "123"
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Match(r"^\d+$"))("12a")
     assert isinstance(caught.value.errors[0], MatchInvalid)
@@ -94,6 +95,7 @@ def test_email_accepts_and_rejects() -> None:
         "a@host.example.",  # a single trailing root dot, accepted like voluptuous
     ]:
         assert Schema(Email())(good) == good
+
     for bad in [
         "no-at-sign",
         "a@b@c",
@@ -118,6 +120,7 @@ def test_email_accepts_and_rejects() -> None:
 def test_url_accepts_and_rejects() -> None:
     """Url (a factory) requires a scheme and a host."""
     assert Schema(Url())("https://example.com/path") == "https://example.com/path"
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Url())("not a url")
     assert isinstance(caught.value.errors[0], UrlInvalid)
@@ -139,6 +142,7 @@ def test_url_custom_message() -> None:
 def test_fqdn_url_requires_a_dotted_host() -> None:
     """FqdnUrl (a factory) requires the host to contain a dot."""
     assert Schema(FqdnUrl())("https://example.com") == "https://example.com"
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(FqdnUrl())("https://localhost")
     assert isinstance(caught.value.errors[0], UrlInvalid)
@@ -200,6 +204,7 @@ def test_is_regex_rejects_an_invalid_pattern(value: object) -> None:
 def test_character_classes(validator: object, ok: str, bad: str) -> None:
     """Each character-class validator accepts its class and rejects the rest."""
     assert Schema(validator)(ok) == ok
+
     with pytest.raises(MultipleInvalid) as caught:
         Schema(validator)(bad)
     assert isinstance(caught.value.errors[0], MatchInvalid)
@@ -209,6 +214,7 @@ def test_starts_with_and_ends_with() -> None:
     """StartsWith and EndsWith check string affixes."""
     assert Schema(StartsWith("foo"))("foobar") == "foobar"
     assert Schema(EndsWith(".txt"))("a.txt") == "a.txt"
+
     with pytest.raises(MultipleInvalid):
         Schema(StartsWith("foo"))("bar")
     with pytest.raises(MultipleInvalid):
@@ -220,6 +226,7 @@ def test_byte_length() -> None:
     assert Schema(ByteLength(min=1, max=3))("ab") == "ab"
     # 'é' is one character but two UTF-8 bytes.
     assert Schema(ByteLength(min=2, max=2))("é") == "é"
+
     with pytest.raises(MultipleInvalid):
         Schema(ByteLength(max=2))("abc")
     with pytest.raises(MultipleInvalid):

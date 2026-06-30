@@ -159,6 +159,7 @@ class _MappingValidator:
                 self._finalizers.append((index, candidate))
             if candidate.alias_input_names:
                 alias_candidates.append(candidate)
+
         self._exclusive_groups = list(exclusive.items())
         self._inclusive_groups = list(inclusive.items())
         self._has_groups = bool(self._exclusive_groups or self._inclusive_groups)
@@ -201,34 +202,26 @@ class _MappingValidator:
         if not isinstance(data, dict) and not isinstance(data, Mapping):
             message = "expected a dictionary"
             raise DictInvalid(message)
-        # The output is rebuilt as the input's class when that is a genuine dict
-        # subclass, matching voluptuous. Home Assistant loads YAML into a
-        # NodeDictClass (a dict subclass carrying the source file and line), and
-        # that type has to survive validation. A plain dict stays a plain dict (the
-        # hot case), and a foreign Mapping (a MappingProxyType, a multidict) that is
-        # not a dict subclass normalizes to a plain dict, since it cannot be
-        # reconstructed. Read here, before alias resolution rebuilds data as a plain
-        # dict.
+
+        # Preserve real dict subclasses, matching voluptuous. Other Mapping
+        # implementations validate too, but rebuild as a plain dict.
         data_type = type(data)
+
         if self._alias_lookup:
-            # Rename accepted alias names to their canonical keys before matching,
-            # so everything below works on canonical names. Only runs when the
-            # schema actually has aliases, so the common case pays nothing.
             data = self._resolve_aliases(data)
+
         out: dict[Any, Any] = (
             {} if data_type is dict or not issubclass(data_type, dict) else data_type()
         )
         errors: list[Invalid] = []
-        # ``seen`` flags which candidates matched (by position), so the finalizer
-        # pass can tell a provided-but-invalid key from an absent one. A bytearray
-        # indexed by position is cheaper than a set of indices on the hot path.
+
+        # Track matches by candidate position. A bytearray is cheaper than a set
+        # here and lets the finalizer distinguish invalid keys from absent ones.
         seen: bytearray | None = (
             bytearray(len(self._candidates)) if self._track_seen else None
         )
-        # The common case (a plain literal key, validated and stored) is inlined
-        # here off a flat tuple; only the rarer paths (a type or callable key, a
-        # Forbidden or Remove literal key, an error) call out to a helper. This
-        # keeps the per-key cost to one validator call and no property reads.
+
+        # Inline the literal-key fast path. More complex keys fall back to helpers.
         fast_get = self._literal_fast.get
         literal_get = self._literal.get
         for key, value in data.items():
@@ -264,12 +257,15 @@ class _MappingValidator:
             index, candidate = match
             if not self._apply(key, value, index, candidate, out, errors, seen):
                 self._match_validator(key, value, out, errors, seen)
+
         if seen is not None:
             self._finalize(out, errors, seen)
         if self._has_groups and seen is not None:
             self._check_groups(out, errors, seen)
+
         if errors:
             raise MultipleInvalid(errors)
+
         return out
 
     def _resolve_aliases(self, data: Mapping[Any, Any]) -> dict[Any, Any]:
@@ -284,6 +280,7 @@ class _MappingValidator:
         claimed = self._alias_claimed
         normalized: dict[Any, Any] = {}
         chosen: dict[Any, tuple[int, Any]] = {}
+
         for key, value in data.items():
             info = lookup.get(key)
             if info is not None:
@@ -293,8 +290,10 @@ class _MappingValidator:
                     chosen[canonical] = (rank, value)
             elif key not in claimed:
                 normalized[key] = value
+
         for canonical, (_, value) in chosen.items():
             normalized[canonical] = value
+
         return normalized
 
     def _match_validator(
@@ -331,6 +330,7 @@ class _MappingValidator:
                 continue
             if self._apply(new_key, value, index, candidate, out, errors, seen):
                 return
+
         self._unmatched(key, value, key_error, out, errors)
 
     def _apply(  # noqa: PLR0913
@@ -550,9 +550,9 @@ class _MappingValidator:
                         errors,
                     )
                     return
-                # This member's default declined (returned ``UNDEFINED``): it does
-                # not fill the group, so try the next member, then the
-                # ``required`` check below.
+                # This default declined. Try the next member, then the required
+                # check below.
+
         if any(self._candidates[index].exclusive_required for index in members):
             keys = [self._candidates[index].key_schema for index in members]
             message = f"exactly one of {keys} is required"
@@ -622,11 +622,13 @@ class _ObjectValidator:
         if self._cls is not UNDEFINED and not isinstance(data, self._cls):
             message = f"expected a {self._cls!r}"
             raise ObjectInvalid(message)
+
         # voluptuous skips attributes that are None, so they fall to their schema
         # default (or are simply absent) rather than failing a typed value check.
         attributes = {
             name: value for name, value in _iterate_object(data) if value is not None
         }
+
         validated = self._mapping(attributes)
         return type(data)(**validated)
 
@@ -661,9 +663,11 @@ class _SequenceValidator:
         if not isinstance(data, self._base_type):
             message = f"expected a {self._base_type.__name__}"
             raise SequenceTypeInvalid(message)
+
         result: list[Any] = []
         errors: list[Invalid] = []
         item_type = self._single_type
+
         if item_type is not None:
             # Inlined ``[<type>]``: isinstance per item, no per-item call.
             expected = item_type.__name__
@@ -693,8 +697,10 @@ class _SequenceValidator:
         else:
             for index, item in enumerate(data):
                 self._validate_item(index, item, result, errors)
+
         if errors:
             raise MultipleInvalid(errors)
+
         # A plain list is the hot case: ``result`` is already a fresh list of the
         # validated items, so return it directly rather than copying it into a new
         # one. Other types are rebuilt as the data's own type (voluptuous semantics),
@@ -733,10 +739,12 @@ class _SequenceValidator:
                 if not is_remove:
                     result.append(validated)
                 return
+
         if last_error is None:
             # No element schemas at all: nothing can match this item.
             errors.append(Invalid("invalid value", path=[index]))
             return
+
         last_error.prepend([index])
         if isinstance(last_error, MultipleInvalid):
             errors.extend(last_error.errors)

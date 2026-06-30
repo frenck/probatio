@@ -38,6 +38,7 @@ def _branch_holds_mapping(node: typing.Any) -> bool:
         return True
     if isinstance(node, list | tuple | set | frozenset):
         return any(_branch_holds_mapping(element) for element in node)
+
     children = getattr(node, "validators", None)
     if isinstance(children, list):
         return any(_branch_holds_mapping(child) for child in children)
@@ -81,6 +82,7 @@ class _Combinator(_SafeValidator):
         clone = copy.copy(self)
         clone._extra = extra  # noqa: SLF001
         clone._compile_branches()  # noqa: SLF001
+
         return clone
 
 
@@ -115,6 +117,7 @@ def _expected_label(validators: list[typing.Any]) -> str | None:
         if label is None:
             return None
         labels.append(label)
+
     return " or ".join(labels) if labels else None
 
 
@@ -142,6 +145,7 @@ def _run_any(
             depth = len(exc.path)
             if depth > best_depth:
                 best, best_depth = exc, depth
+
     if msg is not None:
         raise AnyInvalid(msg)
     if expected is not None:
@@ -215,6 +219,7 @@ class All(_Combinator):
             if self.msg is not None:
                 raise AllInvalid(self.msg) from exc
             raise MultipleInvalid([exc]) from exc
+
         return value
 
     def __repr__(self) -> str:
@@ -244,6 +249,7 @@ def _type_tuple(
         if checked_type is None:
             return None
         types.append(checked_type)
+
     if not types and not allow_none:
         return None
     return tuple(types), allow_none
@@ -444,9 +450,11 @@ class SomeOf(_Combinator):
                 value = compiled(value)
             except Invalid as exc:
                 errors.append(exc)
+
         passed = len(self._compiled) - len(errors)
         if self.min_valid <= passed <= self.max_valid:
             return value
+
         message = self.msg or ", ".join(str(error) for error in errors)
         if passed > self.max_valid:
             raise TooManyValid(message)

@@ -73,6 +73,7 @@ def _is_instance_of(exc, name, env):
         candidates.append(importlib.import_module("probatio.error"))
     except ImportError:
         pass
+
     for ns in candidates:
         cls = getattr(ns, name, None)
         if isinstance(cls, type) and isinstance(exc, cls):
@@ -83,11 +84,13 @@ def _is_instance_of(exc, name, env):
 def iter_pages():
     for path in sorted(DOCS.rglob("*.md")) + sorted(DOCS.rglob("*.mdx")):
         text = path.read_text()
+
         blocks = []
         for match in BLOCK.finditer(text):
             marker = (match.group("marker") or "").strip()
             line = text[: match.start("code")].count("\n") + 1
             blocks.append((line, marker, match.group("code")))
+
         if blocks:
             yield path, blocks
 
@@ -116,6 +119,7 @@ def _extract_value(text: str) -> str:
     text = text.strip()
     if not text:
         return text
+
     if text[:2] in ("b'", 'b"') or text[0] in "'\"":
         i = 2 if text[0] == "b" else 1
         quote = text[i - 1]
@@ -226,6 +230,7 @@ def _check_output(node, value, is_print, lines, label, failures) -> None:
     else:
         single = repr(value)
 
+    # An inline comment trailing the statement wins; it is the value being shown.
     inline = _inline_comment(lines, node.end_lineno, node.end_col_offset)
     if inline is not None:
         if _looks_like_output(inline) and not _compare(_extract_value(inline), single):
@@ -298,11 +303,13 @@ def _check_nested_prints(node, stdout, lines, label, failures) -> None:
     )
     if not commented:
         return
+
     output = stdout.split("\n")
     if output and output[-1] == "":
         output = output[:-1]
     if len(commented) != len(output):
         return  # counts do not line up (a loop, or multi-line output); skip safely
+
     for (_lineno, expected), actual in zip(commented, output, strict=True):
         if not _compare(_extract_value(expected), actual):
             failures.append(
@@ -481,6 +488,7 @@ def main() -> int:
                             continue
                         if not marker and _is_signature_only(code):
                             continue
+
                         expect = None
                         if marker.startswith("raises"):
                             expect = marker.split(None, 1)[1].strip()
@@ -490,6 +498,7 @@ def main() -> int:
                                 f"{rel}:{line}  unknown verify marker: {marker!r}"
                             )
                             continue
+
                         ran += 1
                         run_block(env, code, f"{rel}:{line}", expect, failures)
                 finally:
