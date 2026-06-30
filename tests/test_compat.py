@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -23,6 +25,29 @@ _VOLUPTUOUS_KEYS = [
     "voluptuous.validators",
     "voluptuous.schema_builder",
 ]
+
+# SHA-256 of the vendored voluptuous 0.16.0 test suite. Pinned so the file cannot be
+# upgraded or edited without a conscious update here, which forces a review of the
+# known-divergence list in ``compat/voluptuous/conftest.py`` in the same change.
+_VENDORED_VOLUPTUOUS_SUITE_SHA256 = (
+    "88972c9324a124159d9f4c8d52674d702cf10be6ebf2580411867145ef68d34c"
+)
+
+
+def test_vendored_voluptuous_suite_is_pinned() -> None:
+    """The vendored voluptuous suite is hash-pinned, so the parity proof cannot drift.
+
+    ``compat/voluptuous/tests.py`` is voluptuous's own 0.16.0 suite, run against
+    Probatio as the broadest drop-in proof. A green run only means something against a
+    known suite, so a change to the file (an upstream bump, an accidental edit) must be
+    deliberate: update this hash and re-check the divergence list in the same commit.
+    """
+    suite = Path(__file__).resolve().parents[1] / "compat" / "voluptuous" / "tests.py"
+    digest = hashlib.sha256(suite.read_bytes()).hexdigest()
+    assert digest == _VENDORED_VOLUPTUOUS_SUITE_SHA256, (
+        "compat/voluptuous/tests.py changed; review the known-divergence list in "
+        "compat/voluptuous/conftest.py, then update the pinned hash deliberately"
+    )
 
 
 def test_compile_scalar_type() -> None:
