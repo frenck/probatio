@@ -146,12 +146,23 @@ def validate(
         output_schema: typing.Callable[[typing.Any], typing.Any] = (
             Schema(returns) if returns_defined else _identity
         )
+        # A parameter declared before the ``/`` cannot be passed by keyword, so it
+        # has to go back to ``func`` positionally; everything else goes as keywords.
+        positional_only = [
+            name
+            for name, parameter in inspect.signature(func).parameters.items()
+            if parameter.kind is inspect.Parameter.POSITIONAL_ONLY
+        ]
 
         @wraps(func)
         def wrapper(*call_args: typing.Any, **call_kwargs: typing.Any) -> typing.Any:
             """Validate the bound arguments, call ``func``, validate the result."""
             bound = {**_args_to_dict(func, call_args), **call_kwargs}
-            return output_schema(func(**input_schema(bound)))
+            validated = input_schema(bound)
+            leading = [
+                validated.pop(name) for name in positional_only if name in validated
+            ]
+            return output_schema(func(*leading, **validated))
 
         return wrapper
 
