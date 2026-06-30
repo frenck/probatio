@@ -1,7 +1,7 @@
 # ADR-004: A single validation engine (no codegen)
 
 **Date**: 2026-06-25
-**Status**: Accepted
+**Status**: Accepted, revised by [ADR-011](011-opt-in-compiled-schema.md)
 
 **Context**: Probatio compiles a declarative schema once into a callable, then
 runs that callable per validation (like `re.compile`). An earlier iteration
