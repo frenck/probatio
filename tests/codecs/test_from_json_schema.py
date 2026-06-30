@@ -396,6 +396,31 @@ def test_non_list_prefix_items_is_a_clean_schema_error() -> None:
 
 
 @pytest.mark.parametrize(
+    "node",
+    [
+        {"type": "array", "prefixItems": [{"type": "string"}]},  # open tail
+        {  # typed tail
+            "type": "array",
+            "prefixItems": [{"type": "string"}],
+            "items": {"type": "integer"},
+        },
+        {"type": "array", "prefixItems": [{"type": "string"}], "items": True},
+    ],
+)
+def test_prefix_items_open_tail_is_a_clean_schema_error(
+    node: dict[str, object],
+) -> None:
+    """prefixItems with an open or typed tail is refused, not mapped to a fixed length.
+
+    Only the closed form (``items: false``) maps to an ``ExactSequence``. Without it,
+    JSON Schema allows items beyond the prefix, so decoding to a fixed-length tuple
+    would wrongly reject a valid array; refuse it with a clean SchemaError instead.
+    """
+    with pytest.raises(SchemaError, match="prefixItems"):
+        from_json_schema(node)
+
+
+@pytest.mark.parametrize(
     "validator",
     [Unique(), Contains(1), MultipleOf(2), Range(min=1), Length(min=2)],
 )
