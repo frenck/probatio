@@ -56,6 +56,10 @@ class ExactSequence(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"ExactSequence({self.validators!r})"
 
+    def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
+        """Return the raw per-position schemas this wraps, for ``Self`` detection."""
+        return tuple(self.validators)
+
     def __call__(self, value: typing.Any) -> typing.Any:
         """Validate each position, rebuilding the sequence of the same type."""
         if not isinstance(value, list | tuple) or len(value) != len(self._schemas):
@@ -176,6 +180,10 @@ class Unordered(_SafeValidator):
         self.msg = msg
         self._schemas = [Schema(validator, **kwargs) for validator in self.validators]
 
+    def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
+        """Return the raw element schemas this wraps, for ``Self`` detection."""
+        return tuple(self.validators)
+
     def __call__(self, value: typing.Any) -> typing.Any:
         """Match each item to an unused validator, in any order."""
         if not isinstance(value, list | tuple):
@@ -263,6 +271,10 @@ class Maybe(_SafeValidator):
         """
         return f"Maybe({self.validator!r}, msg={self.msg!r})"
 
+    def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
+        """Return the single wrapped schema, for ``Self`` detection."""
+        return (self.validator,)
+
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return None unchanged, else the validated value."""
         if value is None:
@@ -290,6 +302,10 @@ class Msg(_SafeValidator):
         self.msg = msg
         self.cls = cls
         self._schema = Schema(validator)
+
+    def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
+        """Return the single wrapped schema, for ``Self`` detection."""
+        return (self.validator,)
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Validate, re-raising any failure with the replacement message."""

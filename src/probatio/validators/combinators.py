@@ -63,6 +63,10 @@ class _Combinator(_SafeValidator):
         """Recompile ``self.validators`` into ``self._compiled`` under ``self._extra``."""
         raise NotImplementedError
 
+    def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
+        """Return the raw child schemas this combinator wraps, for ``Self`` detection."""
+        return tuple(self.validators)
+
     def __probatio_needs_extra__(self) -> bool:
         """Whether a non-strict extra could reach a nested mapping in the branches.
 
