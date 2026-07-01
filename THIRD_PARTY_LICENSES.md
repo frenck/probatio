@@ -10,9 +10,10 @@ Optional integrations are used only when you install them yourself, and they
 ship under their own licenses, not with probatio:
 
 - [orjson](https://github.com/ijl/orjson) for fast JSON loading.
-- [YAMLRocks](https://github.com/frenck/yamlrocks) or
-  [PyYAML](https://pyyaml.org) for YAML loading.
-- [tomli-w](https://github.com/hukkin/tomli-w) for writing TOML.
+  License: `MPL-2.0 AND (Apache-2.0 OR MIT)`.
+- [YAMLRocks](https://github.com/frenck/yamlrocks) (`MIT`) or
+  [PyYAML](https://pyyaml.org) (`MIT`) for YAML loading.
+- [tomli-w](https://github.com/hukkin/tomli-w) for writing TOML. License: `MIT`.
 
 Development and test tooling (pytest, ruff, mypy, ty, and voluptuous as a
 test-only conformance oracle) is not distributed with the package.
