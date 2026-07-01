@@ -35,6 +35,7 @@ living next to the field it guards.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import types
 from collections.abc import (
     Mapping,
@@ -130,6 +131,22 @@ def _is_dataclass_type(annotation: TypingAny) -> bool:
     return isinstance(annotation, type) and dataclasses.is_dataclass(annotation)
 
 
+def _base_asserts_the_result(base_schema: TypingAny) -> bool:
+    """Whether an ``Annotated`` base only *checks* the value (so it runs last).
+
+    A plain type compiles to an ``isinstance`` assertion about what the field is, so it
+    runs on the metadata's result. An ``Enum`` class and a type carrying a
+    ``__probatio_validate__`` protocol (ADR-007) are bare types too, but they *coerce* a
+    raw value into the validated form when compiled, so they are producers and run first
+    (like a registry coercer, a nested schema, or a container).
+    """
+    return (
+        isinstance(base_schema, type)
+        and not issubclass(base_schema, enum.Enum)
+        and not callable(getattr(base_schema, "__probatio_validate__", None))
+    )
+
+
 def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     annotation: TypingAny,
     self_refs: dict[type, _RecursiveSchemaRef],
@@ -158,13 +175,16 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         extras = [item for item in meta if callable(item)]
         if not extras:
             return base_schema
-        # A bare type compiles to an ``isinstance`` check: an assertion about what the
+        # A plain type compiles to an ``isinstance`` check: an assertion about what the
         # field *is*, so it runs on the result, after the metadata. A coercing hint
         # (``Annotated[int, Coerce(int)]``, ``Annotated[datetime, AsDatetime()]``) then
         # produces the value the type confirms, keeping the field honestly typed. A base
-        # that is itself a validator (a registry coercer, a nested schema, a container)
-        # is a producer and stays first, so a constraint still layers on top (ADR-008).
-        if isinstance(base_schema, type):
+        # that *produces* the value runs first, so a constraint layers on top of the
+        # produced value (ADR-008): a registry coercer, a nested schema, a container, and
+        # also a bare type that coerces when compiled (an ``Enum`` class, or a type with a
+        # ``__probatio_validate__`` protocol from ADR-007, both turn a raw value into the
+        # validated form).
+        if _base_asserts_the_result(base_schema):
             return All(*extras, base_schema)
         return All(base_schema, *extras)
 
