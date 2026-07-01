@@ -7,6 +7,8 @@ additional constraints, instance construction, and the error paths.
 
 from __future__ import annotations
 
+import datetime
+import enum
 import typing
 from collections.abc import (  # noqa: TC003 - resolved at runtime by get_type_hints
     Iterable,
@@ -21,7 +23,10 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    AsDatetime,
+    Coerce,
     DataclassSchema,
+    In,
     Length,
     MultipleInvalid,
     Range,
@@ -402,13 +407,104 @@ class AnnotatedFields:
 
 
 def test_annotated_applies_an_inline_validator() -> None:
-    """A callable in Annotated metadata runs after the base type check."""
+    """A callable in Annotated metadata is applied, and the type checks the result."""
     schema = DataclassSchema(AnnotatedFields)
     assert schema({"count": 3}).count == 3
 
     with pytest.raises(MultipleInvalid) as caught:
         schema({"count": -1})
     assert caught.value.errors[0].path == ["count"]
+
+
+def test_annotated_metadata_coerces_before_a_plain_type_check() -> None:
+    """A coercer runs first and the plain-type base confirms the result, honestly typed."""
+
+    @dataclass
+    class Coerced:
+        """Fields whose declared type is the result, reached through a coercer."""
+
+        n: Annotated[int, Coerce(int)]
+        when: Annotated[datetime.datetime, AsDatetime()]
+
+    result = DataclassSchema(Coerced)({"n": "5", "when": "2020-01-01T12:00"})
+    assert result.n == 5
+    assert result.when == datetime.datetime(2020, 1, 1, 12, 0)
+
+
+def test_annotated_plain_type_is_enforced_on_the_result() -> None:
+    """A validator that yields the wrong type fails; the base type is the last word."""
+
+    @dataclass
+    class Mismatch:
+        """A field whose validator (Coerce(str)) contradicts its declared int type."""
+
+        n: Annotated[int, Coerce(str)]
+
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(Mismatch)({"n": 5})
+    assert caught.value.errors[0].path == ["n"]
+
+
+class _AnnColor(enum.Enum):
+    """A small enum whose class coerces a string to a member (Annotated base test)."""
+
+    RED = "red"
+    BLUE = "blue"
+
+
+class _AnnSlug:
+    """A type that validates and normalizes itself, for the Annotated self-validate test."""
+
+    def __init__(self, value: str) -> None:
+        """Store the normalized value."""
+        self.value = value
+
+    def __eq__(self, other: object) -> bool:
+        """Compare by the stored value."""
+        return isinstance(other, _AnnSlug) and self.value == other.value
+
+    __hash__ = None  # type: ignore[assignment]
+
+    @classmethod
+    def __probatio_validate__(cls, value: Any) -> _AnnSlug:
+        """Accept a value, storing it lower-cased."""
+        return cls(str(value).lower())
+
+
+def _require_slug(value: Any) -> _AnnSlug:
+    """Use-site check that only passes a produced ``_AnnSlug``, not the raw string."""
+    if not isinstance(value, _AnnSlug):
+        # ValueError (not TypeError) is the validator convention probatio turns into
+        # an Invalid; the check proves the base coerced to a Slug before this ran.
+        message = "expected a produced _AnnSlug"
+        raise ValueError(message)  # noqa: TRY004
+    return value
+
+
+@dataclass
+class _EnumShirt:
+    """An enum-base Annotated field: the enum coerces before the In check runs."""
+
+    color: Annotated[_AnnColor, In([_AnnColor.RED, _AnnColor.BLUE])]
+
+
+@dataclass
+class _SelfValidatingDoc:
+    """A __probatio_validate__ base Annotated field: it coerces before the metadata."""
+
+    slug: Annotated[_AnnSlug, _require_slug]
+
+
+def test_annotated_enum_base_coerces_first_then_the_constraint_runs() -> None:
+    """An Enum base coerces the raw value first, so a use-site constraint sees the member."""
+    assert DataclassSchema(_EnumShirt)({"color": "red"}).color is _AnnColor.RED
+
+
+def test_annotated_self_validating_base_coerces_first() -> None:
+    """A __probatio_validate__ base (ADR-007) coerces first, so the metadata sees the result."""
+    assert DataclassSchema(_SelfValidatingDoc)({"slug": "HELLO"}).slug == _AnnSlug(
+        "hello"
+    )
 
 
 def test_annotated_applies_every_validator_in_order() -> None:

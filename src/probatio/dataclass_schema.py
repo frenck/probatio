@@ -21,16 +21,21 @@ validates all the way down. The names match the upstream draft so code written
 against it keeps working if it lands.
 
 A field annotation may also carry its own validators inline with
-``Annotated[X, validator, ...]``: ``X`` is validated first, then each callable in
-the metadata is applied through ``All`` (non-callable metadata is left for other
-tools). A ``NewType`` is followed to the type it wraps. Both are an alternative to
-the ``additional_constraints`` side mapping, with the constraint living next to
-the field it guards.
+``Annotated[X, validator, ...]``: each callable in the metadata is applied through
+``All`` in order (non-callable metadata is left for other tools). When ``X`` is a plain
+type, its ``isinstance`` check runs on the *result*, so the type says what the field is
+rather than gating the raw input: ``Annotated[datetime, AsDatetime()]`` parses the
+string and confirms the result is a ``datetime``, keeping the field honestly typed. When
+``X`` itself coerces (a type registered to a validator, a nested schema), it runs first
+and the metadata layers on top. A ``NewType`` is followed to the type it wraps. Both are
+an alternative to the ``additional_constraints`` side mapping, with the constraint
+living next to the field it guards.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import enum
 import types
 from collections.abc import (
     Mapping,
@@ -126,6 +131,22 @@ def _is_dataclass_type(annotation: TypingAny) -> bool:
     return isinstance(annotation, type) and dataclasses.is_dataclass(annotation)
 
 
+def _base_asserts_the_result(base_schema: TypingAny) -> bool:
+    """Whether an ``Annotated`` base only *checks* the value (so it runs last).
+
+    A plain type compiles to an ``isinstance`` assertion about what the field is, so it
+    runs on the metadata's result. An ``Enum`` class and a type carrying a
+    ``__probatio_validate__`` protocol (ADR-007) are bare types too, but they *coerce* a
+    raw value into the validated form when compiled, so they are producers and run first
+    (like a registry coercer, a nested schema, or a container).
+    """
+    return (
+        isinstance(base_schema, type)
+        and not issubclass(base_schema, enum.Enum)
+        and not callable(getattr(base_schema, "__probatio_validate__", None))
+    )
+
+
 def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     annotation: TypingAny,
     self_refs: dict[type, _RecursiveSchemaRef],
@@ -147,12 +168,25 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         return _annotation_to_schema(annotation.__supertype__, self_refs)
 
     if get_origin(annotation) is Annotated:
-        # Treat callable Annotated metadata as extra validators. Other metadata is
-        # for other tools and is ignored here.
+        # Callable Annotated metadata are extra validators; other metadata is for
+        # other tools and is ignored here.
         base, *meta = get_args(annotation)
         base_schema = _annotation_to_schema(base, self_refs)
         extras = [item for item in meta if callable(item)]
-        return All(base_schema, *extras) if extras else base_schema
+        if not extras:
+            return base_schema
+        # A plain type compiles to an ``isinstance`` check: an assertion about what the
+        # field *is*, so it runs on the result, after the metadata. A coercing hint
+        # (``Annotated[int, Coerce(int)]``, ``Annotated[datetime, AsDatetime()]``) then
+        # produces the value the type confirms, keeping the field honestly typed. A base
+        # that *produces* the value runs first, so a constraint layers on top of the
+        # produced value (ADR-008): a registry coercer, a nested schema, a container, and
+        # also a bare type that coerces when compiled (an ``Enum`` class, or a type with a
+        # ``__probatio_validate__`` protocol from ADR-007, both turn a raw value into the
+        # validated form).
+        if _base_asserts_the_result(base_schema):
+            return All(*extras, base_schema)
+        return All(base_schema, *extras)
 
     if _is_dataclass_type(annotation):
         if annotation in self_refs:

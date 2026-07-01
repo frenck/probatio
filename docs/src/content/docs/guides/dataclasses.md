@@ -127,11 +127,16 @@ schema({"name": "ada"})  # User(name='ada')
 ```
 
 The same rule can live on the field itself with `Annotated`. The first argument
-is the type, and any callable after it is applied as a validator, in order, after
-the type check. This keeps the constraint next to the field instead of in a
-separate map, and it composes inside containers (`list[Annotated[int, Range(min=1)]]`
-checks every element). Metadata that is not callable is left alone, so an
-`Annotated` value you share with another tool passes through untouched.
+is the type and any callable after it is applied as a validator, in order. The
+type is checked on the result, not the raw input, so the annotation says what the
+field _is_: a coercer runs first and the type confirms what it produced.
+`Annotated[datetime, AsDatetime()]` accepts the string, parses it, and confirms a
+`datetime`, keeping the field honestly typed instead of annotating `str` and hiding
+the real type in the validator. This keeps the constraint next to the field instead
+of in a separate map, and it composes inside containers
+(`list[Annotated[int, Range(min=1)]]` checks every element). Metadata that is not
+callable is left alone, so an `Annotated` value you share with another tool passes
+through untouched.
 
 ```python
 from dataclasses import dataclass
@@ -148,6 +153,26 @@ class User:
 
 schema = DataclassSchema(User)
 schema({"name": "ada", "age": 30})  # User(name='ada', age=30)
+```
+
+Because the type checks the result, a coercer produces the annotated type while the
+field stays honestly typed:
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Annotated
+
+from probatio import DataclassSchema, AsDatetime
+
+
+@dataclass
+class Event:
+    when: Annotated[datetime, AsDatetime()]
+
+
+DataclassSchema(Event)({"when": "2020-01-01T12:00"})
+# Event(when=datetime.datetime(2020, 1, 1, 12, 0))
 ```
 
 A `NewType` is followed to the type it wraps, so a field typed
