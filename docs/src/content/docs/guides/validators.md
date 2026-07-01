@@ -80,10 +80,10 @@ Schema(Number(precision=4, scale=2))("12.34")    # '12.34'
 `Positive`, `Negative`, and `NonNegative` are sign conveniences over `Range`.
 `Byte` (0 to 255) and `SmallFloat` (0 to 1) are bounded ranges, and `Latitude`
 (-90 to 90) and `Longitude` (-180 to 180) bound geographic coordinates.
-`MultipleOf` requires an integer multiple. `Percentage` validates a number or a
-`"NN%"` string in 0 to 100 and returns it unchanged; `FromPercentage` parses it to a
-float. None of these coerce the type otherwise; wrap with `Coerce` for that
-(`All(Coerce(int), NonNegative())`).
+`MultipleOf` requires an integer multiple. `Percentage` validates a number, a bare
+numeric string, or a `"NN%"` string in 0 to 100 and returns it unchanged;
+`FromPercentage` parses it to a float. None of these coerce the type otherwise; wrap
+with `Coerce` for that (`All(Coerce(int), NonNegative())`).
 
 ```python
 from probatio import (

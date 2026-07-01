@@ -184,10 +184,10 @@ carries forward an upstream request.
 - `Exclusive(..., default=...)`: fill a group member when the exclusive group is
   empty. Carries forward [issue #245](https://github.com/alecthomas/voluptuous/issues/245).
 - `IPv4Address`, `IPv6Address`, `IPAddress`, `IPNetwork`, `MacAddress`, `UUID`,
-  `Hostname`, `Fqdn`, `Port`: network and identifier validators; they validate and
+  `Hostname`, `Fqdn`: network and identifier validators; they validate and
   return the value unchanged (wrap with `Coerce` for the parsed object).
-  `NormalizeMacAddress` returns a MAC in canonical form. Common across ecosystems,
-  reinvented across Home Assistant and ESPHome.
+  `NormalizeMacAddress` returns a MAC in canonical form, and `Port` returns an `int`.
+  Common across ecosystems, reinvented across Home Assistant and ESPHome.
 - `Time`, `Duration`, `TimeZoneInfo`, `TimeZone`: time-of-day (the sibling of
   `Date`/`Datetime`), duration validation, IANA zone validation, and UTC offset
   validation, each returning the value unchanged. `Time`

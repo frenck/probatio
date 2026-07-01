@@ -165,7 +165,9 @@ class FromYAMLString(_SafeValidator):
         from probatio.serde import _optional  # noqa: PLC0415
 
         if _optional.yamlrocks is None and _optional.pyyaml is None:
-            message = "FromYAMLString needs a YAML parser; install probatio[yaml]"
+            # ``YAMLString`` builds a ``FromYAMLString`` to validate, so keep this
+            # message validator-agnostic rather than naming one of them.
+            message = "a YAML validator needs a YAML parser; install probatio[yaml]"
             raise SchemaError(message)
         self._validate = None if schema is None else compile_schema(schema)
         self.msg = msg

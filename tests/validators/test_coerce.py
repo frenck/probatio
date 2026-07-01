@@ -103,11 +103,7 @@ def test_coerce_failure_is_reported() -> None:
 
 
 def test_coerce_passes_through_an_instance_the_constructor_rejects() -> None:
-    """A value already of the target type is returned as-is, so Coerce is idempotent.
-
-    ``uuid.UUID(a_uuid)`` raises, so without the pass-through re-validating an
-    already-coerced UUID would fail. It returns the same object.
-    """
+    """A value already of the target type is returned as-is, so Coerce is idempotent."""
     import uuid  # noqa: PLC0415
 
     value = uuid.uuid4()
