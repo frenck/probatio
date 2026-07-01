@@ -151,6 +151,24 @@ def test_astime_rejects_a_bad_value() -> None:
     assert isinstance(caught.value.errors[0], TimeInvalid)
 
 
+def test_as_validators_pass_a_native_object_through() -> None:
+    """A native datetime/date/time is returned as-is (a YAML/TOML loader produces one)."""
+    dt = datetime.datetime(2020, 1, 2, 3, 4)
+    day = datetime.date(2020, 1, 2)
+    clock = datetime.time(3, 4)
+
+    assert Schema(AsDatetime())(dt) is dt
+    assert Schema(AsDate())(day) is day
+    assert Schema(AsTime())(clock) is clock
+
+
+def test_asdate_rejects_a_datetime() -> None:
+    """A datetime carries a time, so a date field rejects it rather than truncating."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDate())(datetime.datetime(2020, 1, 2, 3, 4))
+    assert isinstance(caught.value.errors[0], DateInvalid)
+
+
 def test_duration_passes_through_a_timedelta() -> None:
     """An existing timedelta is returned unchanged."""
     delta = datetime.timedelta(minutes=5)
