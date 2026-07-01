@@ -174,15 +174,22 @@ class AsDatetime(_SafeValidator):
         )
 
     def __call__(self, value: typing.Any) -> datetime.datetime:
-        """Return the parsed datetime, else raise DatetimeInvalid."""
-        try:
-            if self.format is None:
-                parsed = datetime.datetime.fromisoformat(value)
-            else:
-                parsed = datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
-        except (TypeError, ValueError) as exc:
-            message = self.msg or _format_message("datetime", self.format)
-            raise DatetimeInvalid(message) from exc
+        """Return the parsed datetime, passing an existing datetime through.
+
+        A ``datetime`` already (a YAML/TOML loader produces one natively) is returned
+        as-is; a string is parsed. The timezone requirement still applies to both.
+        """
+        if isinstance(value, datetime.datetime):
+            parsed = value
+        else:
+            try:
+                if self.format is None:
+                    parsed = datetime.datetime.fromisoformat(value)
+                else:
+                    parsed = datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+            except (TypeError, ValueError) as exc:
+                message = self.msg or _format_message("datetime", self.format)
+                raise DatetimeInvalid(message) from exc
 
         if self.require_timezone and parsed.tzinfo is None:
             raise DatetimeInvalid(self.msg or "expected a timezone-aware datetime")
@@ -209,7 +216,15 @@ class AsDate(_SafeValidator):
         return f"{type(self).__name__}(format={self.format})"
 
     def __call__(self, value: typing.Any) -> datetime.date:
-        """Return the parsed date, else raise DateInvalid."""
+        """Return the parsed date, passing an existing date through.
+
+        A pure ``date`` is returned as-is; a ``datetime`` is not a date here (it
+        carries a time, so a date field rejects it), and a string is parsed.
+        """
+        if isinstance(value, datetime.date) and not isinstance(
+            value, datetime.datetime
+        ):
+            return value
         try:
             if self.format is None:
                 return datetime.date.fromisoformat(value)
@@ -238,7 +253,12 @@ class AsTime(_SafeValidator):
         return f"{type(self).__name__}(format={self.format})"
 
     def __call__(self, value: typing.Any) -> datetime.time:
-        """Return the parsed time, else raise TimeInvalid."""
+        """Return the parsed time, passing an existing time through.
+
+        A ``time`` already is returned as-is; a string is parsed.
+        """
+        if isinstance(value, datetime.time):
+            return value
         try:
             if self.format is None:
                 return datetime.time.fromisoformat(value)

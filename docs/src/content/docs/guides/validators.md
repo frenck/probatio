@@ -274,7 +274,10 @@ Schema(TimeZone())("+01:00")                # datetime.timezone(datetime.timedel
 `time` instead of the original string, and they parse ISO 8601 out of the box, so
 no `format=` is needed for the common case. Pass `format=` to parse a specific
 `strptime` layout instead. `AsDatetime` takes `require_timezone=True` to reject a
-naive result; the ISO default reads the offset, so that needs no extra format.
+naive result; the ISO default reads the offset, so that needs no extra format. A
+native object passes straight through, so a `datetime`, `date`, or `time` that a
+YAML or TOML loader already produced validates without a round-trip (and `AsDate`
+rejects a `datetime`, since it carries a time a pure date would drop).
 
 ```python
 from probatio import Schema, AsDatetime, AsDate, AsTime
