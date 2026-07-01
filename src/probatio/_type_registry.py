@@ -11,7 +11,8 @@ Two layers, like the serde options in ``serde/_config.py``: a process-wide
 registry set with ``register_type`` (for an application's entry point), and a
 scoped overlay from the ``type_registry`` context manager (async- and thread-safe,
 for code that must not mutate global state). A scoped registration wins over a
-process-wide one for the same type.
+process-wide one for the same type. ``unregister_type`` drops a single type and
+``clear_type_registry`` empties the process-wide layer.
 
 The registry is read when a schema is *built*, and the chosen validator is baked
 in, so a schema is stable once constructed: registering later does not change a
@@ -48,6 +49,16 @@ def register_type(cls: type, validator: Any) -> None:
         message = f"register_type expects a type, got {cls!r}"
         raise TypeError(message)
     _registry.glob[cls] = validator
+
+
+def unregister_type(cls: type) -> None:
+    """Remove ``cls`` from the registry, back to a strict ``isinstance`` check.
+
+    Drops the process-wide registration for ``cls`` if there is one, so an
+    annotation-driven field of ``cls`` builds to a plain ``isinstance`` check again.
+    A no-op when ``cls`` is not registered.
+    """
+    _registry.glob.pop(cls, None)
 
 
 def clear_type_registry() -> None:
