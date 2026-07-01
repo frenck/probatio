@@ -418,7 +418,7 @@ def test_as_datetime_round_trips_to_the_string_datetime() -> None:
         (Port(), {"type": "integer", "minimum": 1, "maximum": 65535}),
         (Percentage(), {"type": "number", "minimum": 0, "maximum": 100}),
         (MultipleOf(5), {"multipleOf": 5}),
-        (FromEpoch(), {"type": "integer"}),
+        (FromEpoch(), {"type": "number"}),
     ],
 )
 def test_new_validators_export(validator: object, expected: dict) -> None:

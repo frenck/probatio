@@ -307,7 +307,7 @@ def test_bare_callable_with_unresolvable_annotation_is_open_schema() -> None:
         (Port(), {"type": "integer", "minimum": 1, "maximum": 65535}),
         (Percentage(), {"type": "number", "minimum": 0, "maximum": 100}),
         (MultipleOf(5), {"type": "number", "multipleOf": 5}),
-        (FromEpoch(), {"type": "integer"}),
+        (FromEpoch(), {"type": "number"}),
     ],
 )
 def test_new_validators_to_openapi(validator: object, expected: dict) -> None:

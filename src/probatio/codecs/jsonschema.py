@@ -350,9 +350,10 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     if temporal is not None:
         return temporal
 
-    # A Unix timestamp is an integer on the wire; the datetime is internal.
+    # A Unix timestamp on the wire is a number (``FromEpoch`` takes an int or a
+    # fractional-second float); the datetime is internal.
     if isinstance(node, FromEpoch):
-        return {"type": "integer"}
+        return {"type": "number"}
 
     if isinstance(node, Unique):
         return {"uniqueItems": True}

@@ -330,8 +330,9 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return {"type": "string", "format": "date-time"}
 
     if isinstance(node, FromEpoch):
-        # A Unix timestamp is an integer on the wire; the datetime is internal.
-        return {"type": "integer"}
+        # A Unix timestamp on the wire is a number (``FromEpoch`` takes an int or a
+        # fractional-second float); the datetime is internal.
+        return {"type": "number"}
     if isinstance(node, Match):
         return {"pattern": node.pattern.pattern}
     if isinstance(node, In):
