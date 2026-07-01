@@ -226,7 +226,7 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 - `AsTime(format=None, msg=None)`: parse a string to a `datetime.time` (ISO 8601 by
   default, or a `strptime` `format=`).
 - `Duration(msg=None)`: parse a duration (timedelta, seconds as an int/float/string,
-  `H:MM[:SS]`, or a mapping) to a `timedelta`.
+  `H:MM[:SS]`, an ISO 8601 duration like `P1DT2H30M`, or a mapping) to a `timedelta`.
 - `TimeZoneInfo(msg=None)`: validate an IANA zone name, returned as
   `zoneinfo.ZoneInfo`.
 - `TimeZone(msg=None)`: parse a fixed UTC offset (`+01:00`, `Z`, `UTC`) to a

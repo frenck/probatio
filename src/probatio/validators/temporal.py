@@ -32,7 +32,27 @@ from probatio.validators._base import _SafeValidator
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
 _MAX_CLOCK_FIELD = 59  # the minute and second fields of an H:MM:SS duration
-_DURATION_MSG = "expected a duration like H:MM, H:MM:SS, or a number of seconds"
+_DURATION_MSG = (
+    "expected a duration like H:MM, H:MM:SS, an ISO 8601 duration like PT1H30M, "
+    "or a number of seconds"
+)
+
+# An ISO 8601 duration, limited to the fields a ``timedelta`` can represent: weeks
+# and days, then a time part of hours, minutes, and seconds. Each field is optional
+# and may be fractional (a comma or a period). Years and months are left out on
+# purpose, since neither is a fixed length. Every quantifier is bounded and anchored
+# to a distinct trailing letter, so the match is linear and cannot hang. Emptiness
+# (``P``, ``PT``) and a dangling ``T`` are caught after the match, not by the pattern.
+_ISO8601_DURATION = re.compile(
+    r"P"
+    r"(?:(?P<weeks>\d+(?:[.,]\d+)?)W)?"
+    r"(?:(?P<days>\d+(?:[.,]\d+)?)D)?"
+    r"(?:T"
+    r"(?:(?P<hours>\d+(?:[.,]\d+)?)H)?"
+    r"(?:(?P<minutes>\d+(?:[.,]\d+)?)M)?"
+    r"(?:(?P<seconds>\d+(?:[.,]\d+)?)S)?"
+    r")?",
+)
 
 # A fixed UTC offset: a sign, two-digit hours, optional colon, two-digit minutes.
 # Matched in full, no backtracking, so a crafted string cannot make it hang.
@@ -48,6 +68,15 @@ def _format_message(kind: str, fmt: str | None) -> str:
     if fmt is None:
         return f"expected an ISO 8601 {kind}"
     return f"value does not match expected format {fmt}"
+
+
+def _iso_field(raw: str | None) -> float:
+    """Read one ISO 8601 duration field (``"1"``, ``"1.5"``, ``"1,5"``) as a float.
+
+    A missing field (``None``) reads as zero, and a comma decimal separator is
+    normalized to a period for ``float``.
+    """
+    return float(raw.replace(",", ".")) if raw else 0.0
 
 
 class Datetime(_SafeValidator):
@@ -222,8 +251,11 @@ class Duration(_SafeValidator):
 
     Accepts a ``timedelta`` (passed through), a number of seconds (an ``int``,
     ``float``, or numeric string like ``"90"``), a colon string (``"H:MM"`` or
-    ``"H:MM:SS"``, optionally negative), or a mapping of ``timedelta`` keyword
-    arguments (``{"hours": 1, "minutes": 30}``).
+    ``"H:MM:SS"``, optionally negative), an ISO 8601 duration (``"P1DT2H30M"``,
+    ``"PT45S"``, ``"-P3D"``), or a mapping of ``timedelta`` keyword arguments
+    (``{"hours": 1, "minutes": 30}``). An ISO 8601 duration is limited to the fields
+    a ``timedelta`` can represent (weeks, days, hours, minutes, seconds); years and
+    months are rejected, since neither is a fixed length.
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -258,13 +290,21 @@ class Duration(_SafeValidator):
         raise DurationInvalid(self.msg or "expected a duration")
 
     def _parse_string(self, value: str) -> datetime.timedelta:
-        """Parse a ``H:MM`` / ``H:MM:SS`` colon string or a number of seconds.
+        """Parse an ISO 8601, ``H:MM`` / ``H:MM:SS`` colon, or seconds string.
 
-        A bare numeric string (``"90"``, ``"90.5"``) is read as seconds, matching
-        an ``int``/``float`` input, so ``Duration`` covers the whole time-period
-        family rather than only the colon form.
+        An ISO 8601 duration (``"P1DT2H"``, ``"PT30M"``, ``"-P3D"``) is coerced to a
+        ``timedelta``. A bare numeric string (``"90"``, ``"90.5"``) is read as
+        seconds, matching an ``int``/``float`` input, so ``Duration`` covers the whole
+        time-period family rather than only the colon form.
         """
         text = value.strip()
+
+        # An ISO 8601 duration: an optional sign, then ``P`` and its fields.
+        head = text[1:] if text[:1] in ("+", "-") else text
+        if head[:1] == "P":
+            sign = -1 if text[:1] == "-" else 1
+            return sign * self._parse_iso8601(head)
+
         sign = 1
         if text.startswith("-"):
             sign, text = -1, text[1:]
@@ -299,6 +339,34 @@ class Duration(_SafeValidator):
         except (ValueError, OverflowError) as exc:
             # ``float("abc")`` and an empty string raise ValueError; ``"inf"`` or a
             # huge value overflows timedelta; ``"nan"`` raises ValueError there.
+            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
+
+    def _parse_iso8601(self, body: str) -> datetime.timedelta:
+        """Coerce an ISO 8601 duration body (``"P..."``) to a ``timedelta``.
+
+        Only the timedelta-representable fields are accepted (weeks, days, hours,
+        minutes, seconds). A bare ``"P"``, a ``"PT"`` with no time field, a dangling
+        ``"T"``, and any years or months all raise ``DurationInvalid``.
+        """
+        match = _ISO8601_DURATION.fullmatch(body)
+        if match is None:
+            raise DurationInvalid(self.msg or _DURATION_MSG)
+
+        fields = match.groupdict()
+        has_time = fields["hours"] or fields["minutes"] or fields["seconds"]
+        if not any(fields.values()) or ("T" in body and not has_time):
+            # ``P`` alone carries nothing; ``P1DT`` has a time separator but no field.
+            raise DurationInvalid(self.msg or _DURATION_MSG)
+
+        try:
+            return datetime.timedelta(
+                weeks=_iso_field(fields["weeks"]),
+                days=_iso_field(fields["days"]),
+                hours=_iso_field(fields["hours"]),
+                minutes=_iso_field(fields["minutes"]),
+                seconds=_iso_field(fields["seconds"]),
+            )
+        except (ValueError, OverflowError) as exc:
             raise DurationInvalid(self.msg or _DURATION_MSG) from exc
 
 
