@@ -34,6 +34,10 @@ REMOVE_EXTRA = 2  # drop them from the result
 
 type CompiledSchema = Callable[[Any], Any]
 
+# Shared empty set for the common mapping that has no secret keys, so building one
+# does not allocate a fresh frozenset per compiled mapping.
+_NO_SECRET_KEYS: frozenset[Any] = frozenset()
+
 
 def _type_error(expected: str, path: list[Any], error_type: str | None) -> TypeInvalid:
     """Build the error an inlined type check raises (only hit when it fails).
@@ -169,7 +173,7 @@ class _MappingValidator:
             if candidate.alias_input_names:
                 alias_candidates.append(candidate)
 
-        self._secret_keys = frozenset(secret_keys)
+        self._secret_keys = frozenset(secret_keys) if secret_keys else _NO_SECRET_KEYS
         self._exclusive_groups = list(exclusive.items())
         self._inclusive_groups = list(inclusive.items())
         self._has_groups = bool(self._exclusive_groups or self._inclusive_groups)
