@@ -169,6 +169,16 @@ def test_asdate_rejects_a_datetime() -> None:
     assert isinstance(caught.value.errors[0], DateInvalid)
 
 
+def test_asdatetime_require_timezone_applies_to_a_native_object() -> None:
+    """require_timezone still holds on the pass-through path: aware passes, naive rejects."""
+    aware = datetime.datetime(2020, 1, 2, 3, 4, tzinfo=datetime.UTC)
+    assert Schema(AsDatetime(require_timezone=True))(aware) is aware
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsDatetime(require_timezone=True))(datetime.datetime(2020, 1, 2, 3, 4))
+    assert isinstance(caught.value.errors[0], DatetimeInvalid)
+
+
 def test_duration_passes_through_a_timedelta() -> None:
     """An existing timedelta is returned unchanged."""
     delta = datetime.timedelta(minutes=5)
