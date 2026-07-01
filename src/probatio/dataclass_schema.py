@@ -21,11 +21,15 @@ validates all the way down. The names match the upstream draft so code written
 against it keeps working if it lands.
 
 A field annotation may also carry its own validators inline with
-``Annotated[X, validator, ...]``: ``X`` is validated first, then each callable in
-the metadata is applied through ``All`` (non-callable metadata is left for other
-tools). A ``NewType`` is followed to the type it wraps. Both are an alternative to
-the ``additional_constraints`` side mapping, with the constraint living next to
-the field it guards.
+``Annotated[X, validator, ...]``: each callable in the metadata is applied through
+``All`` in order (non-callable metadata is left for other tools). When ``X`` is a plain
+type, its ``isinstance`` check runs on the *result*, so the type says what the field is
+rather than gating the raw input: ``Annotated[datetime, AsDatetime()]`` parses the
+string and confirms the result is a ``datetime``, keeping the field honestly typed. When
+``X`` itself coerces (a type registered to a validator, a nested schema), it runs first
+and the metadata layers on top. A ``NewType`` is followed to the type it wraps. Both are
+an alternative to the ``additional_constraints`` side mapping, with the constraint
+living next to the field it guards.
 """
 
 from __future__ import annotations
@@ -147,12 +151,22 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         return _annotation_to_schema(annotation.__supertype__, self_refs)
 
     if get_origin(annotation) is Annotated:
-        # Treat callable Annotated metadata as extra validators. Other metadata is
-        # for other tools and is ignored here.
+        # Callable Annotated metadata are extra validators; other metadata is for
+        # other tools and is ignored here.
         base, *meta = get_args(annotation)
         base_schema = _annotation_to_schema(base, self_refs)
         extras = [item for item in meta if callable(item)]
-        return All(base_schema, *extras) if extras else base_schema
+        if not extras:
+            return base_schema
+        # A bare type compiles to an ``isinstance`` check: an assertion about what the
+        # field *is*, so it runs on the result, after the metadata. A coercing hint
+        # (``Annotated[int, Coerce(int)]``, ``Annotated[datetime, AsDatetime()]``) then
+        # produces the value the type confirms, keeping the field honestly typed. A base
+        # that is itself a validator (a registry coercer, a nested schema, a container)
+        # is a producer and stays first, so a constraint still layers on top (ADR-008).
+        if isinstance(base_schema, type):
+            return All(*extras, base_schema)
+        return All(base_schema, *extras)
 
     if _is_dataclass_type(annotation):
         if annotation in self_refs:

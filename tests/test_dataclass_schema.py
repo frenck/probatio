@@ -7,6 +7,7 @@ additional constraints, instance construction, and the error paths.
 
 from __future__ import annotations
 
+import datetime
 import typing
 from collections.abc import (  # noqa: TC003 - resolved at runtime by get_type_hints
     Iterable,
@@ -21,6 +22,8 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    AsDatetime,
+    Coerce,
     DataclassSchema,
     Length,
     MultipleInvalid,
@@ -402,13 +405,52 @@ class AnnotatedFields:
 
 
 def test_annotated_applies_an_inline_validator() -> None:
-    """A callable in Annotated metadata runs after the base type check."""
+    """A callable in Annotated metadata is applied, and the type checks the result."""
     schema = DataclassSchema(AnnotatedFields)
     assert schema({"count": 3}).count == 3
 
     with pytest.raises(MultipleInvalid) as caught:
         schema({"count": -1})
     assert caught.value.errors[0].path == ["count"]
+
+
+def test_annotated_metadata_coerces_before_the_type_check() -> None:
+    """A coercing validator runs first, so the type describes the result, not the input.
+
+    ``Annotated[int, Coerce(int)]`` accepts ``"5"``: the coercer produces an int, and
+    the base type confirms the result. The annotation stays honest (the field is an
+    ``int``) instead of forcing the source type into the annotation.
+    """
+
+    @dataclass
+    class Coerced:
+        """Fields whose declared type is the result, reached through a coercer."""
+
+        n: Annotated[int, Coerce(int)]
+        when: Annotated[datetime.datetime, AsDatetime()]
+
+    result = DataclassSchema(Coerced)({"n": "5", "when": "2020-01-01T12:00"})
+    assert result.n == 5
+    assert result.when == datetime.datetime(2020, 1, 1, 12, 0)
+
+
+def test_annotated_type_is_enforced_on_the_result() -> None:
+    """The base type is the last word: a validator that yields the wrong type fails.
+
+    ``Annotated[int, Coerce(str)]`` claims the field is an int but coerces to a string,
+    so the result does not match the annotation and validation rejects it, rather than
+    silently storing a string in an int field.
+    """
+
+    @dataclass
+    class Mismatch:
+        """A field whose validator contradicts its declared type."""
+
+        n: Annotated[int, Coerce(str)]
+
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(Mismatch)({"n": 5})
+    assert caught.value.errors[0].path == ["n"]
 
 
 def test_annotated_applies_every_validator_in_order() -> None:
