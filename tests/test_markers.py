@@ -129,3 +129,35 @@ def test_a_marker_orders_against_a_bare_key() -> None:
     """A marker compares against a plain value by its underlying key."""
     assert Optional("classification") < "name"
     assert not Required("zebra") < "name"
+
+
+def test_secret_marker_has_a_readable_repr() -> None:
+    """A Secret marker renders as Secret(<key>)."""
+    from probatio import Secret  # noqa: PLC0415
+
+    assert repr(Secret("password")) == "Secret('password')"
+
+
+def test_resolve_key_reads_a_nested_secret_chain() -> None:
+    """resolve_key walks Optional(Secret(key)) into its facets."""
+    from probatio import Secret  # noqa: PLC0415
+    from probatio.markers import resolve_key  # noqa: PLC0415
+
+    facets = resolve_key(Optional(Secret("password"), default="x"))
+    assert facets.key == "password"
+    assert isinstance(facets.marker, Optional)
+    assert facets.secret is True
+
+
+def test_resolve_key_rejects_two_presence_markers() -> None:
+    """A chain with two presence markers is a contradiction and is refused."""
+    import pytest  # noqa: PLC0415
+
+    from probatio import SchemaError, Secret  # noqa: PLC0415
+    from probatio.markers import resolve_key  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="two presence markers"):
+        resolve_key(Required(Optional("name")))
+
+    # A bare Secret carries no presence marker of its own.
+    assert resolve_key(Secret("name")).marker is None

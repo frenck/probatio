@@ -373,12 +373,28 @@ def test_multiple_of_decodes() -> None:
         schema(7)
 
 
-def test_write_only_decodes_to_secret() -> None:
-    """A writeOnly string decodes to a Secret, so the value is masked."""
-    schema = from_json_schema({"type": "string", "writeOnly": True})
-    result = schema("token")
-    assert "token" not in repr(result)
-    assert result.get_secret_value() == "token"
+def test_write_only_property_decodes_to_a_secret_key() -> None:
+    """A writeOnly property decodes to a Secret key, so its value is redacted."""
+    from probatio.humanize import humanize_error  # noqa: PLC0415
+    from probatio.markers import resolve_key  # noqa: PLC0415
+
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"password": {"type": "string", "writeOnly": True}},
+            "required": ["password"],
+        },
+    )
+
+    # The property round-trips into a Secret key marker.
+    key = next(iter(schema.schema))
+    assert resolve_key(key).secret is True
+
+    # A value that fails is redacted rather than echoed.
+    data = {"password": 123}
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(data)
+    assert "123" not in humanize_error(data, caught.value)
 
 
 def test_non_dict_properties_is_a_clean_schema_error() -> None:

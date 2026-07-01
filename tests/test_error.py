@@ -157,6 +157,7 @@ def test_as_dict_shape() -> None:
         "code": "type",
         "message": "expected int",
         "path": ["port"],
+        "secret": False,
         "context": {"expected": "int"},
         "translation_key": None,
         "placeholders": {},
@@ -168,6 +169,21 @@ def test_multiple_invalid_as_dict_wraps_children() -> None:
     multi = MultipleInvalid([TypeInvalid("expected int", path=["a"])])
     rendered = multi.as_dict()
     assert rendered["errors"][0]["code"] == "type"
+
+
+def test_multiple_invalid_delegates_the_secret_flag() -> None:
+    """MultipleInvalid reads and writes the first error's redaction flag."""
+    first = TypeInvalid("boom", path=["pw"])
+    multi = MultipleInvalid([first])
+    assert multi.secret is False
+    multi.secret = True
+    assert first.secret is True
+    assert multi.secret is True
+    # An empty collection reports no secret and swallows a write.
+    empty = MultipleInvalid([])
+    assert empty.secret is False
+    empty.secret = True
+    assert empty.secret is False
 
 
 def test_multiple_invalid_delegates_structured_fields() -> None:

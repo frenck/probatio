@@ -13,7 +13,7 @@ and even copying and mutating them.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from probatio.error import SchemaError
 
@@ -309,3 +309,85 @@ class Remove(Marker):
     def __repr__(self) -> str:
         """Show that this is a Remove marker around its key."""
         return f"Remove({self.schema!r})"
+
+
+class Secret(Marker):
+    """A key whose value is kept out of validation error output.
+
+    Wrap a key in ``Secret`` to redact its value when validation fails: the error
+    still reports the path and the reason, but shows ``<redacted>`` instead of the
+    offending value (in ``Invalid`` rendering and ``humanize_error``). The value
+    itself passes through validation unchanged; ``Secret`` marks the key, it does
+    not transform the value.
+
+    It composes with the presence markers by nesting, so
+    ``Optional(Secret("password"))`` (equivalently ``Secret(Optional("password"))``)
+    is an optional, redacted key. Order does not matter: presence and redaction are
+    independent facets of the same key.
+
+    Redaction covers validation errors only, not values you log yourself elsewhere.
+    """
+
+    def __repr__(self) -> str:
+        """Show that this is a Secret marker around its key."""
+        return f"Secret({self.schema!r})"
+
+
+class _KeyFacets(NamedTuple):
+    """The facets of a mapping key, resolved from its (possibly nested) markers."""
+
+    key: Any
+    """The bare key underneath every marker."""
+    marker: Marker | None
+    """The presence or removal marker governing the key, or None for a bare key."""
+    secret: bool
+    """Whether any layer marks the key ``Secret`` (redact its value on failure)."""
+    msg: str | None
+    """The first custom message found walking the chain, or None."""
+    description: Any | None
+    """The first description found walking the chain, or None."""
+
+
+def resolve_key(key: Any) -> _KeyFacets:
+    """Walk a (possibly nested) marker chain into its facets.
+
+    A mapping key may be a bare value, a single marker, or markers nested to
+    compose facets (``Optional(Secret("password"))``). Walk the chain down to the
+    bare key, collecting the presence/removal marker (``Required``, ``Optional``,
+    ``Alias``, ``Inclusive``, ``Exclusive``, ``Forbidden``, ``Remove``), whether
+    any layer marks the key ``Secret``, and the first message and description seen.
+
+    A chain carrying two presence markers (``Required(Optional(...))``) is a
+    contradiction and raises ``SchemaError``.
+    """
+    secret = False
+    presence: Marker | None = None
+    msg: str | None = None
+    description: Any | None = None
+    node: Any = key
+    while isinstance(node, Marker):
+        if msg is None and node.msg is not None:
+            msg = node.msg
+        if description is None and node.description is not None:
+            description = node.description
+        if isinstance(node, Secret):
+            secret = True
+        elif presence is None:
+            presence = node
+        else:
+            message = (
+                "a mapping key carries two presence markers: "
+                f"{type(presence).__name__} and {type(node).__name__}"
+            )
+            raise SchemaError(message)
+        node = node.schema
+
+    if secret and (isinstance(node, type) or callable(node)):
+        # Redaction names a specific field, so ``Secret`` wraps a concrete key, not a
+        # type or callable key schema (``Secret(str)`` would mean "redact every
+        # string-keyed value", which is not what the marker is for). Enforced here so
+        # every consumer that resolves keys (the compiler and the codecs) rejects it.
+        message = "Secret must wrap a concrete key, not a type or callable"
+        raise SchemaError(message)
+
+    return _KeyFacets(node, presence, secret, msg, description)

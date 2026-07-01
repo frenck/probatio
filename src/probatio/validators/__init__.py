@@ -84,7 +84,6 @@ from probatio.validators.predicates import (
     IsTrue,
     PathExists,
 )
-from probatio.validators.secret import Secret, SecretValue
 from probatio.validators.strings import (
     ASCII,
     Alpha,
@@ -228,8 +227,6 @@ __all__ = [
     "RequiredIf",
     "RequiredWith",
     "RequiredWithout",
-    "Secret",
-    "SecretValue",
     "Set",
     "SetTo",
     "Slug",

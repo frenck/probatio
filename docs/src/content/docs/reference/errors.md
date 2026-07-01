@@ -38,6 +38,11 @@ the legacy output.
 - `error_type`: the kind of value that failed, such as `dictionary value` (may be
   `None`).
 - `code`: the stable machine-readable code (the class default unless overridden).
+- `secret`: whether the offending value must be redacted, not echoed, when
+  rendered. Set for an error under a
+  [`Secret`](/guides/dict-schemas-and-markers/#redacting-secret-values) key,
+  so `humanize_error` (and any consumer building its own output) shows a
+  placeholder instead of the value.
 - `context`: a dict of structured detail about the failure, such as the expected
   type.
 - `translation_key`: an optional key for localizing the message (may be `None`).
@@ -136,7 +141,6 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `HostnameInvalid` (`hostname`): the value is not a valid hostname or domain name.
 - `SlugInvalid` (`slug`): the value is not a valid slug.
 - `MultipleOfInvalid` (`multiple_of`): the value is not a multiple of the factor.
-- `SecretInvalid` (`secret`): the value behind a `Secret` failed its inner schema.
 - `JsonInvalid` (`json`): the value is not valid JSON.
 - `YamlInvalid` (`yaml`): the value is not valid YAML.
 - `NotEnoughValid` (`not_enough_valid`): too few of a `SomeOf` group's validators

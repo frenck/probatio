@@ -21,7 +21,16 @@ from typing import Any
 from probatio.codecs._regex_safety import is_catastrophic
 from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES
 from probatio.error import ContainsInvalid, Invalid, SchemaError
-from probatio.markers import Forbidden, Marker, Optional, Remove, Required, Undefined
+from probatio.markers import (
+    Forbidden,
+    Marker,
+    Optional,
+    Remove,
+    Required,
+    Secret,
+    Undefined,
+    resolve_key,
+)
 from probatio.schema import ALLOW_EXTRA, Schema, recursion_guard
 from probatio.validators import (
     UUID,
@@ -56,7 +65,6 @@ from probatio.validators import (
     Percentage,
     Port,
     Range,
-    Secret,
     SomeOf,
     Strip,
     Time,
@@ -140,20 +148,28 @@ def _convert_mapping(
     required: list[Any] = []
     additional: Any = allow_extra
     for key, value in node.items():
-        if isinstance(key, Remove):
+        # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
+        # is classified by the marker it actually carries, not just the outer wrapper.
+        facets = resolve_key(key)
+        marker = facets.marker
+        name = facets.key
+        if isinstance(marker, Remove):
             continue
 
-        if isinstance(key, Forbidden):
-            properties[key.schema] = False
+        if isinstance(marker, Forbidden):
+            properties[name] = False
             continue
 
-        marker = key if isinstance(key, Marker) else None
-        name = marker.schema if marker is not None else key
         if isinstance(name, type) or callable(name):
             additional = _child(value)
             continue
 
-        properties[name] = _property(marker, value)
+        properties[name] = _property(
+            marker,
+            value,
+            secret=facets.secret,
+            description=facets.description,
+        )
         if isinstance(marker, Required) or (
             not isinstance(marker, Optional) and required_default
         ):
@@ -170,16 +186,25 @@ def _convert_mapping(
     return result
 
 
-def _property(marker: Marker | None, value: Any) -> dict[str, Any]:
+def _property(
+    marker: Marker | None,
+    value: Any,
+    *,
+    secret: bool = False,
+    description: Any = None,
+) -> dict[str, Any]:
     """Render one mapping value, attaching a description and default if present."""
     prop = _child(value)
-    if marker is not None and marker.description:
-        prop = {**prop, "description": marker.description}
+    if description:
+        prop = {**prop, "description": description}
     if isinstance(marker, Optional | Required) and not isinstance(
         marker.default,
         Undefined,
     ):
         prop = {**prop, "default": marker.default()}
+    if secret:
+        # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
+        prop = {**prop, "writeOnly": True}
 
     return prop
 
@@ -365,10 +390,6 @@ def _convert_typed(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, Base64):
         return {"type": "string", "contentEncoding": "base64"}
-
-    # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
-    if isinstance(node, Secret):
-        return {**_child(node.schema), "writeOnly": True}
 
     return None
 
@@ -657,8 +678,6 @@ def _build_node(node: Any, ctx: _Decode) -> Any:
     else:
         result = All(*facets)
 
-    if node.get("writeOnly") is True:
-        result = Secret(result)
     if ctx.openapi and node.get("nullable") is True:
         result = Maybe(result)
 
@@ -1031,12 +1050,26 @@ def _object_base(mapping: dict[Any, Any], additional: Any) -> Any:
 
 
 def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
-    """Build the Required/Optional marker for one object property."""
+    """Build the Required/Optional marker for one object property.
+
+    A ``writeOnly`` property is a secret, so the key is wrapped in ``Secret`` (its
+    value is redacted from error output), the counterpart of the ``writeOnly`` that
+    ``to_json_schema`` emits for a ``Secret`` key.
+    """
     marker_cls = Required if required else Optional
     description = subschema.get("description") if isinstance(subschema, dict) else None
     if isinstance(subschema, dict) and "default" in subschema:
-        return marker_cls(name, default=subschema["default"], description=description)
-    return marker_cls(name, description=description)
+        marker: Marker = marker_cls(
+            name,
+            default=subschema["default"],
+            description=description,
+        )
+    else:
+        marker = marker_cls(name, description=description)
+
+    if isinstance(subschema, dict) and subschema.get("writeOnly") is True:
+        return Secret(marker)
+    return marker
 
 
 def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:

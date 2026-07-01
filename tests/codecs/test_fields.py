@@ -222,7 +222,7 @@ def test_new_validators_serialize_to_fields() -> None:
             {
                 Required("ip"): IPAddress(),
                 Required("port"): Port(),
-                Required("pw"): Secret(str),
+                Required(Secret("pw")): str,
                 Required("pct"): Percentage(),
             },
         ),
@@ -238,6 +238,7 @@ def test_new_validators_serialize_to_fields() -> None:
         "required": True,
     }
     assert by_name["pw"]["type"] == "string"
+    assert by_name["pw"]["secret"] is True
     assert by_name["pct"]["type"] == "float"
 
 

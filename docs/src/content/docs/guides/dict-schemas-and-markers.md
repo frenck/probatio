@@ -221,6 +221,39 @@ every name); pass `required=True` to demand one of its names. An alias that name
 another key in the schema, or that two keys share, is rejected at build time, so
 an ambiguous schema fails fast rather than at validation.
 
+## Redacting secret values
+
+`Secret` marks a key whose value is a credential, so a validation failure under it
+is redacted: the error still reports the path and the reason, but shows
+`<redacted>` instead of the offending value (in `Invalid` rendering and
+`humanize_error`). The value passes through validation unchanged; `Secret` marks
+the key, it does not transform the value.
+
+```python
+from probatio import Schema, Required, Secret
+from probatio.humanize import humanize_error
+from probatio.error import MultipleInvalid
+
+schema = Schema({Required(Secret("password")): int})
+data = {"password": "hunter2"}
+try:
+    schema(data)
+except MultipleInvalid as err:
+    print(humanize_error(data, err))
+    # expected int for dictionary value @ data['password']. Got <redacted>
+```
+
+Secrecy is an independent facet, so it composes with the presence markers by
+nesting: `Optional(Secret("password"))` (equivalently `Secret(Optional("password"))`)
+is an optional, redacted key. Order does not matter. The marker names a concrete
+key, so `Secret(str)` (a type key) is refused at build time.
+
+Redaction covers validation errors only, the output a schema controls, not values
+you log yourself elsewhere. The `secret` flag also rides on each error
+(`err.errors[0].secret`, and in `as_dict()`), so a consumer building its own output
+can redact the same values. The [security guide](/project/security/) covers the
+threat model.
+
 ## Type and callable keys
 
 A key does not have to be a literal. A type key validates _every_ key of that

@@ -16,7 +16,13 @@ from collections.abc import Hashable, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
-from probatio.markers import Forbidden, Marker, Optional, Required, Undefined
+from probatio.markers import (
+    Forbidden,
+    Optional,
+    Required,
+    Undefined,
+    resolve_key,
+)
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -70,7 +76,6 @@ from probatio.validators import (
     Port,
     PrintableASCII,
     Range,
-    Secret,
     Slug,
     Sorted,
     StartsWith,
@@ -209,12 +214,13 @@ def _serialize_node(node: Any, custom: Any) -> _Serialized:
 
 def _serialize_field(key: Any, value: Any, custom: Any) -> dict[str, Any]:
     """Render one mapping key/value as a field dict."""
-    marker = key if isinstance(key, Marker) else None
+    facets = resolve_key(key)
+    marker = facets.marker
 
     field = dict(_serialize_value(value, custom))
-    field["name"] = marker.schema if marker is not None else key
-    if marker is not None and marker.description is not None:
-        field["description"] = marker.description
+    field["name"] = facets.key
+    if facets.description is not None:
+        field["description"] = facets.description
     field["required"] = isinstance(marker, Required)
     if isinstance(marker, Optional):
         field["optional"] = True
@@ -223,6 +229,8 @@ def _serialize_field(key: Any, value: Any, custom: Any) -> dict[str, Any]:
         Undefined,
     ):
         field["default"] = marker.default()
+    if facets.secret:
+        field["secret"] = True
 
     return field
 
@@ -308,14 +316,14 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
         # hint, so it serializes to an open dict rather than raising.
         return {}
 
-    typed = _serialize_typed(node, custom)
+    typed = _serialize_typed(node)
     if typed is not None:
         return typed
 
     return _serialize_constraint(node)
 
 
-def _serialize_typed(node: Any, custom: Any) -> dict[str, Any] | None:
+def _serialize_typed(node: Any) -> dict[str, Any] | None:
     """Render the probatio-only validators for a frontend, or None if not one.
 
     Returns ``{}`` (no field hints, but not an error) for the validators that have
@@ -338,9 +346,6 @@ def _serialize_typed(node: Any, custom: Any) -> dict[str, Any] | None:
             "valueMin": _SERIALIZE_PERCENT_MIN,
             "valueMax": _SERIALIZE_PERCENT_MAX,
         }
-
-    if isinstance(node, Secret):
-        return _serialize_value(node.schema, custom)
 
     if isinstance(
         node,

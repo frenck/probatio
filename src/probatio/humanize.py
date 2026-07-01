@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from probatio.error import Error, Invalid, MultipleInvalid, SecretInvalid
+from probatio.error import Error, Invalid, MultipleInvalid
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -57,10 +57,9 @@ def humanize_error(
             ),
         )
 
-    if isinstance(validation_error, SecretInvalid):
-        # The value at this path is a secret that failed validation, and it is still
-        # the raw, unwrapped value in ``data`` (the SecretValue wrapper only exists
-        # on success). Reading and rendering it would leak the credential, so redact.
+    if validation_error.secret:
+        # This error is under a ``Secret`` key, so the offending value is a
+        # credential. Reading and rendering it would leak it, so redact instead.
         offending = _REDACTED
     else:
         offending = repr(_nested_getitem(data, validation_error.path))

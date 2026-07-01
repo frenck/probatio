@@ -160,31 +160,38 @@ the same safe loader, so validating YAML never opens an object-construction
 hole.
 :::
 
-## Keeping secrets out of logs
+## Keeping secrets out of error output
 
 Configuration often carries credentials: a password, an API token, a private key.
-Wrap those fields in `Secret`, and the validated value becomes a `SecretValue`
-that hides itself from `repr`, `str`, and any rendered validation error, so it
-will not leak into a log line or a stack trace. The real value is read back only
-through an explicit `.get_secret_value()` call. A `Secret` whose inner schema
-fails is reported without echoing the value, so even a rejected secret stays out
-of the error.
+Wrap the key in `Secret`, and a validation failure under it is redacted: the error
+still reports the path and the reason, but shows `<redacted>` instead of the
+offending value, so a rejected credential does not leak into a rendered error, a
+log line, or a stack trace.
 
 ```python
-from probatio import Schema, Secret
+from probatio import Schema, Required, Secret
+from probatio.humanize import humanize_error
+from probatio.error import MultipleInvalid
 
-schema = Schema({"api_token": Secret(str)})
-result = schema({"api_token": "s3cr3t"})
-str(result)                            # "{'api_token': SecretValue('**********')}"
-result["api_token"].get_secret_value() # 's3cr3t'
+schema = Schema({Required(Secret("api_token")): str, Required("host"): str})
+data = {"api_token": 12345, "host": "example.com"}
+try:
+    schema(data)
+except MultipleInvalid as err:
+    print(humanize_error(data, err))
+    # expected str for dictionary value @ data['api_token']. Got <redacted>
 ```
 
-`humanize_error` redacts a failed `Secret` too: a rejected credential renders as
-`<redacted>`, not the raw value, so the direct case is covered. One boundary
-remains, because `humanize_error` reads the raw, pre-validation data: a secret in
-one field could still surface if a broader error renders a whole container that
-holds it. For full safety with secrets, humanize the validated output, where every
-`SecretValue` masks itself, rather than the original data.
+The redaction is targeted: only the secret key's value is hidden, a sibling
+field's value still renders. Each error also carries a `secret` flag (on the
+error and in `as_dict()`), so a consumer building its own output can redact the
+same values.
+
+The threat model is deliberately narrow: `Secret` covers validation error output,
+the place a schema library controls. It does not reach values you log yourself
+elsewhere, and it does not encrypt or mask data at rest. The validated value
+passes through unchanged; if you also need to keep it out of your own log lines,
+wrap it in your own carrier after validation.
 
 ## Reporting a vulnerability
 

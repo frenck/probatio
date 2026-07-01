@@ -49,12 +49,8 @@ def test_humanize_multiple_errors_joined() -> None:
 
 
 def test_humanize_redacts_a_failed_secret_value() -> None:
-    """A Secret that fails validation is redacted, never echoed into the message.
-
-    The raw value is still the unwrapped secret in the data on a failure (the mask
-    only wraps a successful result), so rendering it would leak the credential.
-    """
-    schema = Schema({Required("password"): Secret(int), Required("user"): str})
+    """A value under a Secret key is redacted, never echoed into the message."""
+    schema = Schema({Required(Secret("password")): int, Required("user"): str})
     data = {"password": "hunter2-secret", "user": 123}
     with pytest.raises(Exception) as caught:  # noqa: PT011
         schema(data)

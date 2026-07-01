@@ -1,74 +1,96 @@
-"""Tests for the Secret validator and its masking SecretValue carrier."""
+"""Tests for the Secret key marker and its error redaction."""
 
 from __future__ import annotations
 
 import pytest
 
-from probatio import MultipleInvalid, Schema, Secret, SecretValue
-from probatio.error import SecretInvalid
+from probatio import (
+    MultipleInvalid,
+    Optional,
+    Required,
+    Schema,
+    SchemaError,
+    Secret,
+)
+from probatio.humanize import humanize_error
 
 
-def test_secret_wraps_and_masks() -> None:
-    """Secret returns a SecretValue that hides the value in repr and str."""
-    result = Schema(Secret())("hunter2")
-
-    assert isinstance(result, SecretValue)
-    assert result.get_secret_value() == "hunter2"
-    assert "hunter2" not in repr(result)
-    assert "hunter2" not in str(result)
+def test_secret_passes_the_value_through_unchanged() -> None:
+    """A Secret key does not transform its value; it validates and returns as-is."""
+    schema = Schema({Required(Secret("password")): str})
+    assert schema({"password": "hunter2"}) == {"password": "hunter2"}
 
 
-def test_secret_default_accepts_anything() -> None:
-    """With no inner schema, Secret wraps any value."""
-    assert Schema(Secret())(123).get_secret_value() == 123
-
-
-def test_secret_inner_schema_validates() -> None:
-    """An inner schema validates the raw value before wrapping."""
-    assert Schema(Secret(str))("token").get_secret_value() == "token"
-
-
-def test_secret_inner_failure_does_not_echo_the_value() -> None:
-    """A failing inner schema raises SecretInvalid without echoing the secret."""
+def test_secret_redacts_a_failed_value() -> None:
+    """A value under a Secret key is redacted from the humanized error."""
+    schema = Schema({Required(Secret("password")): int})
+    data = {"password": "hunter2-secret"}
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Secret(str))(987654)
+        schema(data)
 
     error = caught.value.errors[0]
-    assert isinstance(error, SecretInvalid)
-    assert "987654" not in str(error)
+    assert error.secret is True
+    message = humanize_error(data, error)
+    assert "hunter2-secret" not in message
+    assert "<redacted>" in message
 
 
-def test_secret_custom_message() -> None:
-    """A custom message replaces the default on failure."""
+def test_secret_only_redacts_its_own_key() -> None:
+    """A non-secret sibling's value is still shown; redaction is targeted."""
+    schema = Schema({Required(Secret("password")): int, Required("user"): str})
+    data = {"password": "s3cr3t", "user": 123}
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Secret(str, msg="bad token"))(5)
-    assert caught.value.errors[0].error_message == "bad token"
+        schema(data)
+
+    message = humanize_error(data, caught.value)
+    assert "s3cr3t" not in message
+    assert "Got 123" in message
 
 
-def test_secret_is_idempotent() -> None:
-    """Re-validating a SecretValue unwraps and re-wraps it, keeping the value."""
-    once = Schema(Secret(str))("s3cr3t")
-    twice = Schema(Secret(str))(once)
-    assert twice.get_secret_value() == "s3cr3t"
+def test_secret_redacts_a_nested_value() -> None:
+    """A failure deep inside a Secret key's value is redacted, not just the leaf."""
+    schema = Schema({Secret("creds"): {"token": int}})
+    data = {"creds": {"token": "leak-me"}}
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(data)
+
+    message = humanize_error(data, caught.value)
+    assert "leak-me" not in message
+    assert "<redacted>" in message
 
 
-def test_secret_value_equality() -> None:
-    """SecretValue compares by its wrapped value, only against another SecretValue."""
-    assert SecretValue("a") == SecretValue("a")
-    assert SecretValue("a") != SecretValue("b")
-    assert SecretValue("a") != "a"
+def test_secret_composes_with_optional_either_way() -> None:
+    """Optional(Secret(key)) and Secret(Optional(key)) are the same optional secret."""
+    outer = Schema({Optional(Secret("password"), default="x"): str})
+    inner = Schema({Secret(Optional("password", default="x")): str})
+    assert outer({}) == {"password": "x"}
+    assert inner({}) == {"password": "x"}
 
 
-def test_secret_value_is_hashable() -> None:
-    """A SecretValue can be used as a dict key (hashes by its value)."""
-    mapping = {SecretValue("a"): 1}
-    assert mapping[SecretValue("a")] == 1
+def test_secret_is_optional_when_wrapping_optional() -> None:
+    """An absent Optional(Secret(key)) is not a required-key failure."""
+    schema = Schema({Optional(Secret("password")): str})
+    assert schema({}) == {}
 
 
-def test_secret_stays_masked_inside_a_mapping() -> None:
-    """A SecretValue in a validated mapping does not leak in the mapping's repr."""
-    schema = Schema({"password": Secret(str), "user": str})
-    result = schema({"password": "s3cr3t", "user": "bob"})
+def test_secret_around_a_type_key_is_rejected() -> None:
+    """Secret must name a concrete key, not a type or callable key schema."""
+    with pytest.raises(SchemaError):
+        Schema({Secret(str): int})
 
-    assert "s3cr3t" not in repr(result)
-    assert result["password"].get_secret_value() == "s3cr3t"
+
+def test_secret_custom_message_is_kept() -> None:
+    """A message carried on the Secret marker still surfaces for a missing key."""
+    schema = Schema({Required(Secret("password"), msg="password is required"): int})
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({})
+    assert caught.value.errors[0].error_message == "password is required"
+
+
+def test_secret_survives_compiled_schema() -> None:
+    """The compiled path bails to the interpreter on failure, which still redacts."""
+    schema = Schema({Required(Secret("password")): int}, compile=True)
+    data = {"password": "leak"}
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(data)
+    assert "leak" not in humanize_error(data, caught.value)

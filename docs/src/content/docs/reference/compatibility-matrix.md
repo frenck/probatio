@@ -205,9 +205,10 @@ carries forward an upstream request.
   `Percentage`, `FromPercentage`: list-wrapping, slug format, sign conveniences,
   integer-multiple, and a 0 to 100 percentage (`Percentage` validates and returns the
   value; `FromPercentage` parses it to a `float`). Common config helpers.
-- `Secret`, `SecretValue`: wrap a validated value in a carrier that hides it from
-  `repr`/`str`/errors, so credentials do not leak into logs. Like pydantic's
-  `SecretStr`; voluptuous has no equivalent.
+- `Secret`: a key marker that redacts the key's value from validation error
+  output (`<redacted>` instead of the value), so a rejected credential does not
+  leak into rendered validation error output. Composes with the presence markers
+  by nesting (`Optional(Secret("password"))`). Voluptuous has no equivalent.
 - `NonEmpty`, `Byte`, `SmallFloat`, `IsRegex`: a non-empty check, 0 to 255 and 0
   to 1 bounded numbers, and a "value is a compilable regex" check.
 - `JSONString`, `YAMLString`, `FromJSONString`, `FromYAMLString`: validate a JSON or
