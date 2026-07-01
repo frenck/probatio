@@ -21,7 +21,7 @@ from types import UnionType
 from typing import Any, TypeVar, Union, cast, get_args, get_origin, get_type_hints
 
 from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES, UNSUPPORTED
-from probatio.markers import Marker, Optional, Required, Undefined
+from probatio.markers import Optional, Required, Undefined, resolve_key
 from probatio.schema import ALLOW_EXTRA, Schema
 from probatio.validators import (
     All,
@@ -47,7 +47,6 @@ from probatio.validators import (
     Percentage,
     Port,
     Range,
-    Secret,
     Strip,
     Time,
     Title,
@@ -168,8 +167,9 @@ def _oa_mapping(
     constraint_groups: list[list[str]] = []
 
     for key, value in node.items():
-        marker = key if isinstance(key, Marker) else None
-        pkey = marker.schema if marker is not None else key
+        facets = resolve_key(key)
+        marker = facets.marker
+        pkey = facets.key
         pval = _oa(value, custom, version)
         if marker is not None and marker.description:
             pval["description"] = marker.description
@@ -178,6 +178,8 @@ def _oa_mapping(
             Undefined,
         ):
             pval["default"] = marker.default()
+        if facets.secret:
+            pval["writeOnly"] = True
         if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
@@ -342,10 +344,10 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, AnyValidator):
         return _oa_any(list(node.validators), custom, version)
 
-    return _oa_typed(node, custom, version)
+    return _oa_typed(node)
 
 
-def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
+def _oa_typed(node: Any) -> dict[str, Any] | None:
     """Render the network, identifier, and numeric-bound validators."""
     for validator_type, json_format in FORMAT_BY_TYPE.items():
         if isinstance(node, validator_type):
@@ -365,8 +367,6 @@ def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
         return {"type": "number", "multipleOf": node.factor}
     if isinstance(node, Base64):
         return {"type": "string", "contentEncoding": "base64"}
-    if isinstance(node, Secret):
-        return {**_oa(node.schema, custom, version), "writeOnly": True}
 
     return None
 

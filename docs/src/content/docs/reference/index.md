@@ -59,6 +59,7 @@ underlying key, so it can stand in for the bare key.
 - `Optional(key, msg=None, default=UNDEFINED, description=None)`: the key may be present; a `default` fills it in when absent.
 - `Remove(key)`: drop matching keys from the validated output.
 - `Forbidden(key, msg=None, description=None)`: the key must not be present; if it appears, validation fails with "key not allowed". The mapped value is ignored, so the idiom is `{Forbidden("password"): object}`.
+- `Secret(key, msg=None, description=None)`: redact the key's value from validation error output (`<redacted>` instead of the value). Composes with the presence markers by nesting, so `Optional(Secret("password"))` is an optional, redacted key. A Probatio addition (see [dict schemas and markers](/guides/dict-schemas-and-markers/#redacting-secret-values)).
 - `Inclusive(key, group_of_inclusion, msg=None, default=UNDEFINED, description=None)`: all keys sharing a group must appear together, or none.
 - `Exclusive(key, group_of_exclusion, msg=None, description=None, *, required=False, default=UNDEFINED)`: at most one key from a group may appear. `required=True` makes the group demand exactly one key; a `default` fills that member in when the group is empty (and satisfies the group, so it wins over `required`). Both are group-level.
 - `Extra`: a catch-all key. `{Extra: validator}` validates every otherwise-unmatched key.
@@ -282,16 +283,6 @@ Python object.
   valid.
 - `Fqdn(msg=None)`: a fully-qualified domain name (a dotted hostname).
 - `Port(msg=None)`: a port number (1 to 65535), returned as an `int`.
-
-</details>
-
-<details>
-<summary>Secrets</summary>
-
-- `Secret(schema=object, msg=None)`: validate against `schema`, then wrap the
-  value in a `SecretValue`. A failure is reported without echoing the value.
-- `SecretValue`: the carrier; hides its value in `repr`/`str`, read it back with
-  `.get_secret_value()`.
 
 </details>
 

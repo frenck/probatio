@@ -52,6 +52,7 @@ from probatio.markers import (
     Remove,
     Required,
     Self,
+    resolve_key,
 )
 
 if TYPE_CHECKING:
@@ -846,42 +847,59 @@ class Schema:
                 is_literal=False,
             )
 
-        is_marker = isinstance(key, Marker)
+        # Walk the marker chain into its facets: the bare key, the presence marker
+        # that governs it, and whether it is Secret (redact its value on failure).
+        # ``Secret`` composes by nesting (``Optional(Secret("password"))``), so the
+        # presence marker may sit above or below it.
+        facets = resolve_key(key)
+        # Typed ``Any`` so the facet-specific attributes (``group_of_exclusion``,
+        # ``input_names``) read cleanly under their ``is_*`` guards, the way the
+        # raw key did before markers were resolved into facets.
+        marker: Any = facets.marker
+        key_schema = facets.key
+        is_marker = marker is not None
         if is_marker:
             # Classify the marker's kind once, then reuse the flags below rather
             # than re-running overlapping isinstance checks per attribute. Subtypes
             # are honored (Inclusive and Exclusive are Optional), so the dispatch
             # stays correct for a custom marker subclass too.
-            is_required = isinstance(key, Required)
-            is_optional = isinstance(key, Optional)
-            is_alias = isinstance(key, Alias)
-            is_remove = isinstance(key, Remove)
-            is_forbidden = isinstance(key, Forbidden)
-            is_exclusive = isinstance(key, Exclusive)
-            is_inclusive = isinstance(key, Inclusive)
-            key_schema = key.schema
+            is_required = isinstance(marker, Required)
+            is_optional = isinstance(marker, Optional)
+            is_alias = isinstance(marker, Alias)
+            is_remove = isinstance(marker, Remove)
+            is_forbidden = isinstance(marker, Forbidden)
+            is_exclusive = isinstance(marker, Exclusive)
+            is_inclusive = isinstance(marker, Inclusive)
             default = (
-                key.default if (is_required or is_optional or is_alias) else UNDEFINED
+                marker.default
+                if (is_required or is_optional or is_alias)
+                else UNDEFINED
             )
             # An Alias carries its own required flag and is self-contained, so a
             # schema-wide ``required`` does not force it (like Optional).
             required = (
                 is_required
-                or (is_alias and key.required)
+                or (is_alias and marker.required)
                 or (
                     self.required
                     and not (is_optional or is_remove or is_forbidden or is_alias)
                 )
             )
         else:
-            # A literal key is none of the marker kinds, so skip those checks.
+            # A bare key (or a key wrapped only in ``Secret``, which carries no
+            # presence semantics of its own) is none of the marker kinds.
             is_required = is_optional = is_alias = is_remove = False
             is_forbidden = is_exclusive = is_inclusive = False
-            key_schema = key
             default = UNDEFINED
             required = self.required
 
         is_literal = not (isinstance(key_schema, type) or callable(key_schema))
+        if facets.secret and not is_literal:
+            # Redaction names a specific field, so ``Secret`` wraps a concrete key,
+            # not a type or callable key schema (``Secret(str)`` would mean "redact
+            # every string-keyed value", which is not what the marker is for).
+            message = "Secret must wrap a concrete key, not a type or callable"
+            raise SchemaError(message)
         check_value = self._compile(value_schema)
         check_key = self._compile(key_schema)
 
@@ -894,10 +912,11 @@ class Schema:
             remove=is_remove,
             forbidden=is_forbidden,
             is_literal=is_literal,
-            exclusive_group=(key.group_of_exclusion if is_exclusive else None),
-            exclusive_required=(key.group_required if is_exclusive else False),
-            inclusive_group=(key.group_of_inclusion if is_inclusive else None),
-            msg=key.msg if is_marker else None,
+            secret=facets.secret,
+            exclusive_group=(marker.group_of_exclusion if is_exclusive else None),
+            exclusive_required=(marker.group_required if is_exclusive else False),
+            inclusive_group=(marker.group_of_inclusion if is_inclusive else None),
+            msg=facets.msg,
             value_type=getattr(check_value, "checked_type", None),
             key_type=getattr(check_key, "checked_type", None),
             complex_keys=(
@@ -908,7 +927,7 @@ class Schema:
                 if is_required and getattr(key_schema, "is_complex_key", False)
                 else None
             ),
-            alias_input_names=key.input_names if is_alias else (),
+            alias_input_names=marker.input_names if is_alias else (),
             value_schema=value_schema,
         )
 

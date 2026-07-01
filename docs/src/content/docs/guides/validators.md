@@ -378,26 +378,6 @@ Schema(Hostname())("localhost")      # 'localhost'
 Schema(Fqdn())("host.example.com")   # 'host.example.com'
 ```
 
-## Secrets
-
-`Secret` validates a value and wraps it in a `SecretValue`, a carrier that hides
-the value from `repr`, `str`, and rendered errors, so a credential in a config
-does not leak into logs. Read the real value back with `.get_secret_value()`. The
-optional inner schema validates the raw value first; a failure is reported without
-echoing the value.
-
-```python
-from probatio import Schema, Secret
-
-token = Schema(Secret(str))("hunter2")
-repr(token)               # "SecretValue('**********')"
-token.get_secret_value()  # 'hunter2'
-```
-
-The protection covers the validated value and `Secret`'s own failures. It does
-not reach `humanize_error` called against the raw, pre-validation input, so
-humanize the validated output, not the raw data, when secrets are involved.
-
 ## Encoding
 
 `JSONString` and `YAMLString` validate that a string is valid JSON or YAML (and, with

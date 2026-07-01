@@ -87,9 +87,10 @@ the same as the bare names. `Datetime`/`Date`/`Time` export the
 equivalent, so it exports as a plain string). The network and identifier
 validators export their standard `format`: `IPv4Address` to `ipv4`, `IPv6Address`
 to `ipv6`, `UUID` to `uuid`, and `Hostname`/`Fqdn` to `hostname`; `Port` exports a
-bounded integer and `MultipleOf` a `multipleOf`. `Secret` exports its inner schema
-with `writeOnly: true`, and `Base64` as `contentEncoding: base64`. These decode
-back into the matching validator, so they round-trip, with one known widener.
+bounded integer and `MultipleOf` a `multipleOf`. A `Secret` key exports its
+property with `writeOnly: true`, and `Base64` as `contentEncoding: base64`. These
+decode back into the matching validator (a `writeOnly` property decodes to a
+`Secret` key), so they round-trip, with one known widener.
 JSON Schema has a single `hostname` format, so both `Hostname` and `Fqdn` export
 to it and decode back as `Hostname`, meaning a round-tripped `Fqdn` accepts a
 dotless host the original would reject. Pin it with a `pattern` or an explicit

@@ -71,7 +71,6 @@ from probatio import (
     PrintableASCII,
     Range,
     Schema,
-    Secret,
     Slug,
     SmallFloat,
     Sorted,
@@ -105,7 +104,6 @@ _VALIDATORS = (
     MultipleOf(3),
     MultipleOf(0.5),  # a float factor overflows on a huge int; must stay clean
     Percentage(),
-    Secret(),
     NonEmpty(),
     Byte(),
     SmallFloat(),

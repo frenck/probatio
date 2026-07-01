@@ -308,12 +308,21 @@ def test_bare_callable_with_unresolvable_annotation_is_open_schema() -> None:
         (Percentage(), {"type": "number", "minimum": 0, "maximum": 100}),
         (MultipleOf(5), {"type": "number", "multipleOf": 5}),
         (FromEpoch(), {"type": "integer"}),
-        (Secret(str), {"type": "string", "writeOnly": True}),
     ],
 )
 def test_new_validators_to_openapi(validator: object, expected: dict) -> None:
     """The probatio-only validators render their OpenAPI fragment (no oracle)."""
     assert to_openapi(Schema(validator)) == expected
+
+
+def test_secret_key_to_openapi_write_only() -> None:
+    """A Secret key marks its property writeOnly in the OpenAPI object."""
+    schema = Schema({probatio.Required(Secret("password")): str})
+    assert to_openapi(schema) == {
+        "type": "object",
+        "properties": {"password": {"type": "string", "writeOnly": True}},
+        "required": ["password"],
+    }
 
 
 def test_date_is_not_exported_as_datetime() -> None:

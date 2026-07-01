@@ -426,9 +426,15 @@ def test_new_validators_export(validator: object, expected: dict) -> None:
     assert to_json_schema(Schema(validator)) == expected
 
 
-def test_secret_exports_write_only() -> None:
-    """Secret exports its inner schema with writeOnly, JSON Schema's secret marker."""
-    assert to_json_schema(Schema(Secret(str))) == {"type": "string", "writeOnly": True}
+def test_secret_key_exports_write_only() -> None:
+    """A Secret key marks its property writeOnly, JSON Schema's secret marker."""
+    schema = Schema({Required(Secret("password")): str})
+    assert to_json_schema(schema) == {
+        "type": "object",
+        "properties": {"password": {"type": "string", "writeOnly": True}},
+        "additionalProperties": False,
+        "required": ["password"],
+    }
 
 
 def test_time_is_not_exported_as_datetime() -> None:

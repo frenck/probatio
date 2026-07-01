@@ -99,6 +99,7 @@ class Invalid(Error):
         self._path = list(path) if path else []
         self._error_message = error_message or message
         self._error_type = error_type
+        self._secret = False
         self._code = code
         self._context: dict[str, Any] = dict(context) if context else {}
         self._translation_key = translation_key
@@ -128,6 +129,21 @@ class Invalid(Error):
     def error_type(self, value: str | None) -> None:
         """Set the kind of value that failed (voluptuous sets this while compiling)."""
         self._error_type = value
+
+    @property
+    def secret(self) -> bool:
+        """Whether the offending value must be redacted, not echoed, when rendered.
+
+        Set by the mapping engine for an error under a ``Secret`` key, so
+        ``humanize_error`` (and any consumer building its own output) shows a
+        placeholder instead of the value.
+        """
+        return self._secret
+
+    @secret.setter
+    def secret(self, value: bool) -> None:
+        """Mark (or unmark) the offending value for redaction."""
+        self._secret = value
 
     @property
     def code(self) -> str | None:
@@ -171,6 +187,7 @@ class Invalid(Error):
             "code": self.code,
             "message": self.error_message,
             "path": list(self.path),
+            "secret": self.secret,
             "context": dict(self.context),
             "translation_key": self.translation_key,
             "placeholders": dict(self.placeholders),
@@ -313,6 +330,17 @@ class MultipleInvalid(Invalid):
         """Set the first error's type (kept read-write to match the base class)."""
         if self.errors:
             self.errors[0].error_type = value
+
+    @property
+    def secret(self) -> bool:
+        """Whether the first error is redacted (False when the collection is empty)."""
+        return self.errors[0].secret if self.errors else False
+
+    @secret.setter
+    def secret(self, value: bool) -> None:
+        """Set the first error's redaction flag (kept read-write like the base)."""
+        if self.errors:
+            self.errors[0].secret = value
 
     @property
     def code(self) -> str | None:
@@ -661,12 +689,6 @@ class MultipleOfInvalid(Invalid):
     """The value is not a multiple of the required factor."""
 
     default_code = "multiple_of"
-
-
-class SecretInvalid(Invalid):
-    """A secret value failed validation (its value is never echoed)."""
-
-    default_code = "secret"
 
 
 class JsonInvalid(Invalid):
