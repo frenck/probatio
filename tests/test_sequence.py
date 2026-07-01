@@ -119,3 +119,16 @@ def test_every_failing_item_is_reported() -> None:
         Schema([{"name": str}])([{"name": 123}, {"name": 123}])
     paths = sorted(tuple(error.path) for error in caught.value.errors)
     assert paths == [(0, "name"), (1, "name")]
+
+
+def test_one_item_failing_on_several_counts_flattens_each_under_its_index() -> None:
+    """A single item that fails its schema more than once reports every error at [0].
+
+    The element schema raises a ``MultipleInvalid`` (a wrong value type and an extra
+    key), so the sequence path flattens those errors under the item's index rather
+    than nesting them.
+    """
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema([{"a": int}])([{"a": "x", "b": 2}])
+    paths = sorted(tuple(error.path) for error in caught.value.errors)
+    assert paths == [(0, "a"), (0, "b")]
