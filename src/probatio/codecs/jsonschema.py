@@ -37,10 +37,11 @@ from probatio.validators import (
     Date,
     Datetime,
     Email,
-    Epoch,
     Equal,
     ExactSequence,
     FqdnUrl,
+    FromEpoch,
+    FromPercentage,
     Hostname,
     In,
     IPv4Address,
@@ -325,7 +326,7 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
         return temporal
 
     # A Unix timestamp is an integer on the wire; the datetime is internal.
-    if isinstance(node, Epoch):
+    if isinstance(node, FromEpoch):
         return {"type": "integer"}
 
     if isinstance(node, Unique):
@@ -356,7 +357,7 @@ def _convert_typed(node: Any) -> dict[str, Any] | None:
     if isinstance(node, Port):
         return {"type": "integer", "minimum": _PORT_MIN, "maximum": _PORT_MAX}
 
-    if isinstance(node, Percentage):
+    if isinstance(node, Percentage | FromPercentage):
         return {"type": "number", "minimum": _PERCENT_MIN, "maximum": _PERCENT_MAX}
 
     if isinstance(node, MultipleOf):

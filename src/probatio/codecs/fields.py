@@ -30,6 +30,8 @@ from probatio.validators import (
     AsDate,
     AsDatetime,
     AsTime,
+    AsTimedelta,
+    AsTimezone,
     Base64,
     ByteLength,
     Capitalize,
@@ -42,9 +44,10 @@ from probatio.validators import (
     Email,
     EndsWith,
     EnsureList,
-    Epoch,
     Fqdn,
     FqdnUrl,
+    FromEpoch,
+    FromPercentage,
     Hex,
     HexColor,
     HexInt,
@@ -61,6 +64,7 @@ from probatio.validators import (
     Maybe,
     MultipleOf,
     NonEmpty,
+    NormalizeMacAddress,
     NoWhitespace,
     Percentage,
     Port,
@@ -86,12 +90,14 @@ _SERIALIZE_STRING_TYPES = (
     IPAddress,
     IPNetwork,
     MacAddress,
+    NormalizeMacAddress,
     UUID,
     Hostname,
     Fqdn,
     Slug,
     TimeZone,
     TimeZoneInfo,
+    AsTimezone,
     Alpha,
     Alphanumeric,
     ASCII,
@@ -326,7 +332,7 @@ def _serialize_typed(node: Any, custom: Any) -> dict[str, Any] | None:
             "valueMax": _SERIALIZE_PORT_MAX,
         }
 
-    if isinstance(node, Percentage):
+    if isinstance(node, Percentage | FromPercentage):
         return {
             "type": "float",
             "valueMin": _SERIALIZE_PERCENT_MIN,
@@ -337,7 +343,8 @@ def _serialize_typed(node: Any, custom: Any) -> dict[str, Any] | None:
         return _serialize_value(node.schema, custom)
 
     if isinstance(
-        node, MultipleOf | Duration | EnsureList | NonEmpty | Sorted | HexInt
+        node,
+        MultipleOf | Duration | AsTimedelta | EnsureList | NonEmpty | Sorted | HexInt,
     ):
         return {}
 
@@ -373,7 +380,7 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:
             field["format"] = node.format
         return field
 
-    if isinstance(node, Epoch):
+    if isinstance(node, FromEpoch):
         # A Unix timestamp arrives as an integer; the datetime is internal.
         return {"type": "integer"}
 

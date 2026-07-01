@@ -1,10 +1,12 @@
 """Network validators: IP addresses, networks, hostnames, and ports.
 
-The IP validators coerce to the standard library's ``ipaddress`` objects, since
-that typed value is the point of using them over a regular expression. ``Hostname``
-and ``Fqdn`` are format checks and pass the string through. They validate with
-plain character checks, never a backtracking regular expression, so a crafted
-input cannot hang them.
+Every validator here checks its value and returns it unchanged. The IP validators
+confirm the value parses as an address or network (using the standard library's
+``ipaddress`` parsers), and hand the value back as given; reach for
+``Coerce(ipaddress.IPv4Address)`` (and the like) when you want the parsed object.
+``Hostname`` and ``Fqdn`` are format checks and pass the string through. They
+validate with plain character checks, never a backtracking regular expression, so a
+crafted input cannot hang them.
 """
 
 from __future__ import annotations
@@ -44,73 +46,85 @@ _IP_PARSE_ERRORS = (ValueError, TypeError, IndexError, AttributeError)
 
 
 class IPv4Address(_SafeValidator):
-    """Validate an IPv4 address, returning an ``ipaddress.IPv4Address``."""
+    """Validate an IPv4 address, returning the value unchanged.
 
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
-        self.msg = msg
-
-    def __call__(self, value: typing.Any) -> ipaddress.IPv4Address:
-        """Return the parsed address, else raise IpInvalid."""
-        try:
-            return ipaddress.IPv4Address(_reject_bool(value))
-        except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IPv4 address") from exc
-
-
-class IPv6Address(_SafeValidator):
-    """Validate an IPv6 address, returning an ``ipaddress.IPv6Address``."""
-
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
-        self.msg = msg
-
-    def __call__(self, value: typing.Any) -> ipaddress.IPv6Address:
-        """Return the parsed address, else raise IpInvalid."""
-        try:
-            return ipaddress.IPv6Address(_reject_bool(value))
-        except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IPv6 address") from exc
-
-
-class IPAddress(_SafeValidator):
-    """Validate an IP address of either version (v4 or v6)."""
-
-    def __init__(self, msg: str | None = None) -> None:
-        """Store an optional custom message."""
-        self.msg = msg
-
-    def __call__(
-        self,
-        value: typing.Any,
-    ) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-        """Return the parsed address (v4 or v6), else raise IpInvalid."""
-        try:
-            return ipaddress.ip_address(_reject_bool(value))
-        except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IP address") from exc
-
-
-class IPNetwork(_SafeValidator):
-    """Validate a CIDR network, returning an ``ipaddress`` network object.
-
-    Host bits are allowed (``strict=False``), so ``192.0.2.5/24`` is accepted and
-    normalized to its network, matching how configuration usually writes them.
+    Checks the value parses as an IPv4 address; use ``Coerce(ipaddress.IPv4Address)``
+    when you want the parsed ``ipaddress.IPv4Address`` object instead.
     """
 
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(
-        self,
-        value: typing.Any,
-    ) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
-        """Return the parsed network, else raise IpInvalid."""
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it parses as an IPv4 address, else raise IpInvalid."""
         try:
-            return ipaddress.ip_network(_reject_bool(value), strict=False)
+            ipaddress.IPv4Address(_reject_bool(value))
+        except _IP_PARSE_ERRORS as exc:
+            raise IpInvalid(self.msg or "expected an IPv4 address") from exc
+        return value
+
+
+class IPv6Address(_SafeValidator):
+    """Validate an IPv6 address, returning the value unchanged.
+
+    Checks the value parses as an IPv6 address; use ``Coerce(ipaddress.IPv6Address)``
+    when you want the parsed ``ipaddress.IPv6Address`` object instead.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it parses as an IPv6 address, else raise IpInvalid."""
+        try:
+            ipaddress.IPv6Address(_reject_bool(value))
+        except _IP_PARSE_ERRORS as exc:
+            raise IpInvalid(self.msg or "expected an IPv6 address") from exc
+        return value
+
+
+class IPAddress(_SafeValidator):
+    """Validate an IP address of either version (v4 or v6), returning it unchanged.
+
+    Use ``Coerce(ipaddress.ip_address)`` when you want the parsed
+    ``ipaddress.IPv4Address``/``IPv6Address`` object instead.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it parses as an IP address, else raise IpInvalid."""
+        try:
+            ipaddress.ip_address(_reject_bool(value))
+        except _IP_PARSE_ERRORS as exc:
+            raise IpInvalid(self.msg or "expected an IP address") from exc
+        return value
+
+
+class IPNetwork(_SafeValidator):
+    """Validate a CIDR network, returning the value unchanged.
+
+    Host bits are allowed (``strict=False``), so ``192.0.2.5/24`` is accepted. The
+    value is returned as given, not normalized to its network; use
+    ``Coerce(lambda v: ipaddress.ip_network(v, strict=False))`` when you want the
+    parsed network object.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it parses as a CIDR network, else raise IpInvalid."""
+        try:
+            ipaddress.ip_network(_reject_bool(value), strict=False)
         except _IP_PARSE_ERRORS as exc:
             raise IpInvalid(self.msg or "expected a CIDR network") from exc
+        return value
 
 
 def _check_labels(host: str) -> bool:

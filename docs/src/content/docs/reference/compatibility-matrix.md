@@ -184,30 +184,36 @@ carries forward an upstream request.
 - `Exclusive(..., default=...)`: fill a group member when the exclusive group is
   empty. Carries forward [issue #245](https://github.com/alecthomas/voluptuous/issues/245).
 - `IPv4Address`, `IPv6Address`, `IPAddress`, `IPNetwork`, `MacAddress`, `UUID`,
-  `Hostname`, `Fqdn`, `Port`: network and identifier validators; the typed ones
-  coerce to their Python object. Common across ecosystems, reinvented across Home
-  Assistant and ESPHome.
+  `Hostname`, `Fqdn`: network and identifier validators; they validate and
+  return the value unchanged (wrap with `Coerce` for the parsed object).
+  `NormalizeMacAddress` returns a MAC in canonical form, and `Port` returns an `int`.
+  Common across ecosystems, reinvented across Home Assistant and ESPHome.
 - `Time`, `Duration`, `TimeZoneInfo`, `TimeZone`: time-of-day (the sibling of
-  `Date`/`Datetime`), duration parsing to `timedelta`, an IANA zone to
-  `zoneinfo.ZoneInfo`, and a fixed UTC offset to `datetime.timezone`. `Time`
+  `Date`/`Datetime`), duration validation, IANA zone validation, and UTC offset
+  validation, each returning the value unchanged. `Time`
   is voluptuous [issue #335](https://github.com/alecthomas/voluptuous/issues/335); the others recur across ecosystems.
-- `AsDatetime`, `AsDate`, `AsTime`: the object-returning siblings of
-  `Datetime`/`Date`/`Time`, parsing the string to a `datetime`/`date`/`time`
-  instead of passing it through. ISO 8601 by default (standard library only, for
-  deterministic results), or a `strptime` format. `AsDatetime` can require a
-  timezone-aware result.
-- `Epoch`: parse a Unix timestamp (seconds or milliseconds) into a
+- `AsDatetime`, `AsDate`, `AsTime`, `AsTimedelta`, `AsTimezone`: the object-returning
+  siblings of `Datetime`/`Date`/`Time`/`Duration`/`TimeZone`, parsing to a
+  `datetime`/`date`/`time`/`timedelta`/`datetime.timezone` instead of validating and
+  passing the value through. The date and time ones parse ISO 8601 by default (standard
+  library only, for deterministic results), or a `strptime` format; `AsDatetime` can
+  require a timezone-aware result. (`TimeZoneInfo` has no `As*` sibling:
+  `Coerce(zoneinfo.ZoneInfo)` gives the object, since the constructor takes the name.)
+- `FromEpoch`: parse a Unix timestamp (seconds or milliseconds) into a
   timezone-aware UTC `datetime`. Common in APIs and device payloads.
 - `EnsureList`, `Slug`, `Positive`, `Negative`, `NonNegative`, `MultipleOf`,
-  `Percentage`: list-wrapping, slug format, sign conveniences, integer-multiple,
-  and a 0 to 100 percentage. Common config helpers.
+  `Percentage`, `FromPercentage`: list-wrapping, slug format, sign conveniences,
+  integer-multiple, and a 0 to 100 percentage (`Percentage` validates and returns the
+  value; `FromPercentage` parses it to a `float`). Common config helpers.
 - `Secret`, `SecretValue`: wrap a validated value in a carrier that hides it from
   `repr`/`str`/errors, so credentials do not leak into logs. Like pydantic's
   `SecretStr`; voluptuous has no equivalent.
 - `NonEmpty`, `Byte`, `SmallFloat`, `IsRegex`: a non-empty check, 0 to 255 and 0
   to 1 bounded numbers, and a "value is a compilable regex" check.
-- `JSONString`, `YAMLString`: parse a JSON or YAML string and optionally validate
-  the decoded value. YAML uses the safe loader.
+- `JSONString`, `YAMLString`, `FromJSONString`, `FromYAMLString`: validate a JSON or
+  YAML string (and optionally the decoded value against an inner schema); the
+  `JSONString`/`YAMLString` pair returns the string unchanged, while the `From*`
+  siblings return the decoded value. YAML uses the safe loader.
 - `IsSymlink`, `IsSocket`, `IsFifo`, `IsBlockDevice`: filesystem predicates for the
   special file types, alongside `IsDir`/`IsFile`.
 - `Alpha`, `Alphanumeric`, `ASCII`, `PrintableASCII`, `NoWhitespace`,
@@ -298,6 +304,12 @@ Probatio does.
   any integer (`Schema(Perm)(3)` is `Perm.R | Perm.W`), the same as `Coerce` of
   that enum. Use an explicit `In([...])` when you need to accept only the exact
   listed members.
+- **`Coerce(T)` on a value already of type `T` whose constructor rejects it
+  (`Coerce(uuid.UUID)(a_uuid)`).** `uuid.UUID(a_uuid)` raises, so voluptuous reports a
+  `CoerceInvalid`. Probatio returns the value unchanged, making `Coerce` idempotent, so
+  re-validating an already-coerced value does not fail. This only affects a value that
+  voluptuous would have rejected (a value that converts, or is not already a `T`, is
+  unchanged), so it is a strict widening.
 - **A built-in validator on a wrong-typed value (`Replace("a", "b")(42)`,
   `Number()(None)`).** voluptuous leaks a raw `TypeError`/`ValueError` from the
   underlying call (fixed upstream in [PR #540](https://github.com/alecthomas/voluptuous/pull/540) and [PR #539](https://github.com/alecthomas/voluptuous/pull/539), not yet released).

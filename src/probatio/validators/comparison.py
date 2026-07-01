@@ -288,11 +288,39 @@ class MultipleOf(_SafeValidator):
         return value
 
 
-class Percentage(_SafeValidator):
-    """Require a percentage in 0 to 100, returning it as a ``float``.
+def _percent_value(value: typing.Any, msg: str | None) -> float:
+    """Validate a percentage (number or ``"NN%"`` string) as a float in 0 to 100.
 
-    Accepts a number or a string ending in ``%`` (the percent sign is stripped
-    before parsing). A bare numeric string works too.
+    A ``bool`` is rejected (it is not a meaningful percentage), matching the other
+    numeric validators like ``MultipleOf``.
+    """
+    if isinstance(value, bool):
+        raise RangeInvalid(msg or "expected a percentage between 0 and 100")
+
+    raw = value[:-1] if isinstance(value, str) and value.endswith("%") else value
+    try:
+        # ``float`` on an int too large to represent raises OverflowError, and on an
+        # object it calls a user-defined ``__float__`` that may raise anything; report
+        # either cleanly rather than leaking it.
+        number = float(raw)
+    except Invalid:
+        # A deliberate Invalid from the value's own ``__float__`` is a real validation
+        # error; keep it rather than masking it as a RangeInvalid.
+        raise
+    except Exception as exc:
+        raise RangeInvalid(msg or "expected a percentage between 0 and 100") from exc
+
+    if not _MIN_PERCENT <= number <= _MAX_PERCENT:
+        raise RangeInvalid(msg or "expected a percentage between 0 and 100")
+    return number
+
+
+class FromPercentage(_SafeValidator):
+    """Parse a percentage into a ``float`` in 0 to 100.
+
+    Accepts a number or a string ending in ``%`` (the percent sign is stripped before
+    parsing); a bare numeric string works too. ``Percentage`` is the validate-only
+    sibling that checks the same and returns the value unchanged.
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -300,29 +328,25 @@ class Percentage(_SafeValidator):
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> float:
-        """Return the percentage as a float in range, else raise RangeInvalid.
+        """Return the percentage as a float in range, else raise RangeInvalid."""
+        return _percent_value(value, self.msg)
 
-        A ``bool`` is rejected (it is not a meaningful percentage), matching the
-        other numeric validators like ``MultipleOf`` and ``Duration``.
-        """
-        if isinstance(value, bool):
-            message = self.msg or "expected a percentage between 0 and 100"
-            raise RangeInvalid(message)
 
-        raw = value[:-1] if isinstance(value, str) and value.endswith("%") else value
-        try:
-            # ``float`` on an int too large to represent raises OverflowError, and on
-            # an object it calls a user-defined ``__float__`` that may raise anything;
-            # report either cleanly rather than leaking it.
-            number = float(raw)
-        except Exception as exc:
-            message = self.msg or "expected a percentage between 0 and 100"
-            raise RangeInvalid(message) from exc
+class Percentage(_SafeValidator):
+    """Validate a percentage in 0 to 100, returning the value unchanged.
 
-        if not _MIN_PERCENT <= number <= _MAX_PERCENT:
-            message = self.msg or "expected a percentage between 0 and 100"
-            raise RangeInvalid(message)
-        return number
+    Accepts a number or a string ending in ``%`` (a bare numeric string works too).
+    Use ``FromPercentage`` when you want the value parsed to a ``float``.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it is a valid percentage, else raise RangeInvalid."""
+        _percent_value(value, self.msg)
+        return value
 
 
 class Byte(Range):

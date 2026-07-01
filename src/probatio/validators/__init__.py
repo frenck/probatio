@@ -21,6 +21,7 @@ from probatio.validators.comparison import (
     Clamp,
     Contains,
     Equal,
+    FromPercentage,
     In,
     Latitude,
     Length,
@@ -47,9 +48,22 @@ from probatio.validators.conditional import (
     RequiredWithout,
 )
 from probatio.validators.decorators import message, raises, truth, validate
-from probatio.validators.encoding import Base64, Hex, HexInt, JSONString, YAMLString
+from probatio.validators.encoding import (
+    Base64,
+    FromJSONString,
+    FromYAMLString,
+    Hex,
+    HexInt,
+    JSONString,
+    YAMLString,
+)
 from probatio.validators.formats import E164, IBAN, CreditCard, DataURI
-from probatio.validators.identifiers import ULID, UUID, MacAddress
+from probatio.validators.identifiers import (
+    ULID,
+    UUID,
+    MacAddress,
+    NormalizeMacAddress,
+)
 from probatio.validators.network import (
     Fqdn,
     Hostname,
@@ -108,10 +122,12 @@ from probatio.validators.temporal import (
     AsDate,
     AsDatetime,
     AsTime,
+    AsTimedelta,
+    AsTimezone,
     Date,
     Datetime,
     Duration,
-    Epoch,
+    FromEpoch,
     Time,
     TimeZone,
     TimeZoneInfo,
@@ -133,6 +149,8 @@ __all__ = [
     "AsDate",
     "AsDatetime",
     "AsTime",
+    "AsTimedelta",
+    "AsTimezone",
     "AtLeastOne",
     "AtMostOne",
     "Base64",
@@ -153,12 +171,15 @@ __all__ = [
     "Email",
     "EndsWith",
     "EnsureList",
-    "Epoch",
     "Equal",
     "ExactSequence",
     "ExactlyOne",
     "Fqdn",
     "FqdnUrl",
+    "FromEpoch",
+    "FromJSONString",
+    "FromPercentage",
+    "FromYAMLString",
     "Hex",
     "HexColor",
     "HexInt",
@@ -193,6 +214,7 @@ __all__ = [
     "NoWhitespace",
     "NonEmpty",
     "NonNegative",
+    "NormalizeMacAddress",
     "NotIn",
     "Number",
     "Or",

@@ -140,8 +140,8 @@ mean ...?`) and records them on the error's `candidates`.
   conveniences (`> 0`, `< 0`, `>= 0`) over `Range`.
 - `MultipleOf(factor, msg=None)`: require a number to be an integer multiple of
   `factor`.
-- `Percentage(msg=None)`: a number or `"NN%"` string in 0 to 100, returned as a
-  `float`.
+- `Percentage(msg=None)`: validate a number or `"NN%"` string in 0 to 100, returned
+  unchanged. `FromPercentage(msg=None)` parses it to a `float`.
 - `Byte(msg=None)`, `SmallFloat(msg=None)`: a number in 0 to 255, or in 0 to 1.
 - `Latitude(msg=None)`, `Longitude(msg=None)`: a coordinate in -90 to 90, or -180
   to 180.
@@ -204,9 +204,8 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
   with or ends with a fixed affix.
 - `ByteLength(min=None, max=None, msg=None)`: bound the UTF-8 byte length (not the
   code-point count).
-- `HexColor(normalize=True, upper=False, msg=None)`: a hex color string (`#rgb` or
-  `#rrggbb`), lower-cased by default (`upper=True` for uppercase, `normalize=False`
-  to leave it unchanged).
+- `HexColor(msg=None)`: validate a hex color string (`#rgb` or `#rrggbb`), returned
+  unchanged. Compose with `Lower` (or `Upper`) to fold case: `All(HexColor(), Lower)`.
 
 </details>
 
@@ -225,13 +224,18 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
   default, or a `strptime` `format=`).
 - `AsTime(format=None, msg=None)`: parse a string to a `datetime.time` (ISO 8601 by
   default, or a `strptime` `format=`).
-- `Duration(msg=None)`: parse a duration (timedelta, seconds as an int/float/string,
-  `H:MM[:SS]`, an ISO 8601 duration like `P1DT2H30M`, or a mapping) to a `timedelta`.
-- `TimeZoneInfo(msg=None)`: validate an IANA zone name, returned as
-  `zoneinfo.ZoneInfo`.
-- `TimeZone(msg=None)`: parse a fixed UTC offset (`+01:00`, `Z`, `UTC`) to a
-  `datetime.timezone`.
-- `Epoch(unit="seconds", msg=None)`: parse a Unix timestamp (`int` or `float`,
+- `Duration(msg=None)`: validate a duration (timedelta, seconds as an
+  int/float/string, `H:MM[:SS]`, an ISO 8601 duration like `P1DT2H30M`, or a mapping),
+  returning the value unchanged.
+- `AsTimedelta(msg=None)`: parse the same duration forms to a `datetime.timedelta`
+  (the object-returning sibling of `Duration`).
+- `TimeZoneInfo(msg=None)`: validate an IANA zone name, returning it unchanged. Object
+  via `Coerce(zoneinfo.ZoneInfo)`.
+- `TimeZone(msg=None)`: validate a fixed UTC offset (`+01:00`, `Z`, `UTC`), returning it
+  unchanged.
+- `AsTimezone(msg=None)`: parse a fixed UTC offset to a `datetime.timezone` (the
+  object-returning sibling of `TimeZone`).
+- `FromEpoch(unit="seconds", msg=None)`: parse a Unix timestamp (`int` or `float`,
   `unit="seconds"` or `"milliseconds"`) into a timezone-aware UTC `datetime`.
 
 </details>
@@ -252,22 +256,28 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 <details>
 <summary>Network and identifiers</summary>
 
-These are Probatio additions (voluptuous has no equivalent). The typed ones
-coerce to their natural Python object; the format checks pass the string through.
+These are Probatio additions (voluptuous has no equivalent). They validate and
+return the value unchanged; wrap with `Coerce(the type)` when you want the parsed
+Python object.
 
-- `IPv4Address(msg=None)`: an IPv4 address, returned as `ipaddress.IPv4Address`.
-- `IPv6Address(msg=None)`: an IPv6 address, returned as `ipaddress.IPv6Address`.
-- `IPAddress(msg=None)`: an IP address of either version.
-- `IPNetwork(msg=None)`: a CIDR network (host bits allowed), returned as an
-  `ipaddress` network.
-- `MacAddress(normalize=True, upper=False, separator=":", msg=None)`: a MAC
-  address, normalized to `aa:bb:cc:dd:ee:ff` by default. `upper=True` uppercases,
-  `separator=` sets the separator (`""` for bare hex), and `normalize=False`
-  returns the input unchanged.
-- `UUID(msg=None, version=None)`: a UUID, returned as `uuid.UUID`; `version` pins
-  the version.
-- `ULID(msg=None)`: a ULID (26 Crockford base32 characters), normalized to upper
-  case.
+- `IPv4Address(msg=None)`: an IPv4 address string. Object via
+  `Coerce(ipaddress.IPv4Address)`.
+- `IPv6Address(msg=None)`: an IPv6 address string. Object via
+  `Coerce(ipaddress.IPv6Address)`.
+- `IPAddress(msg=None)`: an IP address of either version. Object via
+  `Coerce(ipaddress.ip_address)`.
+- `IPNetwork(msg=None)`: a CIDR network (host bits allowed), returned unchanged (not
+  normalized). Object via `Coerce(lambda v: ipaddress.ip_network(v, strict=False))`
+  (plain `ip_network` defaults to `strict=True` and would reject host bits).
+- `MacAddress(msg=None)`: validate a MAC address (common separators and bare hex),
+  returned unchanged.
+- `NormalizeMacAddress(upper=False, separator=":", msg=None)`: validate and return a
+  canonical MAC (`aa:bb:cc:dd:ee:ff` by default; `upper=True` uppercases, `separator=`
+  sets the separator, `""` for bare hex).
+- `UUID(msg=None, version=None)`: a UUID string, returned unchanged; `version` pins
+  the version. Object via `Coerce(uuid.UUID)`.
+- `ULID(msg=None)`: validate a ULID (26 Crockford base32 characters, either case),
+  returned unchanged. Compose with `Upper` for the canonical upper case.
 - `Hostname(msg=None)`: a hostname (RFC 1123); a bare label like `localhost` is
   valid.
 - `Fqdn(msg=None)`: a fully-qualified domain name (a dotted hostname).
@@ -288,10 +298,14 @@ coerce to their natural Python object; the format checks pass the string through
 <details>
 <summary>Encoding</summary>
 
-- `JSONString(schema=None, msg=None)`: parse a JSON string, optionally validating
-  the decoded value against `schema`.
-- `YAMLString(schema=None, msg=None)`: parse a YAML string (safe-load, needs a YAML
-  backend), optionally validating the decoded value.
+- `JSONString(schema=None, msg=None)`: validate a JSON string (optionally the decoded
+  value against `schema`), returning the string unchanged.
+- `FromJSONString(schema=None, msg=None)`: parse a JSON string to the decoded value
+  (the decoding sibling of `JSONString`), optionally validating it against `schema`.
+- `YAMLString(schema=None, msg=None)`: validate a YAML string (safe-load, needs a YAML
+  backend), returning the string unchanged.
+- `FromYAMLString(schema=None, msg=None)`: parse a YAML string to the decoded value
+  (the decoding sibling of `YAMLString`).
 - `Base64(msg=None)`, `Hex(msg=None)`: validate a Base64 or hexadecimal string,
   returning it unchanged.
 - `HexInt(msg=None)`: parse a hexadecimal integer (a string like `"0x1A"` or `"1a"`,

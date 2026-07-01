@@ -6,6 +6,7 @@ import pytest
 
 from probatio import (
     ASCII,
+    All,
     Alpha,
     Alphanumeric,
     ByteLength,
@@ -241,11 +242,10 @@ def test_hex_color_accepts(value: str) -> None:
     assert Schema(HexColor())(value) == value
 
 
-def test_hex_color_normalizes_case() -> None:
-    """HexColor lower-cases by default, upper-cases with upper=True, keeps the #."""
-    assert Schema(HexColor())("#FF8800") == "#ff8800"
-    assert Schema(HexColor(upper=True))("#ff8800") == "#FF8800"
-    assert Schema(HexColor(normalize=False))("#FF8800") == "#FF8800"
+def test_hex_color_returns_the_value_unchanged() -> None:
+    """HexColor validates and returns the value as given; compose Lower to fold case."""
+    assert Schema(HexColor())("#FF8800") == "#FF8800"
+    assert Schema(All(HexColor(), Lower))("#FF8800") == "#ff8800"
 
 
 @pytest.mark.parametrize("value", ["red", "#xyz", "ff8800", 5])

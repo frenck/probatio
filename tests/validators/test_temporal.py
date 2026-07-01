@@ -11,10 +11,13 @@ from probatio import (
     AsDate,
     AsDatetime,
     AsTime,
+    AsTimedelta,
+    AsTimezone,
+    Coerce,
     Date,
     Datetime,
     Duration,
-    Epoch,
+    FromEpoch,
     MultipleInvalid,
     Schema,
     Time,
@@ -179,15 +182,15 @@ def test_asdatetime_require_timezone_applies_to_a_native_object() -> None:
     assert isinstance(caught.value.errors[0], DatetimeInvalid)
 
 
-def test_duration_passes_through_a_timedelta() -> None:
+def test_astimedelta_passes_through_a_timedelta() -> None:
     """An existing timedelta is returned unchanged."""
     delta = datetime.timedelta(minutes=5)
-    assert Schema(Duration())(delta) == delta
+    assert Schema(AsTimedelta())(delta) == delta
 
 
-def test_duration_from_seconds() -> None:
+def test_astimedelta_from_seconds() -> None:
     """A number is read as a count of seconds."""
-    assert Schema(Duration())(90) == datetime.timedelta(seconds=90)
+    assert Schema(AsTimedelta())(90) == datetime.timedelta(seconds=90)
 
 
 @pytest.mark.parametrize(
@@ -200,14 +203,17 @@ def test_duration_from_seconds() -> None:
         ("100:30", datetime.timedelta(hours=100, minutes=30)),
     ],
 )
-def test_duration_from_colon_string(value: str, expected: datetime.timedelta) -> None:
+def test_astimedelta_from_colon_string(
+    value: str,
+    expected: datetime.timedelta,
+) -> None:
     """A colon string parses into the right timedelta, sign included."""
-    assert Schema(Duration())(value) == expected
+    assert Schema(AsTimedelta())(value) == expected
 
 
-def test_duration_from_mapping() -> None:
+def test_astimedelta_from_mapping() -> None:
     """A mapping of timedelta kwargs builds the duration."""
-    assert Schema(Duration())({"hours": 1, "minutes": 30}) == datetime.timedelta(
+    assert Schema(AsTimedelta())({"hours": 1, "minutes": 30}) == datetime.timedelta(
         hours=1,
         minutes=30,
     )
@@ -222,14 +228,17 @@ def test_duration_from_mapping() -> None:
         (" 90 ", datetime.timedelta(seconds=90)),
     ],
 )
-def test_duration_from_numeric_string(value: str, expected: datetime.timedelta) -> None:
+def test_astimedelta_from_numeric_string(
+    value: str,
+    expected: datetime.timedelta,
+) -> None:
     """A bare numeric string is read as seconds, like an int or float."""
-    assert Schema(Duration())(value) == expected
+    assert Schema(AsTimedelta())(value) == expected
 
 
-def test_duration_numeric_string_matches_int() -> None:
+def test_astimedelta_numeric_string_matches_int() -> None:
     """The numeric string "90" gives the same result as the int 90."""
-    assert Schema(Duration())("90") == Schema(Duration())(90)
+    assert Schema(AsTimedelta())("90") == Schema(AsTimedelta())(90)
 
 
 @pytest.mark.parametrize(
@@ -251,69 +260,93 @@ def test_duration_numeric_string_matches_int() -> None:
         (" P1D ", datetime.timedelta(days=1)),
     ],
 )
-def test_duration_from_iso8601(value: str, expected: datetime.timedelta) -> None:
+def test_astimedelta_from_iso8601(value: str, expected: datetime.timedelta) -> None:
     """An ISO 8601 duration parses into the right timedelta, sign included."""
-    assert Schema(Duration())(value) == expected
+    assert Schema(AsTimedelta())(value) == expected
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        True,
-        "x:y",
-        "nonsense",
-        "",
-        {"bogus": 1},
-        [1],
-        "1:99",  # 99 minutes is out of the 0..59 clock range
-        "0:60",  # 60 minutes is out of range
-        "1:00:99",  # 99 seconds is out of range
-        "P",  # a bare designator carries no fields
-        "PT",  # a time separator with no time field
-        "P1DT",  # a dangling time separator
-        "P1Y",  # a year is not a fixed length
-        "P1M",  # a month is not a fixed length
-        "P1YT1H",  # a year, even alongside a valid field
-        "PT1H1D",  # a date field after the time separator
-        "PX",  # junk after the designator
-    ],
-)
-def test_duration_rejects_invalid(value: object) -> None:
+_INVALID_DURATIONS = [
+    True,
+    "x:y",
+    "nonsense",
+    "",
+    {"bogus": 1},
+    [1],
+    "1:99",  # 99 minutes is out of the 0..59 clock range
+    "0:60",  # 60 minutes is out of range
+    "1:00:99",  # 99 seconds is out of range
+    "P",  # a bare designator carries no fields
+    "PT",  # a time separator with no time field
+    "P1DT",  # a dangling time separator
+    "P1Y",  # a year is not a fixed length
+    "P1M",  # a month is not a fixed length
+    "P1YT1H",  # a year, even alongside a valid field
+    "PT1H1D",  # a date field after the time separator
+    "PX",  # junk after the designator
+]
+_OVERFLOW_DURATIONS = [
+    10**20,
+    "100000000000000:0:0",
+    "inf",
+    "1e400",
+    {"days": 10**20},
+    "P999999999999999999W",  # an ISO 8601 duration past timedelta's range
+]
+
+
+@pytest.mark.parametrize("value", _INVALID_DURATIONS)
+def test_astimedelta_rejects_invalid(value: object) -> None:
     """A bool, a malformed/empty string, bad mapping keys, or a wrong type reject."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Duration())(value)
+        Schema(AsTimedelta())(value)
+    assert isinstance(caught.value.errors[0], DurationInvalid)
+
+
+@pytest.mark.parametrize("value", _OVERFLOW_DURATIONS)
+def test_astimedelta_rejects_overflow(value: object) -> None:
+    """A duration too large for timedelta is rejected, not a leaked OverflowError."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsTimedelta())(value)
     assert isinstance(caught.value.errors[0], DurationInvalid)
 
 
 @pytest.mark.parametrize(
     "value",
-    [
-        10**20,
-        "100000000000000:0:0",
-        "inf",
-        "1e400",
-        {"days": 10**20},
-        "P999999999999999999W",  # an ISO 8601 duration past timedelta's range
-    ],
+    ["1:30:00", "0:45", "90", "P1DT2H", datetime.timedelta(minutes=5)],
 )
-def test_duration_rejects_overflow(value: object) -> None:
-    """A duration too large for timedelta is rejected, not a leaked OverflowError."""
+def test_duration_validates_and_returns_unchanged(value: object) -> None:
+    """Duration validates a duration and returns the value as given (AsTimedelta parses)."""
+    assert Schema(Duration())(value) == value
+
+
+def test_duration_object_via_astimedelta() -> None:
+    """The parsed timedelta is opt-in through AsTimedelta, not the Duration validator."""
+    assert Schema(AsTimedelta())("1:30:00") == datetime.timedelta(hours=1, minutes=30)
+
+
+@pytest.mark.parametrize("value", [*_INVALID_DURATIONS, *_OVERFLOW_DURATIONS])
+def test_duration_rejects_invalid(value: object) -> None:
+    """Duration rejects the same values AsTimedelta rejects, since it validates by it."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Duration())(value)
     assert isinstance(caught.value.errors[0], DurationInvalid)
 
 
-def test_timezoneinfo_resolves_an_iana_name() -> None:
-    """TimeZoneInfo returns a zoneinfo.ZoneInfo for a valid name."""
-    assert Schema(TimeZoneInfo())("Europe/Amsterdam") == zoneinfo.ZoneInfo(
-        "Europe/Amsterdam",
-    )
+def test_timezoneinfo_validates_a_name() -> None:
+    """TimeZoneInfo validates an IANA name and returns it unchanged (Coerce for object)."""
+    assert Schema(TimeZoneInfo())("Europe/Amsterdam") == "Europe/Amsterdam"
 
 
 def test_timezoneinfo_passes_through_a_zoneinfo() -> None:
     """An already-resolved ZoneInfo passes through, so validation is idempotent."""
     zone = zoneinfo.ZoneInfo("Europe/Amsterdam")
     assert Schema(TimeZoneInfo())(zone) is zone
+
+
+def test_timezoneinfo_object_via_coerce() -> None:
+    """The parsed ZoneInfo is opt-in through Coerce, not the validator."""
+    result = Schema(Coerce(zoneinfo.ZoneInfo))("Europe/Amsterdam")
+    assert result == zoneinfo.ZoneInfo("Europe/Amsterdam")
 
 
 @pytest.mark.parametrize("value", ["Mars/Phobos", 5])
@@ -328,43 +361,63 @@ def test_timezoneinfo_rejects_invalid(value: object) -> None:
     ("value", "offset_hours"),
     [("+01:00", 1), ("-0530", -5.5), ("Z", 0), ("UTC", 0), ("+00:00", 0)],
 )
-def test_timezone_parses_a_fixed_offset(value: str, offset_hours: float) -> None:
-    """TimeZone returns a datetime.timezone for a fixed UTC offset, Z, or UTC."""
-    result = Schema(TimeZone())(value)
+def test_astimezone_parses_a_fixed_offset(value: str, offset_hours: float) -> None:
+    """AsTimezone returns a datetime.timezone for a fixed UTC offset, Z, or UTC."""
+    result = Schema(AsTimezone())(value)
     assert isinstance(result, datetime.timezone)
     assert result.utcoffset(None) == datetime.timedelta(hours=offset_hours)
 
 
-def test_timezone_passes_through_a_native_timezone() -> None:
+def test_astimezone_passes_through_a_native_timezone() -> None:
     """An existing datetime.timezone passes through unchanged."""
     tz = datetime.timezone(datetime.timedelta(hours=2))
-    assert Schema(TimeZone())(tz) is tz
+    assert Schema(AsTimezone())(tz) is tz
 
 
-@pytest.mark.parametrize("value", ["Europe/Amsterdam", "noon", "", "+25:00", 5])
-def test_timezone_rejects_a_non_offset(value: object) -> None:
+_INVALID_OFFSETS = ["Europe/Amsterdam", "noon", "", "+25:00", 5]
+
+
+@pytest.mark.parametrize("value", _INVALID_OFFSETS)
+def test_astimezone_rejects_a_non_offset(value: object) -> None:
     """A named zone, junk, an empty string, or an out-of-range offset is rejected."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(AsTimezone())(value)
+    assert isinstance(caught.value.errors[0], TimeZoneInvalid)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["+01:00", "-0530", "Z", "UTC", datetime.timezone(datetime.timedelta(hours=2))],
+)
+def test_timezone_validates_and_returns_unchanged(value: object) -> None:
+    """TimeZone validates an offset and returns it unchanged (AsTimezone for object)."""
+    assert Schema(TimeZone())(value) == value
+
+
+@pytest.mark.parametrize("value", _INVALID_OFFSETS)
+def test_timezone_rejects_a_non_offset(value: object) -> None:
+    """TimeZone rejects the same values AsTimezone rejects, since it validates by it."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(TimeZone())(value)
     assert isinstance(caught.value.errors[0], TimeZoneInvalid)
 
 
 def test_epoch_seconds_returns_aware_utc_datetime() -> None:
-    """Epoch reads a seconds count into a timezone-aware UTC datetime."""
-    result = Schema(Epoch())(1719571800)
+    """FromEpoch reads a seconds count into a timezone-aware UTC datetime."""
+    result = Schema(FromEpoch())(1719571800)
     assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
     assert result.tzinfo is datetime.UTC
 
 
 def test_epoch_milliseconds_unit() -> None:
     """With unit=milliseconds, the count is read as milliseconds since the epoch."""
-    result = Schema(Epoch(unit="milliseconds"))(1719571800000)
+    result = Schema(FromEpoch(unit="milliseconds"))(1719571800000)
     assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
 
 
 def test_epoch_accepts_a_float() -> None:
     """A float epoch keeps sub-second precision."""
-    result = Schema(Epoch())(1719571800.5)
+    result = Schema(FromEpoch())(1719571800.5)
     assert result.microsecond == 500000
 
 
@@ -374,17 +427,17 @@ def test_epoch_accepts_a_float() -> None:
 def test_epoch_rejects_bad_values(value: object) -> None:
     """A bool, a string, NaN, infinity, or an out-of-range value raises EpochInvalid."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Epoch())(value)
+        Schema(FromEpoch())(value)
     assert isinstance(caught.value.errors[0], EpochInvalid)
 
 
 def test_epoch_rejects_an_unknown_unit_at_construction() -> None:
     """An unsupported unit is a schema error, raised when the validator is built."""
     with pytest.raises(SchemaError):
-        Epoch(unit="nanoseconds")
+        FromEpoch(unit="nanoseconds")
 
 
 def test_epoch_repr() -> None:
-    """Epoch renders as a constructor call showing its unit."""
-    assert repr(Epoch()) == "Epoch(unit=seconds)"
-    assert repr(Epoch(unit="milliseconds")) == "Epoch(unit=milliseconds)"
+    """FromEpoch renders as a constructor call showing its unit."""
+    assert repr(FromEpoch()) == "FromEpoch(unit=seconds)"
+    assert repr(FromEpoch(unit="milliseconds")) == "FromEpoch(unit=milliseconds)"
