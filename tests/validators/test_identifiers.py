@@ -6,23 +6,37 @@ import uuid as uuid_module
 
 import pytest
 
-from probatio import ULID, UUID, MacAddress, MultipleInvalid, Schema
+from probatio import (
+    ULID,
+    UUID,
+    MacAddress,
+    MultipleInvalid,
+    NormalizeMacAddress,
+    Schema,
+)
 from probatio.error import MacAddressInvalid, UuidInvalid, ValueInvalid
 
 _SAMPLE = "12345678-1234-5678-1234-567812345678"
 
 
-def test_uuid_coerces_a_string() -> None:
-    """UUID returns a uuid.UUID parsed from the string."""
-    result = Schema(UUID())(_SAMPLE)
-    assert result == uuid_module.UUID(_SAMPLE)
-    assert isinstance(result, uuid_module.UUID)
+def test_uuid_validates_a_string() -> None:
+    """UUID validates a UUID string and returns it unchanged (Coerce for the object)."""
+    assert Schema(UUID())(_SAMPLE) == _SAMPLE
 
 
 def test_uuid_accepts_an_existing_uuid() -> None:
     """An existing uuid.UUID passes through unchanged."""
     value = uuid_module.uuid4()
     assert Schema(UUID())(value) is value
+
+
+def test_uuid_object_via_coerce() -> None:
+    """The parsed uuid.UUID object is opt-in through Coerce, not the validator."""
+    from probatio import Coerce  # noqa: PLC0415
+
+    result = Schema(Coerce(uuid_module.UUID))(_SAMPLE)
+    assert result == uuid_module.UUID(_SAMPLE)
+    assert isinstance(result, uuid_module.UUID)
 
 
 def test_uuid_rejects_a_bad_value() -> None:
@@ -35,7 +49,7 @@ def test_uuid_rejects_a_bad_value() -> None:
 def test_uuid_version_pin() -> None:
     """A version-pinned UUID accepts the right version and rejects others."""
     v4 = str(uuid_module.uuid4())
-    assert Schema(UUID(version=4))(v4) == uuid_module.UUID(v4)
+    assert Schema(UUID(version=4))(v4) == v4
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(UUID(version=4))(_SAMPLE)  # this sample is version 1-shaped
@@ -46,9 +60,9 @@ def test_uuid_version_pin() -> None:
     "value",
     ["AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff", "aabb.ccdd.eeff", "AABBCCDDEEFF"],
 )
-def test_mac_address_normalizes(value: str) -> None:
-    """MacAddress accepts common forms and normalizes to lowercase colon form."""
-    assert Schema(MacAddress())(value) == "aa:bb:cc:dd:ee:ff"
+def test_mac_address_validates_and_returns_unchanged(value: str) -> None:
+    """MacAddress accepts common forms and returns the value unchanged."""
+    assert Schema(MacAddress())(value) == value
 
 
 @pytest.mark.parametrize("value", [123, "xx", "AA:BB:CC", "AA:BB:CC:DD:EE:GG"])
@@ -59,28 +73,36 @@ def test_mac_address_rejects_invalid(value: object) -> None:
     assert isinstance(caught.value.errors[0], MacAddressInvalid)
 
 
-def test_mac_address_upper_and_separator() -> None:
-    """upper and separator control the normalized output."""
-    assert Schema(MacAddress(upper=True))("aa-bb-cc-dd-ee-ff") == "AA:BB:CC:DD:EE:FF"
-    assert Schema(MacAddress(separator="-"))("aabbccddeeff") == "aa-bb-cc-dd-ee-ff"
-    assert Schema(MacAddress(separator=""))("AA:BB:CC:DD:EE:FF") == "aabbccddeeff"
+@pytest.mark.parametrize(
+    "value",
+    ["AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff", "aabb.ccdd.eeff", "AABBCCDDEEFF"],
+)
+def test_normalize_mac_address_canonicalizes(value: str) -> None:
+    """NormalizeMacAddress returns the lowercase colon form."""
+    assert Schema(NormalizeMacAddress())(value) == "aa:bb:cc:dd:ee:ff"
+
+
+def test_normalize_mac_address_upper_and_separator() -> None:
+    """upper and separator control the canonical output."""
+    got = Schema(NormalizeMacAddress(upper=True))("aa-bb-cc-dd-ee-ff")
+    assert got == "AA:BB:CC:DD:EE:FF"
     assert (
-        Schema(MacAddress(upper=True, separator="-"))("aabbccddeeff")
+        Schema(NormalizeMacAddress(separator="-"))("aabbccddeeff")
+        == "aa-bb-cc-dd-ee-ff"
+    )
+    assert (
+        Schema(NormalizeMacAddress(separator=""))("AA:BB:CC:DD:EE:FF") == "aabbccddeeff"
+    )
+    assert (
+        Schema(NormalizeMacAddress(upper=True, separator="-"))("aabbccddeeff")
         == "AA-BB-CC-DD-EE-FF"
     )
 
 
-def test_mac_address_normalize_false_returns_input_unchanged() -> None:
-    """normalize=False validates but returns the original string verbatim."""
-    assert (
-        Schema(MacAddress(normalize=False))("AA-bb-CC-dd-EE-ff") == "AA-bb-CC-dd-EE-ff"
-    )
-
-
-def test_mac_address_normalize_false_still_validates() -> None:
-    """normalize=False still rejects a malformed MAC."""
+def test_normalize_mac_address_rejects_invalid() -> None:
+    """NormalizeMacAddress still rejects a malformed MAC."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(MacAddress(normalize=False))("nope")
+        Schema(NormalizeMacAddress())("nope")
     assert isinstance(caught.value.errors[0], MacAddressInvalid)
 
 
@@ -91,9 +113,10 @@ def test_custom_messages() -> None:
     assert caught.value.errors[0].error_message == "bad uuid"
 
 
-def test_ulid_normalizes_to_upper_case() -> None:
-    """ULID accepts a 26-char Crockford base32 string, normalized to upper case."""
-    assert Schema(ULID())("01arz3ndektsv4rrffq69g5fav") == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+def test_ulid_validates_and_returns_unchanged() -> None:
+    """ULID accepts a 26-char Crockford base32 string of either case, unchanged."""
+    assert Schema(ULID())("01arz3ndektsv4rrffq69g5fav") == "01arz3ndektsv4rrffq69g5fav"
+    assert Schema(ULID())("01ARZ3NDEKTSV4RRFFQ69G5FAV") == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
 @pytest.mark.parametrize("value", ["short", "01arz3ndektsv4rrffq69g5fai", 5])

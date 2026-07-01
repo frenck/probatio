@@ -80,18 +80,22 @@ Schema(Number(precision=4, scale=2))("12.34")    # '12.34'
 `Positive`, `Negative`, and `NonNegative` are sign conveniences over `Range`.
 `Byte` (0 to 255) and `SmallFloat` (0 to 1) are bounded ranges, and `Latitude`
 (-90 to 90) and `Longitude` (-180 to 180) bound geographic coordinates.
-`MultipleOf` requires an integer multiple. `Percentage` takes a number or a
-`"NN%"` string in 0 to 100 and returns a float. None of these coerce the type
-otherwise; wrap with `Coerce` for that (`All(Coerce(int), NonNegative())`).
+`MultipleOf` requires an integer multiple. `Percentage` validates a number or a
+`"NN%"` string in 0 to 100 and returns it unchanged; `FromPercentage` parses it to a
+float. None of these coerce the type otherwise; wrap with `Coerce` for that
+(`All(Coerce(int), NonNegative())`).
 
 ```python
-from probatio import Schema, Positive, MultipleOf, Percentage, Latitude, Longitude
+from probatio import (
+    Schema, Positive, MultipleOf, Percentage, FromPercentage, Latitude, Longitude,
+)
 
-Schema(Positive())(5)         # 5
-Schema(MultipleOf(15))(45)    # 45
-Schema(Percentage())("80%")   # 80.0
-Schema(Latitude())(52.37)     # 52.37
-Schema(Longitude())(4.9)      # 4.9
+Schema(Positive())(5)               # 5
+Schema(MultipleOf(15))(45)          # 45
+Schema(Percentage())("80%")         # '80%'
+Schema(FromPercentage())("80%")     # 80.0
+Schema(Latitude())(52.37)           # 52.37
+Schema(Longitude())(4.9)            # 4.9
 ```
 
 ## Collections and structure
@@ -202,7 +206,7 @@ from probatio import Schema, Alphanumeric, StartsWith, HexColor
 
 Schema(Alphanumeric())("abc123")     # 'abc123'
 Schema(StartsWith("https://"))("https://example.com")  # 'https://example.com'
-Schema(HexColor())("#FF8800")        # '#ff8800' (normalized; upper=True for uppercase)
+Schema(HexColor())("#FF8800")        # '#FF8800' (validated, unchanged; use Lower to fold case)
 ```
 
 :::tip
@@ -247,26 +251,33 @@ Schema(Date())("2026-06-25")                        # '2026-06-25'
 Schema(Date(format="%d/%m/%Y"))("25/06/2026")       # '25/06/2026'
 ```
 
-`Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration`,
-`TimeZoneInfo`, and `TimeZone` are Probatio additions that coerce to a Python
-object: `Duration` parses a `timedelta`, a number of seconds (an `int`, `float`, or
-numeric string), a `H:MM[:SS]` string, an ISO 8601 duration (`P1DT2H30M`, `PT45S`,
-`-P3D`), or a mapping into a `datetime.timedelta`; `TimeZoneInfo` resolves an IANA
-name to a `zoneinfo.ZoneInfo`, while `TimeZone` parses a fixed UTC offset (`+01:00`,
-`Z`, `UTC`) into a `datetime.timezone`. An ISO 8601 duration is limited to the
-fields a `timedelta` can represent (weeks, days, hours, minutes, seconds); a year
-or a month is rejected, since neither is a fixed length.
+`Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration` validates a
+duration (a `timedelta`, a number of seconds as an `int`/`float`/numeric string, a
+`H:MM[:SS]` string, an ISO 8601 duration like `P1DT2H30M`, or a `timedelta` keyword
+mapping) and returns the value unchanged; `AsTimedelta` accepts the same forms and
+returns the parsed `datetime.timedelta`, the same `Datetime`/`AsDatetime` split. An
+ISO 8601 duration is limited to the fields a `timedelta` can represent (weeks, days,
+hours, minutes, seconds); a year or a month is rejected, since neither is a fixed
+length. `TimeZoneInfo` validates an IANA name (object via `Coerce(zoneinfo.ZoneInfo)`,
+whose constructor takes the name), and `TimeZone` validates a fixed UTC offset
+(`+01:00`, `Z`, `UTC`), with `AsTimezone` as the object-returning sibling that parses
+the offset into a `datetime.timezone`.
 
 ```python
-from probatio import Schema, Time, Duration, TimeZone, TimeZoneInfo
+import zoneinfo
+
+from probatio import (
+    Schema, Time, Duration, AsTimedelta, TimeZone, TimeZoneInfo, AsTimezone, Coerce,
+)
 
 Schema(Time())("14:30:00")                  # '14:30:00'
-Schema(Duration())("1:30:00")               # datetime.timedelta(seconds=5400)
-Schema(Duration())(90)                      # datetime.timedelta(seconds=90)
-Schema(Duration())("90")                    # datetime.timedelta(seconds=90)
-Schema(Duration())("P1DT2H30M")             # datetime.timedelta(days=1, seconds=9000)
-Schema(TimeZoneInfo())("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
-Schema(TimeZone())("+01:00")                # datetime.timezone(datetime.timedelta(seconds=3600))
+Schema(Duration())("1:30:00")               # '1:30:00'
+Schema(AsTimedelta())("1:30:00")            # datetime.timedelta(seconds=5400)
+Schema(AsTimedelta())("P1DT2H30M")          # datetime.timedelta(days=1, seconds=9000)
+Schema(TimeZoneInfo())("Europe/Amsterdam")  # 'Europe/Amsterdam'
+Schema(Coerce(zoneinfo.ZoneInfo))("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
+Schema(TimeZone())("+01:00")                # '+01:00'
+Schema(AsTimezone())("+01:00")              # datetime.timezone(datetime.timedelta(seconds=3600))
 ```
 
 `AsDatetime`, `AsDate`, and `AsTime` are the object-returning siblings of
@@ -296,60 +307,73 @@ Parsing uses the standard library on purpose: a faster backend like ciso8601
 accepts a different set of strings and returns a different `tzinfo` type, which
 would make validation depend on what happens to be installed.
 
-`Epoch` reads a Unix timestamp (an `int` or `float`) into a timezone-aware UTC
+`FromEpoch` reads a Unix timestamp (an `int` or `float`) into a timezone-aware UTC
 `datetime`. It takes `unit="seconds"` by default or `unit="milliseconds"`. The
 result is always UTC: a naive, local datetime would depend on the host's time
 zone, so the same input would validate to a different moment on a different
 machine.
 
 ```python
-from probatio import Schema, Epoch
+from probatio import Schema, FromEpoch
 
-Schema(Epoch())(1719571800)
+Schema(FromEpoch())(1719571800)
 # datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.timezone.utc)
-Schema(Epoch(unit="milliseconds"))(1719571800000)
+Schema(FromEpoch(unit="milliseconds"))(1719571800000)
 # datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.timezone.utc)
 ```
 
 ## Network and identifiers
 
-These have no voluptuous equivalent; they are Probatio additions. The typed ones
-coerce to a real Python object (the reason to use them over a regular
-expression): `IPv4Address`/`IPv6Address`/`IPAddress` return `ipaddress` objects,
-`IPNetwork` a network, `UUID` a `uuid.UUID`, `MacAddress` the normalized string,
-`Port` an `int`. `Hostname` and `Fqdn` are format checks that pass the string
-through.
+These have no voluptuous equivalent; they are Probatio additions. They validate
+and return the value unchanged: `IPv4Address`/`IPv6Address`/`IPAddress`/`IPNetwork`
+check the address or network, `UUID` checks a UUID, `MacAddress` a MAC address,
+`Hostname` and `Fqdn` a name, and `Port` returns an `int`. When you want the parsed
+Python object rather than the validated string, wrap the type with `Coerce` (its
+constructor takes the string), and use `NormalizeMacAddress` for a canonical MAC.
 
 ```python
 from probatio import Schema, IPAddress, UUID, MacAddress, Port, ULID
 
-Schema(IPAddress())("192.0.2.1")  # IPv4Address('192.0.2.1')
+Schema(IPAddress())("192.0.2.1")  # '192.0.2.1'
 Schema(UUID())("12345678-1234-5678-1234-567812345678")
-# UUID('12345678-1234-5678-1234-567812345678')
-Schema(MacAddress())("AA-BB-CC-DD-EE-FF")  # 'aa:bb:cc:dd:ee:ff'
+# '12345678-1234-5678-1234-567812345678'
+Schema(MacAddress())("AA-BB-CC-DD-EE-FF")  # 'AA-BB-CC-DD-EE-FF'
 Schema(Port())("8080")  # 8080
 Schema(ULID())("01ARZ3NDEKTSV4RRFFQ69G5FAV")  # '01ARZ3NDEKTSV4RRFFQ69G5FAV'
 ```
 
-`MacAddress` normalizes to lowercase, colon-separated form by default. Pass
-`upper=True`, a different `separator` (`""` for bare hex), or `normalize=False`
-to validate without rewriting the input:
+Reach for `Coerce` when you want the object instead of the validated string:
 
 ```python
-from probatio import Schema, MacAddress
+import ipaddress
+from uuid import UUID as UUIDType
 
-Schema(MacAddress(upper=True))("aa-bb-cc-dd-ee-ff")  # 'AA:BB:CC:DD:EE:FF'
-Schema(MacAddress(separator="-"))("aabbccddeeff")  # 'aa-bb-cc-dd-ee-ff'
-Schema(MacAddress(normalize=False))("AA-BB-cc-dd-ee-ff")  # 'AA-BB-cc-dd-ee-ff'
+from probatio import Schema, Coerce
+
+Schema(Coerce(ipaddress.IPv4Address))("192.0.2.1")  # IPv4Address('192.0.2.1')
+Schema(Coerce(UUIDType))("12345678-1234-5678-1234-567812345678")
+# UUID('12345678-1234-5678-1234-567812345678')
 ```
 
-`IPNetwork` accepts host bits and normalizes to the network; `Hostname` takes a
-bare label, `Fqdn` requires a dotted name:
+`NormalizeMacAddress` rewrites a MAC to a canonical form, lowercase and
+colon-separated by default. Pass `upper=True` or a different `separator` (`""` for
+bare hex); `MacAddress` itself only validates and returns the input unchanged:
+
+```python
+from probatio import Schema, NormalizeMacAddress
+
+Schema(NormalizeMacAddress())("AA-BB-CC-DD-EE-FF")  # 'aa:bb:cc:dd:ee:ff'
+Schema(NormalizeMacAddress(upper=True))("aa-bb-cc-dd-ee-ff")  # 'AA:BB:CC:DD:EE:FF'
+Schema(NormalizeMacAddress(separator="-"))("aabbccddeeff")  # 'aa-bb-cc-dd-ee-ff'
+```
+
+`IPNetwork` accepts host bits (it validates, it does not normalize to the network);
+`Hostname` takes a bare label, `Fqdn` requires a dotted name:
 
 ```python
 from probatio import Schema, IPNetwork, Hostname, Fqdn
 
-Schema(IPNetwork())("192.0.2.5/24")  # IPv4Network('192.0.2.0/24')
+Schema(IPNetwork())("192.0.2.5/24")  # '192.0.2.5/24'
 Schema(Hostname())("localhost")      # 'localhost'
 Schema(Fqdn())("host.example.com")   # 'host.example.com'
 ```
@@ -376,16 +400,19 @@ humanize the validated output, not the raw data, when secrets are involved.
 
 ## Encoding
 
-`JSONString` and `YAMLString` parse a string of JSON or YAML and return the
-decoded value, optionally validating it against an inner schema. YAML is parsed
-with the safe loader, and `YAMLString` needs a YAML backend installed (it raises a
-clear error at build time otherwise).
+`JSONString` and `YAMLString` validate that a string is valid JSON or YAML (and, with
+an inner schema, that the decoded value matches it) and return the string unchanged.
+`FromJSONString` and `FromYAMLString` are the decoding siblings: they parse the string
+and return the decoded value. YAML is parsed with the safe loader, and the YAML
+validators need a YAML backend installed (they raise a clear error at build time
+otherwise).
 
 ```python
-from probatio import Schema, JSONString
+from probatio import Schema, JSONString, FromJSONString
 
-Schema(JSONString())('{"a": 1, "b": [2, 3]}')  # {'a': 1, 'b': [2, 3]}
-Schema(JSONString({"port": int}))('{"port": 8080}')  # {'port': 8080}
+Schema(JSONString())('{"a": 1, "b": [2, 3]}')          # '{"a": 1, "b": [2, 3]}'
+Schema(FromJSONString())('{"a": 1, "b": [2, 3]}')      # {'a': 1, 'b': [2, 3]}
+Schema(FromJSONString({"port": int}))('{"port": 8080}')  # {'port': 8080}
 ```
 
 `Base64` and `Hex` validate that a string is a valid encoding (they return it

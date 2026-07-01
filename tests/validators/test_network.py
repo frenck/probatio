@@ -7,6 +7,7 @@ import ipaddress
 import pytest
 
 from probatio import (
+    Coerce,
     Fqdn,
     Hostname,
     IPAddress,
@@ -20,9 +21,14 @@ from probatio import (
 from probatio.error import HostnameInvalid, IpInvalid, RangeInvalid
 
 
-def test_ipv4_address_coerces() -> None:
-    """IPv4Address returns an ipaddress.IPv4Address."""
-    result = Schema(IPv4Address())("192.0.2.1")
+def test_ipv4_address_validates_and_returns_unchanged() -> None:
+    """IPv4Address validates the value and returns it unchanged (Coerce for object)."""
+    assert Schema(IPv4Address())("192.0.2.1") == "192.0.2.1"
+
+
+def test_ipv4_address_object_via_coerce() -> None:
+    """The parsed ipaddress object is opt-in through Coerce, not the validator."""
+    result = Schema(Coerce(ipaddress.IPv4Address))("192.0.2.1")
     assert result == ipaddress.IPv4Address("192.0.2.1")
     assert isinstance(result, ipaddress.IPv4Address)
 
@@ -34,9 +40,9 @@ def test_ipv4_address_rejects_a_bad_value() -> None:
     assert isinstance(caught.value.errors[0], IpInvalid)
 
 
-def test_ipv6_address_coerces() -> None:
-    """IPv6Address returns an ipaddress.IPv6Address."""
-    assert Schema(IPv6Address())("::1") == ipaddress.IPv6Address("::1")
+def test_ipv6_address_validates_and_returns_unchanged() -> None:
+    """IPv6Address validates the value and returns it unchanged."""
+    assert Schema(IPv6Address())("::1") == "::1"
 
 
 def test_ipv6_address_rejects_a_bad_value() -> None:
@@ -46,9 +52,9 @@ def test_ipv6_address_rejects_a_bad_value() -> None:
 
 
 def test_ip_address_accepts_either_version() -> None:
-    """IPAddress accepts both v4 and v6."""
-    assert Schema(IPAddress())("192.0.2.1") == ipaddress.IPv4Address("192.0.2.1")
-    assert Schema(IPAddress())("::1") == ipaddress.IPv6Address("::1")
+    """IPAddress accepts both v4 and v6, returning the value unchanged."""
+    assert Schema(IPAddress())("192.0.2.1") == "192.0.2.1"
+    assert Schema(IPAddress())("::1") == "::1"
 
 
 def test_ip_address_rejects_a_bad_value() -> None:
@@ -57,14 +63,14 @@ def test_ip_address_rejects_a_bad_value() -> None:
         Schema(IPAddress())("nope")
 
 
-def test_ip_network_parses_cidr() -> None:
-    """IPNetwork parses a CIDR network."""
-    assert Schema(IPNetwork())("192.0.2.0/24") == ipaddress.ip_network("192.0.2.0/24")
+def test_ip_network_validates_cidr() -> None:
+    """IPNetwork validates a CIDR network and returns it unchanged."""
+    assert Schema(IPNetwork())("192.0.2.0/24") == "192.0.2.0/24"
 
 
 def test_ip_network_allows_host_bits() -> None:
-    """Host bits are allowed and normalized to the network."""
-    assert Schema(IPNetwork())("192.0.2.5/24") == ipaddress.ip_network("192.0.2.0/24")
+    """Host bits are allowed and the value is returned unchanged, not normalized."""
+    assert Schema(IPNetwork())("192.0.2.5/24") == "192.0.2.5/24"
 
 
 def test_ip_network_rejects_a_bad_value() -> None:

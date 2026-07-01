@@ -5,7 +5,7 @@ return it unchanged, matching voluptuous's string-in, string-out behavior.
 ``AsDatetime``/``AsDate``/``AsTime`` are the object-returning siblings: they parse
 ISO 8601 out of the box (or a ``format=`` you pass) and hand back the parsed
 ``datetime``/``date``/``time`` instead of the original string. ``Duration``,
-``TimeZoneInfo``, ``TimeZone``, and ``Epoch`` are probatio additions that coerce to
+``TimeZoneInfo``, ``TimeZone``, and ``FromEpoch`` are probatio additions that coerce to
 a Python object (``datetime.timedelta``, a named-zone ``zoneinfo.ZoneInfo``, a
 fixed-offset ``datetime.timezone``, and a UTC ``datetime`` from a Unix timestamp),
 since that typed value is the point.
@@ -61,7 +61,7 @@ _ISO8601_DURATION = re.compile(
 _UTC_OFFSET = re.compile(r"[+-]\d{2}:?\d{2}")
 _TZ_OFFSET_MSG = "expected a UTC offset like +01:00, Z, or UTC"
 
-# How many epoch sub-units make one second, per accepted ``Epoch`` unit.
+# How many epoch sub-units make one second, per accepted ``FromEpoch`` unit.
 _EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}
 
 
@@ -268,8 +268,8 @@ class AsTime(_SafeValidator):
             raise TimeInvalid(message) from exc
 
 
-class Duration(_SafeValidator):
-    """Validate a duration, returning a ``datetime.timedelta``.
+class AsTimedelta(_SafeValidator):
+    """Parse a duration into a ``datetime.timedelta``.
 
     Accepts a ``timedelta`` (passed through), a number of seconds (an ``int``,
     ``float``, or numeric string like ``"90"``), a colon string (``"H:MM"`` or
@@ -277,7 +277,8 @@ class Duration(_SafeValidator):
     ``"PT45S"``, ``"-P3D"``), or a mapping of ``timedelta`` keyword arguments
     (``{"hours": 1, "minutes": 30}``). An ISO 8601 duration is limited to the fields
     a ``timedelta`` can represent (weeks, days, hours, minutes, seconds); years and
-    months are rejected, since neither is a fixed length.
+    months are rejected, since neither is a fixed length. ``Duration`` is the
+    validate-only sibling that checks the same forms and returns the value unchanged.
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -316,8 +317,8 @@ class Duration(_SafeValidator):
 
         An ISO 8601 duration (``"P1DT2H"``, ``"PT30M"``, ``"-P3D"``) is coerced to a
         ``timedelta``. A bare numeric string (``"90"``, ``"90.5"``) is read as
-        seconds, matching an ``int``/``float`` input, so ``Duration`` covers the whole
-        time-period family rather than only the colon form.
+        seconds, matching an ``int``/``float`` input, so ``AsTimedelta`` covers the
+        whole time-period family rather than only the colon form.
         """
         text = value.strip()
 
@@ -392,36 +393,58 @@ class Duration(_SafeValidator):
             raise DurationInvalid(self.msg or _DURATION_MSG) from exc
 
 
-class TimeZoneInfo(_SafeValidator):
-    """Validate an IANA time zone name, returning a ``zoneinfo.ZoneInfo``.
+class Duration(_SafeValidator):
+    """Validate a duration, returning the value unchanged.
 
-    For a fixed UTC offset (``+01:00``) rather than a named zone, use ``TimeZone``,
-    which returns a ``datetime.timezone``.
+    Accepts the same forms as ``AsTimedelta`` (a ``timedelta``, a number of seconds, a
+    ``H:MM``/``H:MM:SS`` or ISO 8601 duration string, or a ``timedelta`` keyword
+    mapping) and hands the value back as given. Use ``AsTimedelta`` when you want the
+    parsed ``datetime.timedelta`` object instead.
     """
 
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> zoneinfo.ZoneInfo:
-        """Return the resolved time zone, else raise TimeZoneInvalid."""
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it is a valid duration, else raise DurationInvalid."""
+        AsTimedelta(msg=self.msg)(value)
+        return value
+
+
+class TimeZoneInfo(_SafeValidator):
+    """Validate an IANA time zone name, returning the value unchanged.
+
+    Use ``Coerce(zoneinfo.ZoneInfo)`` when you want the parsed ``zoneinfo.ZoneInfo``
+    object. For a fixed UTC offset (``+01:00``) rather than a named zone, use
+    ``TimeZone`` (with ``AsTimezone`` for the ``datetime.timezone`` object).
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it is a valid IANA zone, else raise TimeZoneInvalid."""
         if isinstance(value, zoneinfo.ZoneInfo):
             # An already-resolved zone passes through, so validation is idempotent.
             return value
         try:
-            return zoneinfo.ZoneInfo(value)
+            zoneinfo.ZoneInfo(value)
         except (KeyError, ValueError, TypeError, RuntimeError) as exc:
             # ZoneInfoNotFoundError is a KeyError; a bad path is a ValueError; a
             # non-string is a TypeError; a tuple trips the weak-cache RuntimeError.
             raise TimeZoneInvalid(self.msg or "expected an IANA time zone") from exc
+        return value
 
 
-class TimeZone(_SafeValidator):
-    """Coerce a fixed UTC offset into a ``datetime.timezone``.
+class AsTimezone(_SafeValidator):
+    """Parse a fixed UTC offset into a ``datetime.timezone``.
 
     Accepts an offset string (``+01:00``, ``-0530``, ``Z``), the literal ``UTC``, or
-    a native ``datetime.timezone`` (passed through). For a named IANA zone
-    (``Europe/Amsterdam``), use ``TimeZoneInfo``, which returns a ``ZoneInfo``.
+    a native ``datetime.timezone`` (passed through). ``TimeZone`` is the validate-only
+    sibling that checks the same forms and returns the value unchanged. For a named
+    IANA zone (``Europe/Amsterdam``), use ``TimeZoneInfo``.
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -456,7 +479,26 @@ class TimeZone(_SafeValidator):
             raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG) from exc
 
 
-class Epoch(_SafeValidator):
+class TimeZone(_SafeValidator):
+    """Validate a fixed UTC offset, returning the value unchanged.
+
+    Accepts an offset string (``+01:00``, ``-0530``, ``Z``, ``UTC``) or a native
+    ``datetime.timezone`` (passed through), and returns it as given. Use
+    ``AsTimezone`` when you want the parsed ``datetime.timezone`` object. For a named
+    IANA zone (``Europe/Amsterdam``), use ``TimeZoneInfo``.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value if it is a valid UTC offset, else raise TimeZoneInvalid."""
+        AsTimezone(msg=self.msg)(value)
+        return value
+
+
+class FromEpoch(_SafeValidator):
     """Parse a Unix timestamp into a timezone-aware ``datetime.datetime`` in UTC.
 
     Accepts an ``int`` or ``float`` count since the epoch (1970-01-01 UTC),
@@ -477,7 +519,7 @@ class Epoch(_SafeValidator):
 
     def __repr__(self) -> str:
         """Render as a constructor call, matching the temporal validators."""
-        return f"Epoch(unit={self.unit})"
+        return f"FromEpoch(unit={self.unit})"
 
     def __call__(self, value: typing.Any) -> datetime.datetime:
         """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""

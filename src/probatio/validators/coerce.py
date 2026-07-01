@@ -53,6 +53,11 @@ class Coerce[T](_SafeValidator):
         except Invalid:
             raise
         except Exception as exc:
+            if isinstance(self.type, type) and isinstance(value, self.type):
+                # Already the target type; the constructor just cannot take its own
+                # instance (``uuid.UUID(a_uuid)`` raises). Pass it through so coercion
+                # is idempotent: re-validating an already-coerced value does not fail.
+                return typing.cast("T", value)
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib.
             raise CoerceInvalid(

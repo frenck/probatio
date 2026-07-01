@@ -35,8 +35,9 @@ from probatio.validators import (
     Date,
     Datetime,
     Email,
-    Epoch,
     FqdnUrl,
+    FromEpoch,
+    FromPercentage,
     In,
     Length,
     Lower,
@@ -326,7 +327,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, Datetime | AsDatetime):
         return {"type": "string", "format": "date-time"}
 
-    if isinstance(node, Epoch):
+    if isinstance(node, FromEpoch):
         # A Unix timestamp is an integer on the wire; the datetime is internal.
         return {"type": "integer"}
     if isinstance(node, Match):
@@ -354,7 +355,7 @@ def _oa_typed(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
         return {"type": "string"}
     if isinstance(node, Port):
         return {"type": "integer", "minimum": _OA_PORT_MIN, "maximum": _OA_PORT_MAX}
-    if isinstance(node, Percentage):
+    if isinstance(node, Percentage | FromPercentage):
         return {
             "type": "number",
             "minimum": _OA_PERCENT_MIN,

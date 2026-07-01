@@ -11,6 +11,7 @@ from probatio import (
     Clamp,
     Contains,
     Equal,
+    FromPercentage,
     In,
     Latitude,
     Length,
@@ -335,18 +336,29 @@ def test_multiple_of_rejects_a_bad_factor_at_build_time(factor: object) -> None:
         MultipleOf(factor)
 
 
-def test_percentage_accepts_numbers_and_percent_strings() -> None:
-    """Percentage accepts a number, a percent string, or a bare numeric string."""
-    assert Schema(Percentage())(50) == 50.0
-    assert Schema(Percentage())("75%") == 75.0
-    assert Schema(Percentage())("20") == 20.0
+def test_percentage_validates_and_returns_unchanged() -> None:
+    """Percentage accepts a number or a percent string and returns the value as given."""
+    assert Schema(Percentage())(50) == 50
+    assert Schema(Percentage())("75%") == "75%"
+    assert Schema(Percentage())("20") == "20"
 
 
+def test_from_percentage_parses_to_a_float() -> None:
+    """FromPercentage parses a number, a percent string, or a numeric string to a float."""
+    assert Schema(FromPercentage())(50) == 50.0
+    assert Schema(FromPercentage())("75%") == 75.0
+    assert Schema(FromPercentage())("20") == 20.0
+
+
+@pytest.mark.parametrize("validator", [Percentage, FromPercentage])
 @pytest.mark.parametrize("value", [150, -1, "abc", True, False])
-def test_percentage_rejects_out_of_range_or_non_numeric(value: object) -> None:
+def test_percentage_rejects_out_of_range_or_non_numeric(
+    validator: type,
+    value: object,
+) -> None:
     """A percentage outside 0..100, a non-numeric, or a bool raises RangeInvalid."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Percentage())(value)
+        Schema(validator())(value)
     assert isinstance(caught.value.errors[0], RangeInvalid)
 
 

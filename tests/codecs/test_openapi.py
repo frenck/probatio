@@ -26,8 +26,8 @@ from probatio import (
     AsTime,
     Base64,
     Date,
-    Epoch,
     Fqdn,
+    FromEpoch,
     Hostname,
     IPAddress,
     IPv4Address,
@@ -307,7 +307,7 @@ def test_bare_callable_with_unresolvable_annotation_is_open_schema() -> None:
         (Port(), {"type": "integer", "minimum": 1, "maximum": 65535}),
         (Percentage(), {"type": "number", "minimum": 0, "maximum": 100}),
         (MultipleOf(5), {"type": "number", "multipleOf": 5}),
-        (Epoch(), {"type": "integer"}),
+        (FromEpoch(), {"type": "integer"}),
         (Secret(str), {"type": "string", "writeOnly": True}),
     ],
 )

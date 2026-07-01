@@ -165,31 +165,20 @@ class ByteLength(_SafeValidator):
 
 
 class HexColor(_SafeValidator):
-    """Require a hex color string (``#rgb`` or ``#rrggbb``).
+    """Require a hex color string (``#rgb`` or ``#rrggbb``), returning it unchanged.
 
-    With ``normalize`` (the default) the value is lower-cased, or upper-cased with
-    ``upper=True``, keeping the leading ``#``; ``normalize=False`` returns it
-    unchanged.
+    Normalization here is only case folding, so compose with ``Lower`` (or ``Upper``)
+    for a canonical case: ``All(HexColor(), Lower)``.
     """
 
-    def __init__(
-        self,
-        normalize: bool = True,
-        *,
-        upper: bool = False,
-        msg: str | None = None,
-    ) -> None:
-        """Store the normalization options and an optional custom message."""
-        self.normalize = normalize
-        self.upper = upper
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
         self.msg = msg
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the hex color (cased when normalizing), else MatchInvalid."""
+        """Return the value if it is a valid hex color, else raise MatchInvalid."""
         if isinstance(value, str) and _HEX_COLOR.match(value):
-            if not self.normalize:
-                return value
-            return value.upper() if self.upper else value.lower()
+            return value
         raise MatchInvalid(self.msg or "expected a hex color like #rrggbb")
 
 
