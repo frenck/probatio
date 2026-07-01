@@ -437,6 +437,22 @@ def test_secret_key_exports_write_only() -> None:
     }
 
 
+def test_secret_layer_description_is_kept() -> None:
+    """A description carried on the Secret layer survives into the property."""
+    schema = Schema({Required(Secret("password", description="the token")): str})
+    prop = to_json_schema(schema)["properties"]["password"]
+    assert prop["description"] == "the token"
+    assert prop["writeOnly"] is True
+
+
+def test_secret_around_a_type_key_is_rejected_by_the_codec() -> None:
+    """A raw mapping with Secret around a type key is refused, like the compiler."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError):
+        to_json_schema({Secret(str): int})
+
+
 def test_time_is_not_exported_as_datetime() -> None:
     """Time (a Datetime subclass) exports format time, not date-time."""
     assert to_json_schema(Schema(Time()))["format"] == "time"

@@ -49,11 +49,7 @@ def test_humanize_multiple_errors_joined() -> None:
 
 
 def test_humanize_redacts_a_failed_secret_value() -> None:
-    """A value under a Secret key is redacted, never echoed into the message.
-
-    Redaction is keyed off the ``Secret`` marker on the key, so a failure under it
-    shows a placeholder instead of the offending value that would leak.
-    """
+    """A value under a Secret key is redacted, never echoed into the message."""
     schema = Schema({Required(Secret("password")): int, Required("user"): str})
     data = {"password": "hunter2-secret", "user": 123}
     with pytest.raises(Exception) as caught:  # noqa: PT011

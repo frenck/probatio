@@ -916,13 +916,9 @@ class Schema:
                     )
                 )
 
+        # A ``Secret`` around a type or callable key is rejected inside
+        # ``resolve_key`` (the general path above), so it never reaches here.
         is_literal = not (isinstance(key_schema, type) or callable(key_schema))
-        if secret and not is_literal:
-            # Redaction names a specific field, so ``Secret`` wraps a concrete key,
-            # not a type or callable key schema (``Secret(str)`` would mean "redact
-            # every string-keyed value", which is not what the marker is for).
-            message = "Secret must wrap a concrete key, not a type or callable"
-            raise SchemaError(message)
         check_value = self._compile(value_schema)
         check_key = self._compile(key_schema)
 

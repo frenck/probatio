@@ -171,8 +171,8 @@ def _oa_mapping(
         marker = facets.marker
         pkey = facets.key
         pval = _oa(value, custom, version)
-        if marker is not None and marker.description:
-            pval["description"] = marker.description
+        if facets.description:
+            pval["description"] = facets.description
         if isinstance(marker, Required | Optional) and not isinstance(
             marker.default,
             Undefined,

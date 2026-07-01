@@ -325,6 +325,16 @@ def test_secret_key_to_openapi_write_only() -> None:
     }
 
 
+def test_secret_layer_description_to_openapi_is_kept() -> None:
+    """A description carried on the Secret layer survives into the OpenAPI property."""
+    schema = Schema(
+        {probatio.Required(Secret("password", description="the token")): str}
+    )
+    prop = to_openapi(schema)["properties"]["password"]
+    assert prop["description"] == "the token"
+    assert prop["writeOnly"] is True
+
+
 def test_date_is_not_exported_as_datetime() -> None:
     """Date (a Datetime subclass) exports format date, not date-time."""
     assert to_openapi(Schema(Date())) == {"type": "string", "format": "date"}

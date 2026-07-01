@@ -207,8 +207,8 @@ carries forward an upstream request.
   value; `FromPercentage` parses it to a `float`). Common config helpers.
 - `Secret`: a key marker that redacts the key's value from validation error
   output (`<redacted>` instead of the value), so a rejected credential does not
-  leak into an error or a log line. Composes with the presence markers by nesting
-  (`Optional(Secret("password"))`). Voluptuous has no equivalent.
+  leak into rendered validation error output. Composes with the presence markers
+  by nesting (`Optional(Secret("password"))`). Voluptuous has no equivalent.
 - `NonEmpty`, `Byte`, `SmallFloat`, `IsRegex`: a non-empty check, 0 to 255 and 0
   to 1 bounded numbers, and a "value is a compilable regex" check.
 - `JSONString`, `YAMLString`, `FromJSONString`, `FromYAMLString`: validate a JSON or

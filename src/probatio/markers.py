@@ -381,4 +381,13 @@ def resolve_key(key: Any) -> _KeyFacets:
             )
             raise SchemaError(message)
         node = node.schema
+
+    if secret and (isinstance(node, type) or callable(node)):
+        # Redaction names a specific field, so ``Secret`` wraps a concrete key, not a
+        # type or callable key schema (``Secret(str)`` would mean "redact every
+        # string-keyed value", which is not what the marker is for). Enforced here so
+        # every consumer that resolves keys (the compiler and the codecs) rejects it.
+        message = "Secret must wrap a concrete key, not a type or callable"
+        raise SchemaError(message)
+
     return _KeyFacets(node, presence, secret, msg, description)

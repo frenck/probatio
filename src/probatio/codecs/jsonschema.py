@@ -148,21 +148,28 @@ def _convert_mapping(
     required: list[Any] = []
     additional: Any = allow_extra
     for key, value in node.items():
-        if isinstance(key, Remove):
-            continue
-
-        if isinstance(key, Forbidden):
-            properties[key.schema] = False
-            continue
-
+        # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
+        # is classified by the marker it actually carries, not just the outer wrapper.
         facets = resolve_key(key)
         marker = facets.marker
         name = facets.key
+        if isinstance(marker, Remove):
+            continue
+
+        if isinstance(marker, Forbidden):
+            properties[name] = False
+            continue
+
         if isinstance(name, type) or callable(name):
             additional = _child(value)
             continue
 
-        properties[name] = _property(marker, value, secret=facets.secret)
+        properties[name] = _property(
+            marker,
+            value,
+            secret=facets.secret,
+            description=facets.description,
+        )
         if isinstance(marker, Required) or (
             not isinstance(marker, Optional) and required_default
         ):
@@ -184,11 +191,12 @@ def _property(
     value: Any,
     *,
     secret: bool = False,
+    description: Any = None,
 ) -> dict[str, Any]:
     """Render one mapping value, attaching a description and default if present."""
     prop = _child(value)
-    if marker is not None and marker.description:
-        prop = {**prop, "description": marker.description}
+    if description:
+        prop = {**prop, "description": description}
     if isinstance(marker, Optional | Required) and not isinstance(
         marker.default,
         Undefined,
