@@ -65,9 +65,23 @@ def test_mac_address_validates_and_returns_unchanged(value: str) -> None:
     assert Schema(MacAddress())(value) == value
 
 
-@pytest.mark.parametrize("value", [123, "xx", "AA:BB:CC", "AA:BB:CC:DD:EE:GG"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        123,
+        "xx",
+        "AA:BB:CC",
+        "AA:BB:CC:DD:EE:GG",
+        # A single, consistent separator is required, so these are rejected:
+        "aa:bb-cc.dd:ee:ff",  # mixed separators
+        "aa.bb.cc.dd.ee.ff",  # dots, but not the three-group Cisco form
+        "aabbc.cddee.ff",  # dot form, wrong grouping
+        "AA:BB:CC:DD:EE:FF:",  # trailing separator
+        "aa::bb:cc:dd:ee:ff",  # empty octet
+    ],
+)
 def test_mac_address_rejects_invalid(value: object) -> None:
-    """A non-string or malformed MAC raises MacAddressInvalid."""
+    """A non-string, malformed, or mixed-separator MAC raises MacAddressInvalid."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(MacAddress())(value)
     assert isinstance(caught.value.errors[0], MacAddressInvalid)
@@ -99,10 +113,11 @@ def test_normalize_mac_address_upper_and_separator() -> None:
     )
 
 
-def test_normalize_mac_address_rejects_invalid() -> None:
-    """NormalizeMacAddress still rejects a malformed MAC."""
+@pytest.mark.parametrize("value", ["nope", "aa:bb-cc.dd:ee:ff"])
+def test_normalize_mac_address_rejects_invalid(value: str) -> None:
+    """NormalizeMacAddress rejects a malformed or mixed-separator MAC."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(NormalizeMacAddress())("nope")
+        Schema(NormalizeMacAddress())(value)
     assert isinstance(caught.value.errors[0], MacAddressInvalid)
 
 

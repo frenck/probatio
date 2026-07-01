@@ -9,14 +9,23 @@ ULID's or any string's case.
 
 from __future__ import annotations
 
+import re
 import typing
 import uuid as uuid_module
 
 from probatio.error import MacAddressInvalid, UuidInvalid, ValueInvalid
 from probatio.validators._base import _SafeValidator
 
-_HEX_CHARS = frozenset("0123456789abcdef")
 _MAC_LENGTH = 12
+# The accepted MAC forms, each with a single, consistent separator: six colon- or
+# hyphen-separated octets, three dot-separated hextets (the Cisco form), or twelve
+# bare hex digits. A mixed form like ``aa:bb-cc.dd:ee:ff`` matches none of these.
+_MAC_RE = re.compile(
+    r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}"
+    r"|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}"
+    r"|[0-9A-Fa-f]{4}(?:\.[0-9A-Fa-f]{4}){2}"
+    r"|[0-9A-Fa-f]{12}",
+)
 # Crockford base32, the ULID alphabet (excludes I, L, O, U).
 _ULID_CHARS = frozenset("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
 _ULID_LENGTH = 26
@@ -82,21 +91,23 @@ class UUID(_SafeValidator):
 
 
 def _clean_mac(value: typing.Any, msg: str | None) -> str:
-    """Validate a MAC address, returning the bare lowercase hex, else raise."""
-    if not isinstance(value, str):
+    """Validate a MAC address, returning the bare lowercase hex, else raise.
+
+    Only a single, consistent separator is accepted: a mixed form (``aa:bb-cc``) or
+    a wrong grouping (``aabbc.cddee.ff``) is rejected, not silently stripped.
+    """
+    if not isinstance(value, str) or _MAC_RE.fullmatch(value) is None:
         raise MacAddressInvalid(msg or "expected a MAC address")
 
-    cleaned = value.replace(":", "").replace("-", "").replace(".", "").lower()
-    if len(cleaned) != _MAC_LENGTH or not _HEX_CHARS.issuperset(cleaned):
-        raise MacAddressInvalid(msg or "expected a MAC address")
-    return cleaned
+    return value.replace(":", "").replace("-", "").replace(".", "").lower()
 
 
 class MacAddress(_SafeValidator):
     """Validate a MAC address, returning the value unchanged.
 
-    Accepts the common separators (colon, hyphen, dot) and bare hex. Use
-    ``NormalizeMacAddress`` when you want the canonical form.
+    Accepts the six-octet colon or hyphen forms, the three-group dot form (Cisco),
+    and bare twelve-digit hex, each with a single consistent separator. A mixed or
+    misgrouped form is rejected. Use ``NormalizeMacAddress`` for the canonical form.
     """
 
     def __init__(self, msg: str | None = None) -> None:
@@ -112,10 +123,10 @@ class MacAddress(_SafeValidator):
 class NormalizeMacAddress(_SafeValidator):
     """Validate a MAC address and return it in canonical form.
 
-    Accepts the common separators (colon, hyphen, dot) and bare hex, and returns the
-    lowercase, colon-separated form by default. Pass ``upper=True`` for uppercase, and
-    ``separator=`` to change the separator (for example ``"-"``, or ``""`` for bare
-    hex).
+    Accepts the same forms as ``MacAddress`` (a single consistent separator only),
+    and returns the lowercase, colon-separated form by default. Pass ``upper=True``
+    for uppercase, and ``separator=`` to change the separator (for example ``"-"``,
+    or ``""`` for bare hex).
     """
 
     def __init__(
