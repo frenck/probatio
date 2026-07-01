@@ -39,7 +39,11 @@ class ULID(_SafeValidator):
         if not isinstance(value, str):
             raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
 
-        if len(value) != _ULID_LENGTH or not _ULID_CHARS.issuperset(value.upper()):
+        # Check the length of the upper-cased form, not the input: ``str.upper`` can
+        # change length for some Unicode (``"ß".upper() == "SS"``), so measuring the
+        # input would let a 26-code-point string expand past 26 valid characters.
+        candidate = value.upper()
+        if len(candidate) != _ULID_LENGTH or not _ULID_CHARS.issuperset(candidate):
             raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
 
         return value

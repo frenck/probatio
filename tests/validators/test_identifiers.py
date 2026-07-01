@@ -119,7 +119,16 @@ def test_ulid_validates_and_returns_unchanged() -> None:
     assert Schema(ULID())("01ARZ3NDEKTSV4RRFFQ69G5FAV") == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
-@pytest.mark.parametrize("value", ["short", "01arz3ndektsv4rrffq69g5fai", 5])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "short",
+        "01arz3ndektsv4rrffq69g5fai",
+        5,
+        # 26 code points, but ``.upper()`` expands ß to SS (27 chars): still not a ULID.
+        "0123456789ABCDEFGHJKMNPQRß",
+    ],
+)
 def test_ulid_rejects_invalid(value: object) -> None:
     """A wrong length, a bad character (I/L/O/U), or a non-string raises ValueInvalid."""
     with pytest.raises(MultipleInvalid) as caught:
