@@ -439,7 +439,9 @@ Two Probatio additions let a type carry its own validator, so a type validates b
 more than `isinstance`:
 
 - `__probatio_validate__`: a classmethod a type can define to validate (and coerce) a value itself. Whenever that type is compiled as a bare schema, Probatio calls `Type.__probatio_validate__(value)` instead of an `isinstance` check and uses the return value. Works anywhere a type is used, including a hand-written `Schema(Type)`. See the [custom validators guide](/guides/custom-validators/).
-- `register_type(cls, validator)`: register a validator for `cls`, consulted when `cls` appears as a field annotation while building a dataclass or TypedDict schema (it takes precedence over the type's own check there). A hand-written `Schema(cls)` is not affected. `clear_type_registry()` empties the registry. See the [dataclasses guide](/guides/dataclasses/).
+- `register_type(cls, validator)`: register a validator for `cls`, consulted when `cls` appears as a field annotation while building a dataclass or TypedDict schema (it takes precedence over the type's own check there). A hand-written `Schema(cls)` is not affected. See the [dataclasses guide](/guides/dataclasses/).
+- `unregister_type(cls)`: drop the registration for `cls`, so its fields go back to a strict `isinstance` check. A no-op when `cls` is not registered.
+- `clear_type_registry()`: empty the registry, dropping every registration.
 - `type_registry(registrations)`: a context manager that applies a mapping of `{type: validator}` for the duration of a `with` block, then restores the previous state. Async- and thread-safe, so a library should prefer it over the process-wide `register_type`.
 
 ## Loading and dumping

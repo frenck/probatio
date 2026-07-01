@@ -22,6 +22,7 @@ from probatio import (
     clear_type_registry,
     register_type,
     type_registry,
+    unregister_type,
 )
 from probatio.error import MultipleInvalid
 
@@ -160,3 +161,21 @@ def test_re_registering_replaces_the_previous_entry() -> None:
         1,
         1,
     )
+
+
+def test_unregister_type_makes_a_field_strict_again() -> None:
+    """unregister_type drops one registration, so its field rejects a string again."""
+    register_type(datetime, Coerce(_parse))
+    unregister_type(datetime)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(Event)({"when": "2020-01-01T00:00"})
+    assert caught.value.errors[0].path == ["when"]
+
+
+def test_unregister_type_is_a_noop_for_an_unregistered_type() -> None:
+    """Unregistering a type that was never registered does nothing and does not raise."""
+    unregister_type(datetime)  # never registered
+
+    with pytest.raises(MultipleInvalid):
+        DataclassSchema(Event)({"when": "2020-01-01T00:00"})

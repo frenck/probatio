@@ -23,6 +23,7 @@ from probatio._type_registry import (
     clear_type_registry,
     register_type,
     type_registry,
+    unregister_type,
 )
 from probatio.dataclass_schema import (
     DataclassSchema,
@@ -539,5 +540,6 @@ __all__ = [
     "to_openapi",
     "truth",
     "type_registry",
+    "unregister_type",
     "validate",
 ]

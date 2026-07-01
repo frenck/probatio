@@ -206,9 +206,11 @@ clear_type_registry()  # reset, so the rest of this page is unaffected
 The registration is read when the schema is built and baked in, so a schema does
 not change once constructed. `register_type` sets it process-wide (for an
 application's entry point); a library should prefer the `type_registry` context
-manager, which scopes the registrations to a `with` block. A use-site validator
-(an `Annotated` hint or `additional_constraints`) still applies on top, so the
-type is coerced first and the extra rule checks the result. The hand-written
+manager, which scopes the registrations to a `with` block. `unregister_type(cls)`
+removes a single type again, and `clear_type_registry()` empties the registry. A
+use-site validator (an `Annotated` hint or `additional_constraints`) still applies
+on top, so the type is coerced first and the extra rule checks the result. The
+hand-written
 `Schema(datetime)` path is never affected; only annotation-driven building reads
 the registry.
 
