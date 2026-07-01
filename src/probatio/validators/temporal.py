@@ -1,14 +1,15 @@
 """Date, time, datetime, duration, time-zone, and epoch validators.
 
-``Datetime``/``Date``/``Time`` validate a string against a ``strptime`` format and
-return it unchanged, matching voluptuous's string-in, string-out behavior.
-``AsDatetime``/``AsDate``/``AsTime`` are the object-returning siblings: they parse
-ISO 8601 out of the box (or a ``format=`` you pass) and hand back the parsed
-``datetime``/``date``/``time`` instead of the original string. ``Duration``,
-``TimeZoneInfo``, ``TimeZone``, and ``FromEpoch`` are probatio additions that coerce to
-a Python object (``datetime.timedelta``, a named-zone ``zoneinfo.ZoneInfo``, a
-fixed-offset ``datetime.timezone``, and a UTC ``datetime`` from a Unix timestamp),
-since that typed value is the point.
+Every validator here checks its value and returns it unchanged; the object-returning
+siblings are separate converters. ``Datetime``/``Date``/``Time`` validate a string
+against a ``strptime`` format (voluptuous's string-in, string-out behavior), and
+``Duration``/``TimeZone``/``TimeZoneInfo`` validate a duration, a UTC offset, and an
+IANA zone name. ``AsDatetime``/``AsDate``/``AsTime``/``AsTimedelta``/``AsTimezone`` are
+the object-returning siblings, parsing to a ``datetime``/``date``/``time``/``timedelta``
+/``datetime.timezone`` (ISO 8601 out of the box, or a ``format=`` you pass, where
+applicable). ``FromEpoch`` parses a Unix timestamp into a UTC ``datetime``. For a named
+zone the object is ``Coerce(zoneinfo.ZoneInfo)`` (the constructor takes the name), so
+``TimeZoneInfo`` needs no ``As*`` sibling.
 """
 
 from __future__ import annotations

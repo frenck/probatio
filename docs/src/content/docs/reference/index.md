@@ -267,7 +267,8 @@ Python object.
 - `IPAddress(msg=None)`: an IP address of either version. Object via
   `Coerce(ipaddress.ip_address)`.
 - `IPNetwork(msg=None)`: a CIDR network (host bits allowed), returned unchanged (not
-  normalized). Object via `Coerce(ipaddress.ip_network)`.
+  normalized). Object via `Coerce(lambda v: ipaddress.ip_network(v, strict=False))`
+  (plain `ip_network` defaults to `strict=True` and would reject host bits).
 - `MacAddress(msg=None)`: validate a MAC address (common separators and bare hex),
   returned unchanged.
 - `NormalizeMacAddress(upper=False, separator=":", msg=None)`: validate and return a
