@@ -303,6 +303,10 @@ def _percent_value(value: typing.Any, msg: str | None) -> float:
         # object it calls a user-defined ``__float__`` that may raise anything; report
         # either cleanly rather than leaking it.
         number = float(raw)
+    except Invalid:
+        # A deliberate Invalid from the value's own ``__float__`` is a real validation
+        # error; keep it rather than masking it as a RangeInvalid.
+        raise
     except Exception as exc:
         raise RangeInvalid(msg or "expected a percentage between 0 and 100") from exc
 

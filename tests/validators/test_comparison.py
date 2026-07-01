@@ -350,6 +350,21 @@ def test_from_percentage_parses_to_a_float() -> None:
     assert Schema(FromPercentage())("20") == 20.0
 
 
+def test_percentage_preserves_a_deliberate_invalid_from_float() -> None:
+    """An Invalid raised by the value's own __float__ is kept, not masked as RangeInvalid."""
+
+    class _RaisesInvalid:
+        def __float__(self) -> float:
+            message = "from __float__"
+            raise Invalid(message)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Percentage())(_RaisesInvalid())
+    error = caught.value.errors[0]
+    assert not isinstance(error, RangeInvalid)
+    assert error.error_message == "from __float__"
+
+
 @pytest.mark.parametrize("validator", [Percentage, FromPercentage])
 @pytest.mark.parametrize("value", [150, -1, "abc", True, False])
 def test_percentage_rejects_out_of_range_or_non_numeric(
