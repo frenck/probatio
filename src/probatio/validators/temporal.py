@@ -40,9 +40,11 @@ _DURATION_MSG = (
 # An ISO 8601 duration, limited to the fields a ``timedelta`` can represent: weeks
 # and days, then a time part of hours, minutes, and seconds. Each field is optional
 # and may be fractional (a comma or a period). Years and months are left out on
-# purpose, since neither is a fixed length. Every quantifier is bounded and anchored
-# to a distinct trailing letter, so the match is linear and cannot hang. Emptiness
-# (``P``, ``PT``) and a dangling ``T`` are caught after the match, not by the pattern.
+# purpose, since neither is a fixed length. Each quantifier is anchored to a distinct
+# trailing letter and none nest, so the match is linear with no backtracking blowup;
+# a long digit run is matched and ``float``-parsed in linear time (``float`` has no
+# quadratic path and overflows to a caught error), not a hang. Emptiness (``P``,
+# ``PT``) and a dangling ``T`` are caught after the match, not by the pattern.
 _ISO8601_DURATION = re.compile(
     r"P"
     r"(?:(?P<weeks>\d+(?:[.,]\d+)?)W)?"
