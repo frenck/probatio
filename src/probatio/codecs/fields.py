@@ -386,7 +386,9 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:
         return field
 
     if isinstance(node, FromEpoch):
-        # A Unix timestamp arrives as an integer; the datetime is internal.
-        return {"type": "integer"}
+        # A Unix timestamp arrives as a number (``FromEpoch`` takes an int or a
+        # fractional-second float); the datetime is internal. The field vocabulary
+        # has no "number", so "float" is the type that accepts both.
+        return {"type": "float"}
 
     return None
