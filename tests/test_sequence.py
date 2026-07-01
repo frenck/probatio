@@ -121,14 +121,17 @@ def test_every_failing_item_is_reported() -> None:
     assert paths == [(0, "name"), (1, "name")]
 
 
-def test_one_item_failing_on_several_counts_flattens_each_under_its_index() -> None:
-    """A single item that fails its schema more than once reports every error at [0].
+def test_item_failing_every_element_schema_flattens_the_last_error() -> None:
+    """When an item matches no element schema, the last error flattens under its index.
 
-    The element schema raises a ``MultipleInvalid`` (a wrong value type and an extra
-    key), so the sequence path flattens those errors under the item's index rather
-    than nesting them.
+    With more than one element schema, an item is tried against each in turn. Here the
+    item (a dict) fails the ``int`` schema and then the ``{"a": int}`` schema, and the
+    latter raises a ``MultipleInvalid`` (a wrong value type and an extra key). That last
+    error is the one reported, its errors flattened under the item's index rather than
+    nested. A single element schema takes a faster path, so two are needed to reach the
+    per-item loop that does this.
     """
     with pytest.raises(MultipleInvalid) as caught:
-        Schema([{"a": int}])([{"a": "x", "b": 2}])
+        Schema([int, {"a": int}])([{"a": "x", "b": 2}])
     paths = sorted(tuple(error.path) for error in caught.value.errors)
     assert paths == [(0, "a"), (0, "b")]

@@ -205,6 +205,30 @@ def test_duration_numeric_string_matches_int() -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("P1DT2H30M", datetime.timedelta(days=1, hours=2, minutes=30)),
+        ("PT30M", datetime.timedelta(minutes=30)),
+        ("PT45S", datetime.timedelta(seconds=45)),
+        ("P3D", datetime.timedelta(days=3)),
+        ("P1W", datetime.timedelta(weeks=1)),
+        ("P2W3DT4H", datetime.timedelta(weeks=2, days=3, hours=4)),
+        ("PT1H30M45S", datetime.timedelta(hours=1, minutes=30, seconds=45)),
+        ("PT0S", datetime.timedelta(0)),
+        ("-P3D", -datetime.timedelta(days=3)),
+        ("+PT1H", datetime.timedelta(hours=1)),
+        # A fractional field, with either decimal separator ISO 8601 allows.
+        ("PT0.5S", datetime.timedelta(seconds=0.5)),
+        ("PT1,5S", datetime.timedelta(seconds=1.5)),
+        (" P1D ", datetime.timedelta(days=1)),
+    ],
+)
+def test_duration_from_iso8601(value: str, expected: datetime.timedelta) -> None:
+    """An ISO 8601 duration parses into the right timedelta, sign included."""
+    assert Schema(Duration())(value) == expected
+
+
+@pytest.mark.parametrize(
     "value",
     [
         True,
@@ -216,6 +240,14 @@ def test_duration_numeric_string_matches_int() -> None:
         "1:99",  # 99 minutes is out of the 0..59 clock range
         "0:60",  # 60 minutes is out of range
         "1:00:99",  # 99 seconds is out of range
+        "P",  # a bare designator carries no fields
+        "PT",  # a time separator with no time field
+        "P1DT",  # a dangling time separator
+        "P1Y",  # a year is not a fixed length
+        "P1M",  # a month is not a fixed length
+        "P1YT1H",  # a year, even alongside a valid field
+        "PT1H1D",  # a date field after the time separator
+        "PX",  # junk after the designator
     ],
 )
 def test_duration_rejects_invalid(value: object) -> None:
@@ -227,7 +259,14 @@ def test_duration_rejects_invalid(value: object) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [10**20, "100000000000000:0:0", "inf", "1e400", {"days": 10**20}],
+    [
+        10**20,
+        "100000000000000:0:0",
+        "inf",
+        "1e400",
+        {"days": 10**20},
+        "P999999999999999999W",  # an ISO 8601 duration past timedelta's range
+    ],
 )
 def test_duration_rejects_overflow(value: object) -> None:
     """A duration too large for timedelta is rejected, not a leaked OverflowError."""
