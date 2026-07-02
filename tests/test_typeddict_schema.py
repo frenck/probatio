@@ -14,11 +14,13 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    Key,
     Range,
     TypedDictSchema,
     create_typeddict_schema,
 )
 from probatio.error import ExtraKeysInvalid, MultipleInvalid, SchemaError
+from probatio.humanize import humanize_error
 
 
 class Config(TypedDict):
@@ -195,3 +197,76 @@ def test_construct_returns_trusted_data_unchanged() -> None:
 
     with pytest.raises(MultipleInvalid):
         schema(data)  # validation would reject it
+
+
+# --- Key field metadata (ADR-013) ----------------------------------------------
+
+
+def test_key_secret_redacts_on_a_typeddict() -> None:
+    """Key(secret=True) redacts the field's value in errors on a TypedDict."""
+
+    class Login(TypedDict):
+        user: str
+        password: Annotated[str, Key(secret=True)]
+
+    data = {"user": "bob", "password": 123}
+    with pytest.raises(MultipleInvalid) as caught:
+        TypedDictSchema(Login)(data)
+    assert "<redacted>" in humanize_error(data, caught.value)
+
+
+def test_key_alias_multiple_names_on_a_typeddict() -> None:
+    """Key(alias=[...]) accepts several names, emitting the field name."""
+
+    class Cfg(TypedDict):
+        user_name: Annotated[str, Key(alias=["user-name", "userName"])]
+
+    schema = create_typeddict_schema(Cfg)
+    assert schema({"user-name": "ada"}) == {"user_name": "ada"}
+    assert schema({"userName": "eve"}) == {"user_name": "eve"}
+
+
+def test_key_forbidden_needs_no_default_on_a_typeddict() -> None:
+    """A TypedDict constructs nothing, so a Forbidden field needs no default."""
+
+    class Payload(TypedDict):
+        name: str
+        server_set: Annotated[str, Key(forbidden=True)]
+
+    schema = create_typeddict_schema(Payload)
+    assert schema({"name": "x"}) == {"name": "x"}
+    with pytest.raises(MultipleInvalid):
+        schema({"name": "x", "server_set": "nope"})
+
+
+def test_key_exclusive_group_on_a_typeddict() -> None:
+    """Key(exclusive=group) allows at most one group member on a TypedDict."""
+
+    class Auth(TypedDict):
+        token: NotRequired[Annotated[str, Key(exclusive="auth")]]
+        secret: NotRequired[Annotated[str, Key(exclusive="auth")]]
+
+    schema = create_typeddict_schema(Auth)
+    assert schema({"token": "t"}) == {"token": "t"}
+    with pytest.raises(MultipleInvalid):
+        schema({"token": "t", "secret": "s"})
+
+
+def test_required_qualifier_inside_annotated_is_honored() -> None:
+    """Required/NotRequired work inside Annotated, not only as the outer wrapper."""
+
+    class NotReq(TypedDict):
+        x: Annotated[NotRequired[int], Key(secret=True)]
+
+    schema = create_typeddict_schema(NotReq)
+    assert schema({}) == {}  # NotRequired honored despite being inside Annotated
+    with pytest.raises(MultipleInvalid):
+        schema({"x": "bad"})  # value schema still validates the inner type
+
+    class Req(TypedDict, total=False):
+        x: Annotated[Required[int], Key(secret=True)]
+
+    req = create_typeddict_schema(Req)
+    with pytest.raises(MultipleInvalid):
+        req({})  # Required honored inside Annotated, in a total=False TypedDict
+    assert req({"x": 5}) == {"x": 5}

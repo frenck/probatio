@@ -178,6 +178,54 @@ DataclassSchema(Event)({"when": "2020-01-01T12:00"})
 A `NewType` is followed to the type it wraps, so a field typed
 `UserId = NewType("UserId", int)` validates as an `int`.
 
+## Key facets on fields
+
+A plain type says what a field _is_. To give a field a key facet, redact it,
+accept it under other names, forbid it, group it, add `Key` to its `Annotated`
+metadata. It sits next to any value validators; the two do not interfere.
+
+```python
+from dataclasses import dataclass
+from typing import Annotated
+
+from probatio import DataclassSchema, Key, Length
+
+
+@dataclass
+class Account:
+    name: str
+    password: Annotated[str, Key(secret=True), Length(min=8)]  # redacted, length-checked
+    user_name: Annotated[str, Key(alias=["user-name", "userName"])] = ""  # accept aliases
+    is_admin: Annotated[bool, Key(forbidden=True)] = False  # reject if the caller sends it
+```
+
+`Key(secret=True)` redacts the field's value in validation errors.
+`Key(alias=[...])` accepts the field under alternate input names (a bare string
+works for one), emitting it under the field name; `accept_canonical=False` makes it
+a strict rename. `Key(inclusive="grp")` / `Key(exclusive="grp")` group fields the
+way the [dict form](/guides/dict-schemas-and-markers/) does. `Key(required=True)`
+(or `required=False`) overrides the presence the field's default would imply.
+`required=False` marks a field optional, so on a dataclass it still needs a
+default for the constructor to fall back on; without one it raises `SchemaError`.
+
+`Key` is a field-only spec; a plain dict schema keeps using the markers directly
+(`{Secret("password"): str}`, `{Alias("user_name", "user-name"): str}`). It works
+the same on a [TypedDict](/guides/typeddict/).
+
+`forbidden` and `remove` make a key contribute nothing to the result, so on a
+dataclass (whose constructor needs a value for every field) such a field must have
+a default; without one it raises `SchemaError`. A TypedDict constructs nothing, so
+there they need no default.
+
+One boundary to know: a field the schema keeps out of the input, a `forbidden`
+field, a `remove` field, or an unselected `exclusive` member, takes the dataclass's
+own default exactly as declared, without validation or coercion (an `optional` or
+selected field carries its default through the schema and is coerced). The schema
+validates input, and these values are not input, so write an already-typed default
+for such a field; a wrong-typed one is a type error your type-checker flags. See
+[ADR-013](https://github.com/frenck/probatio/blob/main/adr/013-markers-on-annotated-fields.md)
+for the model.
+
 ## The functional form and the helper
 
 `create_dataclass_schema(dataclass_type, additional_constraints=None)` builds the

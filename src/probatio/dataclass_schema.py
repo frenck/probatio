@@ -62,7 +62,19 @@ from probatio._codegen import compile_mapping
 from probatio._engine import _MappingValidator
 from probatio._type_registry import resolve_type_validator
 from probatio.error import SchemaError
-from probatio.markers import Optional, Required
+from probatio.fields import Key
+from probatio.markers import (
+    UNDEFINED,
+    Alias,
+    Exclusive,
+    Forbidden,
+    Inclusive,
+    Optional,
+    Remove,
+    Required,
+    Secret,
+    resolve_key,
+)
 from probatio.schema import (
     _INHERIT_CONTEXT,
     PREVENT_EXTRA,
@@ -390,6 +402,159 @@ def _field_annotation(hint: TypingAny) -> TypingAny:
     return hint.type if isinstance(hint, dataclasses.InitVar) else hint
 
 
+def _field_key_spec(annotation: TypingAny) -> Key | None:
+    """Return the ``Key`` spec in a field annotation's ``Annotated`` metadata, or None."""
+    if get_origin(annotation) is not Annotated:
+        return None
+    _, *meta = get_args(annotation)
+    specs = [item for item in meta if isinstance(item, Key)]
+    if len(specs) > 1:
+        message = "a field carries more than one Key spec"
+        raise SchemaError(message)
+    return specs[0] if specs else None
+
+
+def _check_facets(spec: Key, name: TypingAny) -> None:
+    """Reject a ``Key`` that sets two role-defining facets at once.
+
+    ``alias``/``forbidden``/``remove``/``inclusive``/``exclusive`` define what the
+    key *is* and are mutually exclusive; ``secret`` layers on top and is exempt.
+    """
+    facets = [
+        facet
+        for facet in ("alias", "forbidden", "remove", "inclusive", "exclusive")
+        if getattr(spec, facet) not in (None, False)
+    ]
+    if len(facets) > 1:
+        message = f"field {name!r} Key sets conflicting facets: {', '.join(facets)}"
+        raise SchemaError(message)
+
+
+def _key_from_spec(  # noqa: PLR0913
+    name: TypingAny,
+    spec: Key | None,
+    *,
+    inferred_required: bool,
+    default: TypingAny,
+    has_default: bool,
+    constructs: bool,
+) -> TypingAny:
+    """Turn a field's ``Key`` spec and inferred presence into one mapping key (ADR-013).
+
+    ``inferred_required`` is the presence the field implies on its own (no default
+    for a dataclass, ``total``/``Required`` for a TypedDict). ``default`` is the
+    marker ``default=`` argument the field's own default supplies (``UNDEFINED`` when
+    it has none). ``constructs`` is true for a dataclass, whose constructor needs a
+    value for every field.
+    """
+    if spec is None:
+        return Required(name) if inferred_required else Optional(name, default=default)
+
+    _check_facets(spec, name)
+    if spec.required is not None and (
+        spec.forbidden or spec.remove or spec.inclusive is not None
+    ):
+        # ``required`` governs presence; it is meaningless for a forbidden or removed
+        # field (never taken from the input) or an inclusive group (all-or-none).
+        target = (
+            "Forbidden"
+            if spec.forbidden
+            else "Remove"
+            if spec.remove
+            else "an inclusive group"
+        )
+        message = f"field {name!r}: required does not apply to {target}"
+        raise SchemaError(message)
+    required = spec.required if spec.required is not None else inferred_required
+
+    if spec.forbidden:
+        _guard_never_supplied(name, "Forbidden", constructs=constructs, has=has_default)
+        base: TypingAny = Forbidden(name, msg=spec.msg, description=spec.description)
+    elif spec.remove:
+        _guard_never_supplied(name, "Remove", constructs=constructs, has=has_default)
+        base = Remove(name)
+    elif spec.alias is not None:
+        names = (spec.alias,) if isinstance(spec.alias, str) else tuple(spec.alias)
+        base = Alias(
+            name,
+            *names,
+            accept_canonical=spec.accept_canonical,
+            required=required,
+            # A required alias is always supplied, so it carries no default.
+            default=UNDEFINED if required else default,
+            msg=spec.msg,
+            description=spec.description,
+        )
+        _guard_absent(
+            name, "Alias", constructs=constructs, present=required, has=has_default
+        )
+    elif spec.inclusive is not None:
+        base = Inclusive(
+            name,
+            spec.inclusive,
+            msg=spec.msg,
+            default=default,
+            description=spec.description,
+        )
+        _guard_absent(
+            name, "Inclusive", constructs=constructs, present=False, has=has_default
+        )
+    elif spec.exclusive is not None:
+        # ``required`` names the group requirement (one member present), not this
+        # member's presence. A required group must not be satisfied by a default (that
+        # would neutralize ``required``), so it gets none; the non-selected member then
+        # takes its dataclass default at construction. An optional group keeps the
+        # default, which fills (and coerces) a member when the group is empty.
+        base = Exclusive(
+            name,
+            spec.exclusive,
+            msg=spec.msg,
+            description=spec.description,
+            required=bool(spec.required),
+            default=UNDEFINED if spec.required else default,
+        )
+        _guard_absent(
+            name, "Exclusive", constructs=constructs, present=False, has=has_default
+        )
+    elif required:
+        base = Required(name, msg=spec.msg, description=spec.description)
+    else:
+        base = Optional(
+            name, default=default, msg=spec.msg, description=spec.description
+        )
+        _guard_absent(
+            name, "Optional", constructs=constructs, present=False, has=has_default
+        )
+
+    if spec.secret:
+        base = Secret(base, msg=spec.msg, description=spec.description)
+    return base
+
+
+def _guard_never_supplied(
+    name: TypingAny, marker: str, *, constructs: bool, has: bool
+) -> None:
+    """Reject a Forbidden/Remove dataclass field with no default (never supplied)."""
+    if constructs and not has:
+        message = (
+            f"{marker} field {name!r} needs a default, "
+            "since it is never taken from the input"
+        )
+        raise SchemaError(message)
+
+
+def _guard_absent(
+    name: TypingAny, marker: str, *, constructs: bool, present: bool, has: bool
+) -> None:
+    """Reject a dataclass field that can be absent yet has no default to construct."""
+    if constructs and not present and not has:
+        message = (
+            f"{marker} field {name!r} needs a default: it can be absent from the "
+            "input, and the dataclass constructor needs a value"
+        )
+        raise SchemaError(message)
+
+
 def _field_mapping(
     dataclass_type: type,
     constraints: dict[str, TypingAny],
@@ -412,11 +577,23 @@ def _field_mapping(
             value_schema = All(value_schema, constraints[field.name])
 
         if field.default is not dataclasses.MISSING:
-            key: TypingAny = Optional(field.name, default=_constant(field.default))
+            default: TypingAny = _constant(field.default)
+            has_default = True
         elif field.default_factory is not dataclasses.MISSING:
-            key = Optional(field.name, default=field.default_factory)
+            default = field.default_factory
+            has_default = True
         else:
-            key = Required(field.name)
+            default = UNDEFINED
+            has_default = False
+
+        key = _key_from_spec(
+            field.name,
+            _field_key_spec(annotation),
+            inferred_required=not has_default,
+            default=default,
+            has_default=has_default,
+            constructs=True,
+        )
         mapping[key] = value_schema
 
     return mapping
@@ -427,18 +604,26 @@ class _Constructor:
 
     __slots__ = ("_init_fields", "dataclass_type")
 
-    def __init__(self, dataclass_type: type) -> None:
-        """Remember the type and which of its fields the constructor accepts."""
+    def __init__(
+        self, dataclass_type: type, remove: frozenset[TypingAny] = frozenset()
+    ) -> None:
+        """Remember the type and which of its fields the constructor accepts.
+
+        ``remove`` names the ``Key(remove=True)`` fields, whose value is always
+        dropped, so they take their dataclass default regardless of the input (even a
+        value ``ALLOW_EXTRA`` kept because it failed the field's own validation).
+        """
         self.dataclass_type = dataclass_type
-        self._init_fields = frozenset(
-            field.name for field in _iter_init_fields(dataclass_type)
+        self._init_fields = (
+            frozenset(field.name for field in _iter_init_fields(dataclass_type))
+            - remove
         )
 
     def __call__(self, data: dict[TypingAny, TypingAny]) -> TypingAny:
         """Construct the dataclass, passing only the keys it accepts.
 
-        Extra keys (kept by ``ALLOW_EXTRA``) are dropped here, since a dataclass
-        cannot take an unexpected keyword argument.
+        Extra keys (kept by ``ALLOW_EXTRA``) and dropped ``Remove`` keys are left out
+        here, since a dataclass cannot take an unexpected keyword argument.
         """
         kwargs = {key: value for key, value in data.items() if key in self._init_fields}
         return self.dataclass_type(**kwargs)
@@ -484,7 +669,13 @@ def create_dataclass_schema(
     # DataclassSchema compiles mapping validation and construction together, so it
     # needs an interpreted inner mapping to read from.
     inner = Schema(mapping, required=required, extra=extra, compile=False)
-    schema = Schema(All(inner, _Constructor(dataclass_type)))
+    # Resolve through the chain so a nested Remove (``Secret(Remove(...))``) counts too.
+    remove = frozenset(
+        facets.key
+        for facets in map(resolve_key, mapping)
+        if isinstance(facets.marker, Remove)
+    )
+    schema = Schema(All(inner, _Constructor(dataclass_type, remove)))
     ref.bind(schema)
 
     return schema
@@ -623,12 +814,28 @@ def _build_constructor(
         return None  # a recursive dataclass: leave it to the validating path
     building = building | {dataclass_type}
 
-    # Type hints were already resolved while building the schema.
+    # Type hints were already resolved while building the schema. The plain hints
+    # drive value construction; the extras-carrying hints only detect a Key facet.
     hints = get_type_hints(dataclass_type)
+    hints_extras = get_type_hints(dataclass_type, include_extras=True)
     namespace: dict[str, TypingAny] = {"_Type": dataclass_type}
     parts: list[str] = []
     for index, field in enumerate(_iter_init_fields(dataclass_type)):
         annotation = _field_annotation(hints.get(field.name, TypingAny))
+        spec = _field_key_spec(_field_annotation(hints_extras.get(field.name)))
+        if spec is not None and (
+            spec.alias is not None
+            or spec.remove
+            or spec.forbidden
+            or spec.inclusive is not None
+            or spec.exclusive is not None
+            or spec.required is not None
+        ):
+            # These either change which key the field reads from (or drop it) or add a
+            # presence rule the flat by-name reader cannot reproduce; leave them to the
+            # validating path.
+            return None
+
         expr = _value_expr(
             annotation, f"data[{field.name!r}]", namespace, building, str(index)
         )
@@ -763,6 +970,31 @@ class DataclassSchema[DataclassT](Schema):
         return generated if generated is not None else interpreted
 
 
+def _typeddict_presence(
+    annotation: TypingAny, *, total: bool
+) -> tuple[bool, TypingAny]:
+    """Read a TypedDict field's required-ness and strip its Required/NotRequired.
+
+    ``Required``/``NotRequired`` may wrap the whole annotation or sit inside an
+    ``Annotated`` (``Annotated[NotRequired[int], Key(...)]``). Handle both, returning
+    the presence and the annotation with the qualifier removed but the ``Annotated``
+    metadata (a ``Key``, a value validator) kept, so it is still read.
+    """
+    origin = get_origin(annotation)
+    if origin is RequiredHint:
+        return True, get_args(annotation)[0]
+    if origin is NotRequired:
+        return False, get_args(annotation)[0]
+    if origin is Annotated:
+        base, *meta = get_args(annotation)
+        base_origin = get_origin(base)
+        if base_origin is RequiredHint:
+            return True, Annotated[(get_args(base)[0], *meta)]
+        if base_origin is NotRequired:
+            return False, Annotated[(get_args(base)[0], *meta)]
+    return total, annotation
+
+
 def _typeddict_mapping(
     typeddict_type: TypingAny,
     constraints: dict[str, TypingAny],
@@ -786,18 +1018,21 @@ def _typeddict_mapping(
     total = typeddict_type.__total__
     mapping: dict[TypingAny, TypingAny] = {}
     for name, annotation in hints.items():
-        origin = get_origin(annotation)
-        if origin is RequiredHint:
-            required, field_type = True, get_args(annotation)[0]
-        elif origin is NotRequired:
-            required, field_type = False, get_args(annotation)[0]
-        else:
-            required, field_type = total, annotation
+        required, field_type = _typeddict_presence(annotation, total=total)
         value_schema = _annotation_to_schema(field_type, self_refs)
         if name in constraints:
             value_schema = All(value_schema, constraints[name])
 
-        key = Required(name) if required else Optional(name)
+        # A TypedDict is a plain dict at runtime: nothing is constructed and a field
+        # has no default, so Forbidden/Remove need none and absence is fine.
+        key = _key_from_spec(
+            name,
+            _field_key_spec(field_type),
+            inferred_required=required,
+            default=UNDEFINED,
+            has_default=False,
+            constructs=False,
+        )
         mapping[key] = value_schema
 
     return mapping

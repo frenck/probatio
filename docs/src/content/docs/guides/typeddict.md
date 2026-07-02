@@ -178,9 +178,14 @@ guide](/guides/dataclasses/) covers the rest, and it all behaves the same with a
   types, with the same depth guard.
 - [Discriminated unions](/guides/dataclasses/#discriminated-unions) over a shared
   literal tag.
+- [Key facets on fields](/guides/dataclasses/#key-facets-on-fields): `Key(...)` in
+  the `Annotated` metadata to redact, alias, group, forbid, or override the presence
+  of a field.
 
 The one difference is the result: a dataclass schema constructs an instance, a
-TypedDict schema returns the validated dict.
+TypedDict schema returns the validated dict. Because nothing is constructed, a
+`TypedDict` also accepts `Key(forbidden=True)`/`Key(remove=True)` fields with no
+default (they simply shape the validated dict), where a dataclass would need one.
 
 ## Limits
 
