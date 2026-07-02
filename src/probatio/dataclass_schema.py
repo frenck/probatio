@@ -451,6 +451,20 @@ def _key_from_spec(  # noqa: PLR0913
         return Required(name) if inferred_required else Optional(name, default=default)
 
     _check_facets(spec, name)
+    if spec.required is not None and (
+        spec.forbidden or spec.remove or spec.inclusive is not None
+    ):
+        # ``required`` governs presence; it is meaningless for a forbidden or removed
+        # field (never taken from the input) or an inclusive group (all-or-none).
+        target = (
+            "Forbidden"
+            if spec.forbidden
+            else "Remove"
+            if spec.remove
+            else "an inclusive group"
+        )
+        message = f"field {name!r}: required does not apply to {target}"
+        raise SchemaError(message)
     required = spec.required if spec.required is not None else inferred_required
 
     if spec.forbidden:
@@ -475,12 +489,6 @@ def _key_from_spec(  # noqa: PLR0913
             name, "Alias", constructs=constructs, present=required, has=has_default
         )
     elif spec.inclusive is not None:
-        if spec.required is not None:
-            message = (
-                f"field {name!r}: required does not apply to an inclusive group "
-                "(the group is all-or-none)"
-            )
-            raise SchemaError(message)
         base = Inclusive(
             name,
             spec.inclusive,
@@ -816,10 +824,16 @@ def _build_constructor(
         annotation = _field_annotation(hints.get(field.name, TypingAny))
         spec = _field_key_spec(_field_annotation(hints_extras.get(field.name)))
         if spec is not None and (
-            spec.alias is not None or spec.remove or spec.forbidden
+            spec.alias is not None
+            or spec.remove
+            or spec.forbidden
+            or spec.inclusive is not None
+            or spec.exclusive is not None
+            or spec.required is not None
         ):
-            # These change which key the field reads from (or drop it), which the
-            # flat by-name reader cannot reproduce; leave them to the validating path.
+            # These either change which key the field reads from (or drop it) or add a
+            # presence rule the flat by-name reader cannot reproduce; leave them to the
+            # validating path.
             return None
 
         expr = _value_expr(

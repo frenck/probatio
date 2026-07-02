@@ -14,11 +14,11 @@ field name as the key. Plain dict schemas keep using the markers directly.
 
 from __future__ import annotations
 
+# Imported at runtime, not under TYPE_CHECKING: ``Key`` is public, so
+# ``get_type_hints(Key)`` must resolve without a NameError on ``Sequence``.
+from collections.abc import Sequence  # noqa: TC003
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from typing import Any
 
 
 @dataclass

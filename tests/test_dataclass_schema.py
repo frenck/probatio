@@ -1215,12 +1215,7 @@ def test_two_key_specs_on_a_field_is_a_schema_error() -> None:
 
 
 def test_key_forbidden_default_is_the_dataclass_default_untouched() -> None:
-    """A Forbidden field takes the dataclass's own default; the schema does not touch it.
-
-    The field's value never comes from the input, so it reaches the constructor as
-    the raw dataclass default, unvalidated and uncoerced (a wrong-typed default is a
-    dataclass-level type error a type-checker flags, not the schema's to catch).
-    """
+    """A Forbidden field reaches the constructor as the raw, uncoerced dataclass default."""
 
     @dataclass
     class Cfg:
@@ -1261,6 +1256,28 @@ def test_key_inclusive_with_required_is_a_schema_error() -> None:
         a: Annotated[int, Key(inclusive="g", required=True)] = 0
 
     with pytest.raises(SchemaError, match="required does not apply"):
+        create_dataclass_schema(Bad)
+
+
+def test_key_forbidden_with_required_is_a_schema_error() -> None:
+    """required does not apply to a Forbidden field (never taken from the input)."""
+
+    @dataclass
+    class Bad:
+        a: Annotated[int, Key(forbidden=True, required=True)] = 0
+
+    with pytest.raises(SchemaError, match="required does not apply to Forbidden"):
+        create_dataclass_schema(Bad)
+
+
+def test_key_remove_with_required_is_a_schema_error() -> None:
+    """required does not apply to a Remove field (dropped after validation)."""
+
+    @dataclass
+    class Bad:
+        a: Annotated[int, Key(remove=True, required=True)] = 0
+
+    with pytest.raises(SchemaError, match="required does not apply to Remove"):
         create_dataclass_schema(Bad)
 
 

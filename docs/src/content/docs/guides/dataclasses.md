@@ -205,6 +205,8 @@ works for one), emitting it under the field name; `accept_canonical=False` makes
 a strict rename. `Key(inclusive="grp")` / `Key(exclusive="grp")` group fields the
 way the [dict form](/guides/dict-schemas-and-markers/) does. `Key(required=True)`
 (or `required=False`) overrides the presence the field's default would imply.
+`required=False` marks a field optional, so on a dataclass it still needs a
+default for the constructor to fall back on; without one it raises `SchemaError`.
 
 `Key` is a field-only spec; a plain dict schema keeps using the markers directly
 (`{Secret("password"): str}`, `{Alias("user_name", "user-name"): str}`). It works
