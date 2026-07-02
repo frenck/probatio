@@ -365,16 +365,23 @@ Apply these after a dict schema with `All`; they inspect the whole mapping.
 
 ## Decorators and helpers
 
+- `probatio(constraints=None, returns=None)`: decorator validating a callable's
+  arguments from their annotations (sync or async). `constraints` is a
+  `{parameter: validator}` map layered after the inferred type; `returns` opts into
+  result validation (`True` uses the `-> R` annotation, or pass a schema). See [the
+  probatio decorator](/guides/probatio-decorator/).
 - `validate(*args, **kwargs)`: decorator validating a function's arguments (and
-  `__return__`).
+  `__return__`) against hand-named schemas (the voluptuous drop-in).
 - `raises(exc, msg=None, regex=None)`: context manager asserting a block raises
   `exc`, optionally matching it.
 
 ```python
-from probatio import validate
+from typing import Annotated
 
-@validate(arg1=int, arg2=int, __return__=int)
-def multiply(arg1, arg2):
+from probatio import probatio, Range
+
+@probatio(returns=True)
+def multiply(arg1: int, arg2: int) -> Annotated[int, Range(min=0)]:
     return arg1 * arg2
 
 multiply(3, 4)  # 12
