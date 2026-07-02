@@ -107,6 +107,10 @@ export default defineConfig({
               slug: "guides/loading-and-dumping",
             },
             { label: "Custom validators", slug: "guides/custom-validators" },
+            {
+              label: "The probatio decorator",
+              slug: "guides/probatio-decorator",
+            },
             { label: "Recursive schemas", slug: "guides/recursive-schemas" },
             { label: "Compiled schemas", slug: "guides/compiled-schemas" },
             { label: "Schemas from dataclasses", slug: "guides/dataclasses" },

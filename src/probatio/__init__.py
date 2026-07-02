@@ -32,6 +32,7 @@ from probatio.dataclass_schema import (
     create_typeddict_schema,
     is_dataclass,
 )
+from probatio.decorator import probatio
 from probatio.error import (
     AllInvalid,
     AnyInvalid,
@@ -541,6 +542,7 @@ __all__ = [
     "load_yaml",
     "load_yaml_with_locations",
     "message",
+    "probatio",
     "raises",
     "register_type",
     "serialize",

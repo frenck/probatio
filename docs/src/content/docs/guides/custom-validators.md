@@ -342,7 +342,9 @@ decides what an absent context means. It is async- and thread-safe, and a plain
 
 `validate` is a decorator that checks a function's arguments (and, with the
 `__return__` key, its return value) against schemas, the same way a `Schema`
-checks data. A bad argument raises, so the body only runs on valid input.
+checks data. A bad argument raises, so the body only runs on valid input. For the
+annotation-driven, async-capable version that reads the schemas from the
+signature, see [the probatio decorator](/guides/probatio-decorator/).
 
 ```python
 from probatio import validate, MultipleInvalid
