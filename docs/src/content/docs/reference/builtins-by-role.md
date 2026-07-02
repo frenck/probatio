@@ -232,15 +232,3 @@ The type stays; the value is cleaned.
 | `Replace`             | Regular-expression replace.         |
 | `Clamp`               | A number pinned into a range.       |
 | `NormalizeMacAddress` | A MAC address in canonical form.    |
-
-## A note on the split
-
-Several names used to do double duty: validate _and_ transform. Probatio
-separates the two so a name does one job. `MacAddress`, `ULID`, `HexColor`, the
-IP types, `UUID`, `Duration`, `TimeZone`, `JSONString`, and friends validate and
-return the value unchanged; the transforming sibling (`AsTimedelta`,
-`FromJSONString`, `Coerce(TheType)`, and so on) is a separate, explicitly named
-step. Two names that stay conditional are `Number` (pure, but `yield_decimal`
-converts) and `In` (pure, but `fold_case`/`space` normalize); this page files
-them under their default behavior. The reasoning behind each split lives in the
-architecture decision records.
