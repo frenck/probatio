@@ -12,7 +12,9 @@ These are the leaf validators. The combinators that compose them (`All`, `Any`,
 `Union`, `SomeOf`) live in the [combinators guide](/guides/combinators/), and the
 dictionary markers (`Required`, `Optional`, and friends) in the [dict schemas and
 markers guide](/guides/dict-schemas-and-markers/). You will see those names in
-passing here; this page is about the leaves.
+passing here; this page is about the leaves. For the whole toolbox at a glance,
+including the transformers that change a value rather than check it, see
+[Built-ins by role](/reference/builtins-by-role/).
 
 :::note
 Every validator is importable straight from `probatio`, for example

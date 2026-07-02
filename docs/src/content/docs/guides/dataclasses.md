@@ -136,7 +136,8 @@ the real type in the validator. This keeps the constraint next to the field inst
 of in a separate map, and it composes inside containers
 (`list[Annotated[int, Range(min=1)]]` checks every element). Metadata that is not
 callable is left alone, so an `Annotated` value you share with another tool passes
-through untouched.
+through untouched. To find the right callable to drop in here, whether it checks
+the value or transforms it, see [Built-ins by role](/reference/builtins-by-role/).
 
 ```python
 from dataclasses import dataclass
