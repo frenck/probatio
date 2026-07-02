@@ -90,6 +90,7 @@ from probatio.error import (
     ValueInvalid,
     YamlInvalid,
 )
+from probatio.fields import Key
 from probatio.markers import (
     UNDEFINED,
     Alias,
@@ -430,6 +431,7 @@ __all__ = [
     "IsTrue",
     "JSONString",
     "JsonInvalid",
+    "Key",
     "Latitude",
     "Length",
     "LengthInvalid",

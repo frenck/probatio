@@ -27,6 +27,7 @@ from probatio import (
     Coerce,
     DataclassSchema,
     In,
+    Key,
     Length,
     MultipleInvalid,
     Range,
@@ -35,6 +36,7 @@ from probatio import (
     is_dataclass,
 )
 from probatio.dataclass_schema import _build_discriminant, _literal_tags
+from probatio.humanize import humanize_error
 
 _TypeVarT = TypeVar("_TypeVarT")
 
@@ -1037,3 +1039,267 @@ def test_construct_aliases_a_trusted_plain_list() -> None:
     validated = schema({"tags": source})
     assert validated.tags is not source  # validation rebuilds a fresh list
     assert validated.tags == source
+
+
+# --- Key field metadata (ADR-013) ----------------------------------------------
+
+
+def test_key_secret_redacts_the_value() -> None:
+    """Key(secret=True) redacts the field's value in errors."""
+
+    @dataclass
+    class Login:
+        user: str
+        password: Annotated[str, Key(secret=True)]
+
+    data = {"user": "bob", "password": 123}
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(Login)(data)
+    assert "<redacted>" in humanize_error(data, caught.value)
+
+
+def test_key_secret_composes_with_a_value_validator() -> None:
+    """A Key facet and a value validator coexist in one annotation."""
+
+    @dataclass
+    class Login:
+        password: Annotated[str, Key(secret=True), Length(min=8)]
+
+    data = {"password": "short"}
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(Login)(data)
+    assert "<redacted>" in humanize_error(data, caught.value)
+
+
+def test_key_alias_accepts_multiple_names() -> None:
+    """Key(alias=[...]) accepts several input names, emitting the field name."""
+
+    @dataclass
+    class Cfg:
+        user_name: Annotated[str, Key(alias=["user-name", "userName"])] = "x"
+
+    schema = create_dataclass_schema(Cfg)
+    assert schema({"user-name": "ada"}).user_name == "ada"
+    assert schema({"userName": "eve"}).user_name == "eve"
+    assert schema({}).user_name == "x"
+
+
+def test_key_alias_single_string() -> None:
+    """Key(alias="one") accepts a bare string as a single alias."""
+
+    @dataclass
+    class Cfg:
+        user_name: Annotated[str, Key(alias="user-name")] = "x"
+
+    assert create_dataclass_schema(Cfg)({"user-name": "ada"}).user_name == "ada"
+
+
+def test_key_alias_default_is_validated() -> None:
+    """The field default is validated through the value schema, like the plain path."""
+
+    @dataclass
+    class Bad:
+        x: Annotated[int, Key(alias=["y"])] = "not-an-int"  # noqa: RUF100
+
+    with pytest.raises(MultipleInvalid):
+        create_dataclass_schema(Bad)({})
+
+
+def test_key_forbidden_rejects_a_supplied_value() -> None:
+    """Key(forbidden=True) rejects a caller-supplied field, else uses the default."""
+
+    @dataclass
+    class Account:
+        name: str
+        is_admin: Annotated[bool, Key(forbidden=True)] = False
+
+    schema = create_dataclass_schema(Account)
+    assert schema({"name": "bob"}).is_admin is False
+    with pytest.raises(MultipleInvalid):
+        schema({"name": "bob", "is_admin": True})
+
+
+def test_key_forbidden_without_default_is_a_schema_error() -> None:
+    """A Forbidden dataclass field is never supplied, so it must have a default."""
+
+    @dataclass
+    class Bad:
+        is_admin: Annotated[bool, Key(forbidden=True)]
+
+    with pytest.raises(SchemaError, match="needs a default"):
+        create_dataclass_schema(Bad)
+
+
+def test_key_remove_drops_a_validated_value() -> None:
+    """Key(remove=True) validates its value, then drops it so the default is used."""
+
+    @dataclass
+    class Cfg:
+        legacy: Annotated[int, Key(remove=True)] = 0
+
+    assert create_dataclass_schema(Cfg)({"legacy": 5}).legacy == 0
+
+
+def test_key_exclusive_group() -> None:
+    """Key(exclusive=group) allows at most one of the group's fields."""
+
+    @dataclass
+    class Auth:
+        token: Annotated[str, Key(exclusive="auth")] = ""
+        secret: Annotated[str, Key(exclusive="auth")] = ""
+
+    schema = create_dataclass_schema(Auth)
+    assert schema({"token": "t"}).token == "t"  # noqa: S105
+    with pytest.raises(MultipleInvalid):
+        schema({"token": "t", "secret": "s"})
+
+
+def test_key_inclusive_group() -> None:
+    """Key(inclusive=group) requires the group's fields together, or none."""
+
+    @dataclass
+    class Point:
+        x: Annotated[int, Key(inclusive="xy")] = 0
+        y: Annotated[int, Key(inclusive="xy")] = 0
+
+    schema = create_dataclass_schema(Point)
+    assert schema({"x": 1, "y": 2}).x == 1
+    with pytest.raises(MultipleInvalid):
+        schema({"x": 1})
+
+
+def test_key_required_overrides_a_default() -> None:
+    """Key(required=True) forces presence even when the field has a default."""
+
+    @dataclass
+    class Cfg:
+        mode: Annotated[str, Key(required=True)] = "auto"
+
+    schema = create_dataclass_schema(Cfg)
+    assert schema({"mode": "manual"}).mode == "manual"
+    with pytest.raises(MultipleInvalid):
+        schema({})
+
+
+def test_key_optional_without_default_is_a_schema_error() -> None:
+    """An optional field that can be absent needs a default to construct from."""
+
+    @dataclass
+    class Cfg:
+        mode: Annotated[str, Key(required=False)]
+
+    with pytest.raises(SchemaError, match="needs a default"):
+        create_dataclass_schema(Cfg)
+
+
+def test_key_conflicting_facets_is_a_schema_error() -> None:
+    """Two role-defining facets on one Key are a schema error."""
+
+    @dataclass
+    class Bad:
+        x: Annotated[str, Key(forbidden=True, alias=["y"])] = "z"
+
+    with pytest.raises(SchemaError, match="conflicting facets"):
+        create_dataclass_schema(Bad)
+
+
+def test_two_key_specs_on_a_field_is_a_schema_error() -> None:
+    """A field may carry at most one Key spec."""
+
+    @dataclass
+    class Bad:
+        x: Annotated[str, Key(secret=True), Key(alias=["y"])] = "z"
+
+    with pytest.raises(SchemaError, match="more than one Key"):
+        create_dataclass_schema(Bad)
+
+
+def test_key_forbidden_default_is_the_dataclass_default_untouched() -> None:
+    """A Forbidden field takes the dataclass's own default; the schema does not touch it.
+
+    The field's value never comes from the input, so it reaches the constructor as
+    the raw dataclass default, unvalidated and uncoerced (a wrong-typed default is a
+    dataclass-level type error a type-checker flags, not the schema's to catch).
+    """
+
+    @dataclass
+    class Cfg:
+        x: Annotated[int, Key(forbidden=True)] = "as-is"  # noqa: RUF100
+
+    assert create_dataclass_schema(Cfg)({}).x == "as-is"
+
+
+def test_key_alias_is_honored_by_construct() -> None:
+    """construct() falls back to validation so a Key alias still resolves."""
+
+    @dataclass
+    class Cfg:
+        user_name: Annotated[str, Key(alias=["user-name"])] = "x"
+
+    schema = DataclassSchema(Cfg)
+    assert schema.construct({"user-name": "ada"}).user_name == "ada"
+
+
+def test_key_exclusive_custom_message() -> None:
+    """A Key(msg=...) on a group reaches the group's error."""
+
+    @dataclass
+    class Auth:
+        a: Annotated[int, Key(exclusive="g", msg="pick exactly one")] = 0
+        b: Annotated[int, Key(exclusive="g", msg="pick exactly one")] = 0
+
+    with pytest.raises(MultipleInvalid) as caught:
+        create_dataclass_schema(Auth)({"a": 1, "b": 2})
+    assert caught.value.errors[0].error_message == "pick exactly one"
+
+
+def test_key_inclusive_with_required_is_a_schema_error() -> None:
+    """required does not apply to an inclusive (all-or-none) group."""
+
+    @dataclass
+    class Bad:
+        a: Annotated[int, Key(inclusive="g", required=True)] = 0
+
+    with pytest.raises(SchemaError, match="required does not apply"):
+        create_dataclass_schema(Bad)
+
+
+def test_key_forbidden_default_is_not_coerced() -> None:
+    """A Forbidden field's default is used as-is, not run through a coercing schema."""
+
+    @dataclass
+    class Cfg:
+        x: Annotated[int, Key(forbidden=True), Coerce(int)] = "1"
+
+    # The plain path would coerce an absent default to ``1``; a forbidden field keeps
+    # the dataclass's own ``"1"`` (its value is never schema-managed input).
+    assert create_dataclass_schema(Cfg)({}).x == "1"
+
+
+def test_key_remove_invalid_value_does_not_reach_the_constructor() -> None:
+    """A Remove field always takes its default, even a value ALLOW_EXTRA kept."""
+
+    @dataclass
+    class Cfg:
+        legacy: Annotated[int, Key(remove=True)] = 0
+
+    # Under ALLOW_EXTRA the failed value is kept in the dict, but the Remove field is
+    # dropped at construction, so it never lands in the instance.
+    assert DataclassSchema(Cfg, extra=ALLOW_EXTRA)({"legacy": "bad"}).legacy == 0
+    assert DataclassSchema(Cfg)({"legacy": 5}).legacy == 0
+
+
+def test_key_required_exclusive_group_is_enforced_with_defaults() -> None:
+    """Key(exclusive, required=True) requires a member even when fields have defaults."""
+
+    @dataclass
+    class Auth:
+        token: Annotated[str, Key(exclusive="auth", required=True)] = ""
+        secret: Annotated[str, Key(exclusive="auth", required=True)] = ""
+
+    schema = create_dataclass_schema(Auth)
+    with pytest.raises(MultipleInvalid):
+        schema({})  # required group: a default must not satisfy it
+    assert schema({"token": "t"}).token == "t"  # noqa: S105
+    with pytest.raises(MultipleInvalid):
+        schema({"token": "t", "secret": "s"})
