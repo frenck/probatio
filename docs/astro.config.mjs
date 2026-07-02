@@ -133,6 +133,7 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "API reference", slug: "reference" },
+            { label: "Built-ins by role", slug: "reference/builtins-by-role" },
             { label: "Errors", slug: "reference/errors" },
             {
               label: "voluptuous compatibility",
