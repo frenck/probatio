@@ -387,5 +387,5 @@ def test_positional_only_parameter_by_keyword_is_a_bind_error() -> None:
     # The exact wording moved between CPython versions (3.12: "'items' parameter
     # is positional only, but was passed as a keyword"; 3.13: "missing a required
     # positional-only argument: 'items'"), so match the stable part.
-    with pytest.raises(TypeError, match="positional.only"):
+    with pytest.raises(TypeError, match=r"positional.only"):
         head(items=[1])
