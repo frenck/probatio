@@ -17,6 +17,8 @@ from __future__ import annotations
 import datetime
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
+from enum import Enum
 from typing import Any
 
 from probatio.codecs._regex_safety import is_catastrophic
@@ -29,6 +31,7 @@ from probatio.markers import (
     Remove,
     Required,
     Secret,
+    Self,
     Undefined,
     resolve_key,
 )
@@ -107,8 +110,21 @@ _MAX_SCHEMA_DEPTH = 100
 
 
 def to_json_schema(schema: Any) -> dict[str, Any]:
-    """Convert a schema (or ``Schema``) into a JSON Schema dictionary."""
-    return _convert(schema, required_default=False, allow_extra=False)
+    """Convert a schema (or ``Schema``) into a JSON Schema dictionary.
+
+    A raw schema that references itself (a dict holding itself as a value, rather
+    than the supported ``Self`` marker) has no finite rendering, so the runaway
+    recursion is caught and reported as a clean ``SchemaError`` instead of a bare
+    ``RecursionError``.
+    """
+    try:
+        return _convert(schema, required_default=False, allow_extra=False)
+    except RecursionError as exc:
+        message = (
+            "schema is too deeply nested or references itself; use the Self "
+            "marker for a recursive schema"
+        )
+        raise SchemaError(message) from exc
 
 
 def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[str, Any]:
@@ -287,7 +303,11 @@ def _decorate_property(
         marker.default,
         Undefined,
     ):
-        prop = {**prop, "default": marker.default()}
+        # ``default`` is annotation-only, so a non-JSON default (a ``datetime``,
+        # say) is omitted rather than emitted raw and crashing ``json.dumps``.
+        default = _json_safe(marker.default())
+        if default is not _UNREPRESENTABLE:
+            prop = {**prop, "default": default}
     if secret:
         # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
         prop = {**prop, "writeOnly": True}
@@ -330,12 +350,24 @@ def _convert_sequence(
         result["items"] = items[0]
     elif items:
         result["items"] = {"anyOf": items}
+    else:
+        # An empty sequence schema (``Schema([])``) accepts only the empty list,
+        # not any array, so forbid every element rather than leave it open.
+        result["maxItems"] = 0
 
     return result
 
 
 def _convert_leaf(node: Any) -> dict[str, Any]:
     """Render a leaf node: a type, a literal, or a validator."""
+    if node is Self:
+        # ``Self`` means "the whole enclosing schema", the recursive reference
+        # the decoder already reads back from ``$ref: "#"``. ``#`` targets the
+        # document root, which is the top-level schema being encoded (the common
+        # recursive-schema case); a ``Self`` inside a separately nested ``Schema``
+        # would resolve against its own root, which this cannot express.
+        return {"$ref": "#"}
+
     json_format = getattr(node, "__probatio_json_format__", None)
 
     if json_format is not None:
@@ -378,12 +410,32 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
         return {"anyOf": [_child(validator) for validator in node.validators]}
 
     if isinstance(node, All):
-        merged: dict[str, Any] = {}
-        for validator in node.validators:
-            merged.update(_child(validator))
-        return _retarget_length(merged)
+        return _convert_all(node)
 
     return _convert_constraint(node)
+
+
+def _convert_all(node: All) -> dict[str, Any]:
+    """Merge an All's validators into one schema, or ``allOf`` when keys collide.
+
+    Merging with ``dict.update`` is the common, compact case (``All(int, Range)``
+    → one object). But when two validators emit the same keyword (``All(Any(...),
+    Any(...))`` both emit ``anyOf``), a plain update drops the earlier one and
+    widens the schema. Falling back to ``allOf`` keeps every facet, since a value
+    must satisfy them all.
+    """
+    parts = [_child(validator) for validator in node.validators]
+    merged: dict[str, Any] = {}
+    collided = False
+    for part in parts:
+        if merged.keys() & part.keys():
+            collided = True
+            break
+        merged.update(part)
+
+    if collided:
+        return {"allOf": [part for part in parts if part]}
+    return _retarget_length(merged)
 
 
 # JSON Schema spells "length" three ways depending on the type: minLength for a
@@ -411,27 +463,82 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+_UNREPRESENTABLE = object()
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert a value to a JSON-representable form, or ``_UNREPRESENTABLE``.
+
+    ``to_json_schema`` must emit a document ``json.dumps`` accepts (an emitted
+    ``const``, ``enum``, ``default``, or numeric bound holding a raw ``datetime``,
+    ``Decimal``, ``Enum`` member, or ``bytes`` would otherwise crash the caller).
+    Datetimes render ISO, a ``Decimal`` renders a float, an ``Enum`` member
+    renders its value, and a tuple or set renders a list (JSON has no tuple, and
+    a value on the wire arrives as a list anyway). Anything with no clean JSON
+    form is reported unrepresentable so the caller can omit it.
+    """
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, Enum):
+        return _json_safe(value.value)
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+        return value.isoformat()
+    if isinstance(value, list | tuple | set | frozenset):
+        converted = [_json_safe(item) for item in _ordered(value)]
+        return _UNREPRESENTABLE if _UNREPRESENTABLE in converted else converted
+    if isinstance(value, dict):
+        items = {key: _json_safe(item) for key, item in value.items()}
+        if (
+            any(not isinstance(key, str) for key in items)
+            or _UNREPRESENTABLE in items.values()
+        ):
+            return _UNREPRESENTABLE
+        return items
+    return _UNREPRESENTABLE
+
+
+def _enum(container: Any) -> dict[str, Any]:
+    """Render a membership container as an ``enum``, or open when unrepresentable.
+
+    A member with no JSON form (a ``datetime``, an ``Enum``, a ``bytes``) would
+    make the emitted enum non-serializable; dropping the constraint to an open
+    schema keeps the output valid rather than crashing, since a narrower emission
+    is not available.
+    """
+    values = _json_safe(list(_ordered(container)))
+    return {} if values is _UNREPRESENTABLE else {"enum": values}
+
+
+def _const(value: Any) -> dict[str, Any]:
+    """Render an equality target as a ``const``, or open when unrepresentable."""
+    converted = _json_safe(value)
+    return {} if converted is _UNREPRESENTABLE else {"const": converted}
+
+
 def _convert_equality(node: Any) -> dict[str, Any] | None:
     """Render the equality/membership validators as enum/const/not, or None."""
     if isinstance(node, In):
-        return {"enum": _ordered(node.container)}
+        return _enum(node.container)
 
     if isinstance(node, NotIn):
-        return {"not": {"enum": _ordered(node.container)}}
+        enum = _enum(node.container)
+        return {"not": enum} if enum else {}
 
     if isinstance(node, Equal):
-        return {"const": node.target}
+        return _const(node.target)
 
     if isinstance(node, Literal):
-        return {"const": node.lit}
+        return _const(node.lit)
 
     # The decoder's JSON-strict enum/const (numbers and booleans kept distinct)
     # re-emit their keyword, so a decoded schema round-trips.
     if isinstance(node, _JsonEnum):
-        return {"enum": list(node.values)}
+        return _enum(node.values)
 
     if isinstance(node, _JsonConst):
-        return {"const": node.value}
+        return _const(node.value)
 
     return None
 
@@ -553,22 +660,39 @@ def _convert_match(node: Match) -> dict[str, Any]:
     JSON Schema patterns are ECMA-262 regular expressions, while ``Match`` holds a
     Python ``re`` pattern. A pattern that uses Python-only syntax is dropped, leaving
     a plain ``{"type": "string"}``, so the emitted schema stays valid for an external
-    validator rather than carrying a pattern that validator would reject. An
-    ECMA-compatible pattern is emitted unchanged.
+    validator rather than carrying a pattern that validator would reject.
+
+    ``Match`` validates with ``re.match`` (anchored at the start), while a JSON
+    Schema ``pattern`` is an unanchored ``re.search``. Wrapping an unanchored
+    source as ``^(?:...)`` preserves the start anchoring, so the emitted schema
+    does not accept a value with a matching suffix that ``Match`` rejects.
+
+    A ``bytes`` pattern has no JSON Schema (JSON strings are text), so it renders
+    as a plain string rather than crashing on the ``str``/``bytes`` mismatch.
     """
     source = node.pattern.pattern
-    if _PYTHON_ONLY_REGEX.search(source):
+    if isinstance(source, bytes) or _PYTHON_ONLY_REGEX.search(source):
         return {"type": "string"}
-    return {"type": "string", "pattern": source}
+    # A source already anchored at the start needs no wrapper; otherwise wrap it
+    # (grouped, so a top-level alternation stays under the anchor).
+    anchored = source if source.startswith("^") else f"^(?:{source})"
+    return {"type": "string", "pattern": anchored}
 
 
 def _convert_range(node: Range) -> dict[str, Any]:
-    """Render a Range as JSON Schema minimum/maximum bounds."""
+    """Render a Range as JSON Schema minimum/maximum bounds.
+
+    A non-numeric bound (a ``datetime``, say) has no JSON Schema numeric keyword
+    and would make the output non-serializable, so such a bound is omitted rather
+    than emitted raw.
+    """
     result: dict[str, Any] = {}
-    if node.min is not None:
-        result["minimum" if node.min_included else "exclusiveMinimum"] = node.min
-    if node.max is not None:
-        result["maximum" if node.max_included else "exclusiveMaximum"] = node.max
+    minimum = _json_safe(node.min)
+    maximum = _json_safe(node.max)
+    if node.min is not None and isinstance(minimum, int | float):
+        result["minimum" if node.min_included else "exclusiveMinimum"] = minimum
+    if node.max is not None and isinstance(maximum, int | float):
+        result["maximum" if node.max_included else "exclusiveMaximum"] = maximum
 
     return result
 
