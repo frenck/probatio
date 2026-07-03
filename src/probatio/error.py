@@ -81,6 +81,19 @@ class Invalid(Error):
     # ``code`` argument still wins.
     default_code: str | None = None
 
+    # Class-level defaults for the rarely-passed fields, stored on the instance
+    # only when a non-default value is given. Error construction is a hot path in
+    # its own right (an ``Any`` miss builds an error per branch and discards most),
+    # and a store skipped is a store saved. The setters below still write through
+    # to the instance, shadowing the class default, so mutation works unchanged.
+    # ``_path`` stays per-instance: it is exposed as a mutable list.
+    _error_type: str | None = None
+    _secret = False
+    _code: str | None = None
+    _context: dict[str, Any] | None = None
+    _translation_key: str | None = None
+    _placeholders: dict[str, Any] | None = None
+
     def __init__(
         self,
         message: str,
@@ -98,17 +111,19 @@ class Invalid(Error):
 
         self._path = list(path) if path else []
         self._error_message = error_message or message
-        self._error_type = error_type
-        self._secret = False
-        self._code = code
+        if error_type is not None:
+            self._error_type = error_type
+        if code is not None:
+            self._code = code
         # ``None`` until read: most errors never have their context/placeholders
         # looked at (a miss inside a combinator branch is built and discarded), so
-        # the two dict allocations are deferred to the property getters.
-        self._context: dict[str, Any] | None = dict(context) if context else None
-        self._translation_key = translation_key
-        self._placeholders: dict[str, Any] | None = (
-            dict(placeholders) if placeholders else None
-        )
+        # the dict copies are deferred to the property getters.
+        if context:
+            self._context = dict(context)
+        if translation_key is not None:
+            self._translation_key = translation_key
+        if placeholders:
+            self._placeholders = dict(placeholders)
 
     @property
     def msg(self) -> str:

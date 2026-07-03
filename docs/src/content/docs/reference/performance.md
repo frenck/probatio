@@ -58,13 +58,13 @@ the schema, so treat these as ballparks, not promises.
 
 | Scenario                         | voluptuous | Probatio | Probatio compiled |
 | -------------------------------- | ---------- | -------- | ----------------- |
-| Flat types (`{str, int, ...}`)   | 3.6 µs     | 1.0 µs   | 0.5 µs            |
-| Config (coerce, range, in, list) | 5.7 µs     | 2.1 µs   | 0.9 µs            |
-| Nested mapping                   | 6.6 µs     | 2.8 µs   | 1.0 µs            |
+| Flat types (`{str, int, ...}`)   | 3.7 µs     | 1.1 µs   | 0.5 µs            |
+| Config (coerce, range, in, list) | 6.0 µs     | 2.2 µs   | 0.9 µs            |
+| Nested mapping                   | 7.0 µs     | 3.0 µs   | 1.0 µs            |
 
 Microseconds per validation, lower is faster, on one machine with Python 3.13.
 
-![Validation throughput vs voluptuous: probatio is 1.6 to 3.6 times faster interpreted, and 4.6 to 6.9 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
+![Validation throughput vs voluptuous: probatio is 1.7 to 3.4 times faster interpreted, and 4.7 to 7.2 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
 
 :::caution[Read the benchmark honestly]
 `bench/bench.py` is a rough, single-machine comparison. It builds equivalent
@@ -87,12 +87,12 @@ deserializes and largely trusts the declared types, while Probatio _validates_ e
 field against its type and then constructs. mashumaro does strictly less work, so it
 is faster on already-correct input. The compiled Probatio path lands within roughly
 1.3x of it on a small dataclass while still validating, and the gap all but closes
-as the field count grows (about 1.05x on a wide one).
+as the field count grows (about 1.1x on a wide one).
 
 | Dataclass        | mashumaro | Probatio | Probatio compiled |
 | ---------------- | --------- | -------- | ----------------- |
-| Small (4 fields) | 0.5 µs    | 1.7 µs   | 0.6 µs            |
-| Wide (12 fields) | 1.2 µs    | 2.9 µs   | 1.3 µs            |
+| Small (4 fields) | 0.5 µs    | 1.5 µs   | 0.7 µs            |
+| Wide (12 fields) | 1.2 µs    | 2.8 µs   | 1.3 µs            |
 
 ![Dataclass construction vs mashumaro: compiled probatio is within about 1.3 times of mashumaro on a small dataclass and essentially even on a wide one, while validating every field.](/benchmarks/dataclass-vs-mashumaro.svg)
 
@@ -115,11 +115,11 @@ appears in both groups: its normal call validates, and its opt-in
 [`construct`](/guides/dataclasses/#trusted-construction-without-validation) builds
 from trusted input without validating, the same job the deserializers do.
 
-![dict to object across libraries, log scale: probatio construct is the fastest of all, then mashumaro, cattrs, and pydantic v2; compiled probatio sits next, ahead of voluptuous, pydantic v1, dacite, marshmallow, and dataclasses-json.](/benchmarks/vs-world.svg)
+![dict to object across libraries, log scale: probatio construct is the fastest of all, then mashumaro, pydantic v2, and cattrs; compiled probatio sits next, ahead of voluptuous, pydantic v1, dacite, marshmallow, and dataclasses-json.](/benchmarks/vs-world.svg)
 
 Two honest readings. On the **validate** path, compiled Probatio lands in the
 leading group, ahead of voluptuous, pydantic v1, dacite, marshmallow, and
-dataclasses-json, and within about 1.8x of the Rust-cored pydantic v2, while staying
+dataclasses-json, and within about 1.7x of the Rust-cored pydantic v2, while staying
 pure Python and validating every field. On the **trust the types** path,
 `construct` is the fastest in the whole field, ahead of mashumaro and cattrs,
 because it is a purpose-built constructor generated for that one dataclass. Run it
@@ -177,8 +177,10 @@ just codspeed
 ```
 
 These are not part of the normal test run. They exercise the hot paths interpreted
-and compiled: validating a config-style mapping, a dataclass, a nested mapping,
-compiling a schema from scratch, and the generation step itself.
+and compiled: validating a config-style mapping, a dataclass, a nested mapping, a
+composed schema, and a combinator under the automatic compile policy; calling a
+`@probatio`-decorated function; compiling a schema from scratch; and the
+generation step itself.
 
 To dig into a hot spot, the profiler wraps cProfile (and py-spy) over the generator
 and the validators it produces:

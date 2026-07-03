@@ -27,14 +27,17 @@ from probatio import (
     Coerce,
     DataclassSchema,
     In,
+    Invalid,
     Key,
     Length,
     MultipleInvalid,
     Range,
     SchemaError,
+    Self,
     create_dataclass_schema,
     is_dataclass,
 )
+from probatio import Any as AnyOf
 from probatio.dataclass_schema import _build_discriminant, _literal_tags
 from probatio.humanize import humanize_error
 
@@ -1320,3 +1323,106 @@ def test_key_required_exclusive_group_is_enforced_with_defaults() -> None:
     assert schema({"token": "t"}).token == "t"  # noqa: S105
     with pytest.raises(MultipleInvalid):
         schema({"token": "t", "secret": "s"})
+
+
+@dataclass
+class _GuardedWeight:
+    """A dataclass whose __post_init__ enforces its own invariant with ValueError."""
+
+    weight: float
+
+    def __post_init__(self) -> None:
+        if self.weight < 0:
+            message = "weight must not be negative"
+            raise ValueError(message)
+
+
+@pytest.mark.parametrize("extra", [None, ALLOW_EXTRA])
+def test_post_init_valueerror_becomes_value_invalid(extra: int | None) -> None:
+    """A ValueError from __post_init__ is reported as 'not a valid value: <reason>'.
+
+    Parametrized over the default and ALLOW_EXTRA schemas, which run the two
+    fused engine variants (direct splat and constructor filter); both must
+    normalize identically, chain included: the ValueInvalid's cause is the
+    original ValueError.
+    """
+    kwargs = {} if extra is None else {"extra": extra}
+    schema = DataclassSchema(_GuardedWeight, **kwargs)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"weight": -1.0})
+
+    (error,) = caught.value.errors
+    assert error.msg == "not a valid value: weight must not be negative"
+    assert isinstance(error.__cause__, ValueError)
+    assert schema({"weight": 1.0}).weight == 1.0
+
+
+@pytest.mark.parametrize("extra", [None, ALLOW_EXTRA])
+def test_post_init_invalid_is_wrapped_not_normalized(extra: int | None) -> None:
+    """An Invalid raised by __post_init__ surfaces as itself, wrapped once."""
+
+    @dataclass
+    class Guarded:
+        value: int
+
+        def __post_init__(self) -> None:
+            if self.value == 13:
+                message = "thirteen is right out"
+                raise Invalid(message)
+
+    kwargs = {} if extra is None else {"extra": extra}
+    schema = DataclassSchema(Guarded, **kwargs)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"value": 13})
+
+    (error,) = caught.value.errors
+    assert error.msg == "thirteen is right out"
+
+
+@pytest.mark.parametrize("extra", [None, ALLOW_EXTRA])
+def test_post_init_multiple_invalid_passes_through(extra: int | None) -> None:
+    """A MultipleInvalid raised by __post_init__ is not wrapped a second time."""
+
+    @dataclass
+    class Guarded:
+        value: int
+
+        def __post_init__(self) -> None:
+            if self.value == 13:
+                raise MultipleInvalid([Invalid("a"), Invalid("b")])
+
+    kwargs = {} if extra is None else {"extra": extra}
+    schema = DataclassSchema(Guarded, **kwargs)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"value": 13})
+
+    assert [error.msg for error in caught.value.errors] == ["a", "b"]
+
+
+def test_self_constraint_keeps_the_tower_and_still_validates() -> None:
+    """A Self-using constraint skips the fused engine and validates recursively.
+
+    ``Self`` resolution rides the inner ``Schema.__call__``'s active-root
+    bookkeeping, which the fused engine bypasses, so such a schema keeps the
+    ``All`` tower. This pins that the guard triggers and the behavior matches
+    the pre-fuse engine: recursion works and a deep error carries its full path.
+    """
+
+    @dataclass
+    class Tree:
+        name: str
+        child: object = None
+
+    schema = DataclassSchema(Tree, {"child": AnyOf(Self, None)}, compile=False)
+
+    built = schema({"name": "a", "child": {"name": "b", "child": None}})
+    assert built.name == "a"
+    assert built.child == {"name": "b", "child": None}
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"name": "a", "child": {"name": 1, "child": None}})
+    (error,) = caught.value.errors
+    assert error.path == ["child", "name"]
