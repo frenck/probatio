@@ -906,3 +906,65 @@ def test_default_to_exports_a_default() -> None:
     from probatio.validators import DefaultTo  # noqa: PLC0415
 
     assert to_json_schema(Schema(DefaultTo(5))) == {"default": 5}
+
+
+def test_strict_raises_on_an_unrepresentable_validator() -> None:
+    """strict=True refuses a construct that would silently widen to an open schema."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(Schema(str.strip), strict=True)
+
+
+def test_strict_raises_on_an_unrepresentable_enum_member() -> None:
+    """strict=True refuses an enum member with no JSON form."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="no JSON form"):
+        to_json_schema(Schema(In([b"raw"])), strict=True)
+
+
+def test_strict_allows_a_faithfully_open_schema() -> None:
+    """strict=True does not raise for object, which is faithfully an open schema."""
+    assert to_json_schema(Schema(object), strict=True) == {}
+
+
+def test_non_strict_still_widens_by_default() -> None:
+    """Without strict, an unrepresentable construct still widens to an open schema."""
+    assert to_json_schema(Schema(str.strip)) == {}
+
+
+def test_custom_serializer_overrides_a_node() -> None:
+    """custom_serializer replaces a node's rendering when it returns a dict."""
+    from probatio.codecs import UNSUPPORTED  # noqa: PLC0415
+
+    def custom(node: object) -> object:
+        if node is str.strip:
+            return {"type": "string", "x-trimmed": True}
+        return UNSUPPORTED
+
+    result = to_json_schema(Schema({"a": str.strip}), custom_serializer=custom)
+    assert result["properties"]["a"] == {"type": "string", "x-trimmed": True}
+
+
+def test_custom_serializer_defers_with_unsupported() -> None:
+    """A custom_serializer that returns UNSUPPORTED falls back to the default."""
+    from probatio.codecs import UNSUPPORTED  # noqa: PLC0415
+
+    def custom(_node: object) -> object:
+        return UNSUPPORTED
+
+    assert to_json_schema(Schema(int), custom_serializer=custom) == {"type": "integer"}
+
+
+def test_coerce_with_a_non_type_target_widens() -> None:
+    """A Coerce whose target is a callable, not a type, has no shape and widens."""
+    assert to_json_schema(Schema(Coerce(str.upper))) == {}
+
+
+def test_strict_raises_on_a_coerce_with_a_non_type_target() -> None:
+    """strict=True refuses a Coerce with a non-type target rather than widening."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="non-type target"):
+        to_json_schema(Schema(Coerce(str.upper)), strict=True)
