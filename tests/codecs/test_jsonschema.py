@@ -369,9 +369,11 @@ def test_temporal_custom_format_drops_the_format() -> None:
 
 
 def test_datetime_round_trips_through_the_decoder() -> None:
-    """to_json_schema(Datetime()) decodes back into a Datetime (no asymmetry)."""
-    decoded = from_json_schema(to_json_schema(Schema(Datetime()))).schema
-    assert isinstance(decoded, Datetime)
+    """to_json_schema(Datetime()) decodes into an RFC 3339 validator that re-encodes."""
+    document = to_json_schema(Schema(Datetime()))
+    decoded = from_json_schema(document)
+    assert decoded("2024-01-01T00:00:00Z") == "2024-01-01T00:00:00Z"
+    assert to_json_schema(decoded) == document
 
 
 @pytest.mark.parametrize(
@@ -394,10 +396,10 @@ def test_as_parser_custom_format_drops_the_format() -> None:
     assert to_json_schema(Schema(AsDate(format="%d-%m-%Y"))) == {"type": "string"}
 
 
-def test_as_datetime_round_trips_to_the_string_datetime() -> None:
-    """AsDatetime encodes to date-time, which decodes back to the string Datetime."""
-    decoded = from_json_schema(to_json_schema(Schema(AsDatetime()))).schema
-    assert isinstance(decoded, Datetime)
+def test_as_datetime_round_trips_to_a_string_validator() -> None:
+    """AsDatetime encodes to date-time, which decodes to a string RFC 3339 check."""
+    decoded = from_json_schema(to_json_schema(Schema(AsDatetime())))
+    assert decoded("2024-01-01T00:00:00+02:00") == "2024-01-01T00:00:00+02:00"
 
 
 @pytest.mark.parametrize(

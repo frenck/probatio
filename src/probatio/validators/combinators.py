@@ -480,6 +480,14 @@ class SomeOf(_Combinator):
 
         message = self.msg or ", ".join(str(error) for error in errors)
         if passed > self.max_valid:
+            # Joining branch errors matches voluptuous, but when every branch
+            # passed there are no errors and the message would be empty ("");
+            # say what actually went wrong: too many alternatives matched.
+            if not message:
+                raise TooManyValid(
+                    translation_key="too_many_valid",
+                    placeholders={"passed": passed, "max": self.max_valid},
+                )
             raise TooManyValid(message)
         raise NotEnoughValid(message)
 

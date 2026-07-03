@@ -1025,3 +1025,126 @@ def test_required_property_default_does_not_satisfy_presence() -> None:
     assert schema({"a": 1}) == {"a": 1}
     with pytest.raises(MultipleInvalid):
         schema({})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2024-01-01T00:00:00Z",
+        "2024-01-01T00:00:00+02:00",
+        "2024-01-01T00:00:00.123Z",
+        "2024-01-01t00:00:00z",
+        "2024-01-01T00:00:00",
+    ],
+)
+def test_format_datetime_accepts_rfc3339(value: str) -> None:
+    """format: date-time accepts RFC 3339 forms (Z, offsets, fractions, lowercase)."""
+    schema = from_json_schema({"type": "string", "format": "date-time"})
+    assert schema(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2024-01-01", "not a date", "2024-01-01T99:00:00Z", 20240101],
+)
+def test_format_datetime_rejects_non_timestamps(value: object) -> None:
+    """format: date-time still rejects bare dates, garbage, and non-strings."""
+    schema = from_json_schema({"type": "string", "format": "date-time"})
+    with pytest.raises(MultipleInvalid):
+        schema(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["14:30:00", "14:30:00.5", "14:30:00+02:00", "23:20:50Z"],
+)
+def test_format_time_accepts_rfc3339(value: str) -> None:
+    """format: time accepts fractions and UTC offsets per RFC 3339."""
+    schema = from_json_schema({"type": "string", "format": "time"})
+    assert schema(value) == value
+
+
+@pytest.mark.parametrize("value", ["14:30", "99:00:00", "nope"])
+def test_format_time_rejects_partial_or_garbage(value: str) -> None:
+    """format: time requires at least HH:MM:SS and a parsable time."""
+    schema = from_json_schema({"type": "string", "format": "time"})
+    with pytest.raises(MultipleInvalid):
+        schema(value)
+
+
+def test_format_datetime_and_time_round_trip() -> None:
+    """The RFC 3339 validators re-emit their format keyword."""
+    for document in (
+        {"type": "string", "format": "date-time"},
+        {"type": "string", "format": "time"},
+    ):
+        assert to_json_schema(from_json_schema(document)) == document
+
+
+def test_unique_items_compares_unhashable_elements_by_value() -> None:
+    """uniqueItems accepts distinct arrays/objects and rejects duplicate ones."""
+    schema = from_json_schema({"type": "array", "uniqueItems": True})
+    assert schema([[1], [2]]) == [[1], [2]]
+    assert schema([{"a": 1}, {"a": 2}]) == [{"a": 1}, {"a": 2}]
+    with pytest.raises(MultipleInvalid):
+        schema([[1], [1]])
+    with pytest.raises(MultipleInvalid):
+        schema([{"a": 1}, {"a": 1}])
+
+
+def test_unique_items_follows_json_equality() -> None:
+    """uniqueItems keeps 1 distinct from True but not from 1.0 (JSON equality)."""
+    schema = from_json_schema({"type": "array", "uniqueItems": True})
+    assert schema([1, True]) == [1, True]
+    with pytest.raises(MultipleInvalid):
+        schema([1, 1.0])
+
+
+def test_unique_items_rejects_exotic_unhashables_cleanly() -> None:
+    """A non-JSON unhashable element is a clean Invalid, not a leaked TypeError."""
+    schema = from_json_schema({"type": "array", "uniqueItems": True})
+    with pytest.raises(MultipleInvalid):
+        schema([{1, 2}, {3}])
+
+
+def test_unique_items_round_trips() -> None:
+    """The JSON uniqueness check re-emits uniqueItems."""
+    schema = from_json_schema({"uniqueItems": True})
+    assert to_json_schema(schema) == {"uniqueItems": True}
+
+
+def test_huge_enum_miss_renders_a_capped_message() -> None:
+    """An enum miss lists a bounded sample; the structured placeholders stay whole."""
+    schema = from_json_schema({"enum": list(range(100_000))})
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(-1)
+    error = caught.value.errors[0]
+    assert len(str(caught.value)) < 1_000
+    assert "more not shown" in str(caught.value)
+    assert len(error.placeholders["values"]) == 100_000
+
+
+def test_oneof_too_many_matches_has_a_real_message() -> None:
+    """A value matching several oneOf branches reports that, not an empty string."""
+    schema = from_json_schema({"oneOf": [{"type": "integer"}, {"multipleOf": 2}]})
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(4)
+    assert "matched 2 alternatives, expected at most 1" in str(caught.value)
+
+
+def test_rfc3339_and_unique_validators_repr_readably() -> None:
+    """The internal RFC 3339 and uniqueness validators repr readably."""
+    assert "JsonDateTime()" in repr(
+        from_json_schema({"type": "string", "format": "date-time"}).schema,
+    )
+    assert "JsonTime()" in repr(
+        from_json_schema({"type": "string", "format": "time"}).schema,
+    )
+    assert "JsonUnique()" in repr(from_json_schema({"uniqueItems": True}).schema)
+
+
+def test_unique_items_passes_non_arrays_vacuously() -> None:
+    """Typeless uniqueItems constrains arrays only; other values pass (spec)."""
+    schema = from_json_schema({"uniqueItems": True})
+    assert schema("aa") == "aa"
+    assert schema(5) == 5

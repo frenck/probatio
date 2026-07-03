@@ -125,6 +125,7 @@ message, with the close matches also available raw on `context["candidates"]`
 | `required_when_present`            | `{key!r} is required when {triggers} is present`                                                    |
 | `required_when_value`              | `{key!r} is required when {conditions}`                                                             |
 | `scale_must_equal`                 | `scale must be equal to {scale}`                                                                    |
+| `too_many_valid`                   | `value matched {passed} alternatives, expected at most {max}`                                       |
 | `value_does_not_match_format`      | `value does not match expected format {format}`                                                     |
 | `value_has_no_precision`           | `value has no precision`                                                                            |
 | `value_multiple_of`                | `value must be a multiple of {factor}`                                                              |

@@ -129,6 +129,7 @@ CATALOG: dict[str, str] = {
     "required_when_present": "{key!r} is required when {triggers} is present",
     "required_when_value": "{key!r} is required when {conditions}",
     "scale_must_equal": "scale must be equal to {scale}",
+    "too_many_valid": "value matched {passed} alternatives, expected at most {max}",
     "value_does_not_match_format": "value does not match expected format {format}",
     "value_has_no_precision": "value has no precision",
     "value_multiple_of": "value must be a multiple of {factor}",
@@ -149,9 +150,27 @@ CATALOG: dict[str, str] = {
 }
 
 
+# How many members of a list placeholder an error message spells out. The
+# structured ``placeholders`` on the error keep the complete list; only the
+# rendered text is capped, so an attacker-sized container (a 100k-entry ``enum``
+# from an untrusted schema, say) cannot turn every miss into megabytes of error
+# text in logs.
+_MAX_LISTED_VALUES = 40
+
+
+def _display(value: Any) -> Any:
+    """Cap a long list placeholder for rendering; short values pass unchanged."""
+    if isinstance(value, list) and len(value) > _MAX_LISTED_VALUES:
+        shown = ", ".join(repr(item) for item in value[:_MAX_LISTED_VALUES])
+        return f"[{shown}, ...] ({len(value) - _MAX_LISTED_VALUES} more not shown)"
+    return value
+
+
 def render(key: str, placeholders: dict[str, Any] | None) -> str:
     """Render the catalog template for ``key`` with the given placeholders."""
     template = CATALOG[key]
     if not placeholders:
         return template
-    return template.format(**placeholders)
+    return template.format(
+        **{name: _display(value) for name, value in placeholders.items()},
+    )
