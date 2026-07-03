@@ -45,6 +45,9 @@
   dict({
     'additionalProperties': False,
     'properties': dict({
+      'legacy': dict({
+        'type': 'string',
+      }),
       'name': dict({
         'type': 'string',
       }),
