@@ -53,9 +53,8 @@ comment(data)  # {'text': 'top', 'replies': [{'text': 'first', 'replies': []}, {
 ```
 
 Recursion follows the data. A finite structure validates fine, because each
-level is just another call into the same compiled schema, up to the depth guard
-described below. Real data is nowhere near that limit; if you knowingly need
-deeper, raise `sys.setrecursionlimit`, since the guard scales with it.
+level is just another call into the same schema, up to
+[the depth guard](#the-depth-guard) described below.
 
 ## Self in a combinator
 
@@ -115,8 +114,9 @@ Probatio does not. It counts the `Self` recursion depth and, past a limit,
 raises a clean `Invalid` that you catch alongside every other validation error.
 
 The limit is a fraction of the interpreter's recursion limit, read live. So if
-you genuinely have deep data, raising `sys.setrecursionlimit` scales the guard
-with it; you are not boxed in by a hard-coded number. Keep that within reason,
+you genuinely have deep data, raising the limit with `sys.setrecursionlimit()`
+scales the guard with it; you are not boxed in by a hard-coded number. Keep that
+within reason,
 though: past a point the operating system's own stack, not the recursion limit, is
 the ceiling, so an extreme limit can still overflow.
 
@@ -149,6 +149,10 @@ except MultipleInvalid as err:
 The same guard catches cyclic data, where a structure points back at itself and
 would otherwise recurse forever. Either way you get an `Invalid`, never a
 `RecursionError`, so untrusted input cannot crash validation.
+
+One performance note: the [compiled engine](/guides/compiled-schemas/) skips
+recursive schemas, so a schema using `Self` always validates interpreted. It
+behaves exactly the same; it just does not get the compiled speedup.
 
 ## Where to next
 

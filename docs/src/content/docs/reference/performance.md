@@ -50,11 +50,11 @@ to turn the behavior off for an unusual workload, see
 
 ## How it compares to voluptuous
 
-On the bundled benchmark scenarios, the interpreted engine runs roughly one and a
-half to three and a half times faster than the same schema in voluptuous, and the
-compiled path reaches up to about seven times faster on real config and dataclass
-shapes. The exact ratio moves with the machine, the Python version, and the shape of
-the schema, so treat these as ballparks, not promises.
+On the bundled benchmark scenarios, the interpreted engine runs roughly 2.3 to
+3.4 times faster than the same schema in voluptuous, and the compiled path
+lands between 6.7 and 7.4 times faster on the same scenarios. The exact ratio
+moves with the machine, the Python version, and the shape of the schema, so
+treat these as ballparks, not promises.
 
 | Scenario                         | voluptuous | Probatio | Probatio compiled |
 | -------------------------------- | ---------- | -------- | ----------------- |
@@ -62,9 +62,10 @@ the schema, so treat these as ballparks, not promises.
 | Config (coerce, range, in, list) | 6.0 µs     | 2.2 µs   | 0.9 µs            |
 | Nested mapping                   | 7.0 µs     | 3.0 µs   | 1.0 µs            |
 
-Microseconds per validation, lower is faster, on one machine with Python 3.13.
+Microseconds per validation, lower is faster. Measured July 2026 on one
+machine with Python 3.13.
 
-![Validation throughput vs voluptuous: probatio is 1.7 to 3.4 times faster interpreted, and 4.7 to 7.2 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
+![Validation throughput vs voluptuous: probatio is 2.3 to 3.4 times faster interpreted, and 6.7 to 7.4 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
 
 :::caution[Read the benchmark honestly]
 `bench/bench.py` is a rough, single-machine comparison. It builds equivalent
@@ -77,6 +78,9 @@ as guarantees.
 The tracked benchmarks are the CodSpeed ones in `bench/test_benchmarks.py`. Those
 run per pull request, so a performance regression shows up in review. They pin each
 case to a known engine (interpreted or compiled) so the two are tracked separately.
+The tracked benchmarks live on
+[CodSpeed](https://codspeed.io/frenck/probatio), so you can look at the history
+yourself.
 
 ## How a dataclass compares to mashumaro
 
@@ -86,7 +90,7 @@ per class. It is not a like-for-like comparison, and that is the point: mashumar
 deserializes and largely trusts the declared types, while Probatio _validates_ every
 field against its type and then constructs. mashumaro does strictly less work, so it
 is faster on already-correct input. The compiled Probatio path lands within roughly
-1.3x of it on a small dataclass while still validating, and the gap all but closes
+1.4x of it on a small dataclass while still validating, and the gap all but closes
 as the field count grows (about 1.1x on a wide one).
 
 | Dataclass        | mashumaro | Probatio | Probatio compiled |
@@ -94,7 +98,7 @@ as the field count grows (about 1.1x on a wide one).
 | Small (4 fields) | 0.5 µs    | 1.5 µs   | 0.7 µs            |
 | Wide (12 fields) | 1.2 µs    | 2.8 µs   | 1.3 µs            |
 
-![Dataclass construction vs mashumaro: compiled probatio is within about 1.3 times of mashumaro on a small dataclass and essentially even on a wide one, while validating every field.](/benchmarks/dataclass-vs-mashumaro.svg)
+![Dataclass construction vs mashumaro: compiled probatio is within about 1.4 times of mashumaro on a small dataclass and essentially even on a wide one, while validating every field.](/benchmarks/dataclass-vs-mashumaro.svg)
 
 The two libraries pair well: validate untrusted input with Probatio, then hand
 trusted dataclasses to mashumaro to serialize. See

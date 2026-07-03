@@ -29,12 +29,12 @@ def area(width: int, height: int) -> int:
 area(3, 4)  # 12
 ```
 
-A parameter that fails its type raises before the body runs, naming the parameter:
-
-<!-- verify: raises MultipleInvalid -->
+A parameter that fails its type raises `MultipleInvalid` before the body runs,
+naming the parameter. It is the same exception a `Schema` raises, so one
+`except` covers both.
 
 ```python
-from probatio import probatio
+from probatio import probatio, MultipleInvalid
 
 
 @probatio
@@ -42,11 +42,16 @@ def area(width: int, height: int) -> int:
     return width * height
 
 
-area("wide", 4)  # expected int at 'width'
+try:
+    area("wide", 4)
+except MultipleInvalid as err:
+    print(err)  # expected int at 'width'
 ```
 
 An unannotated parameter is left alone, so `self` and `cls` need no special
-handling and the decorator drops straight onto a method.
+handling and the decorator drops straight onto a method. A default the caller
+omits is also left alone: it is not validated or coerced, the body receives it
+exactly as declared, so write an already-valid default.
 
 ```python
 from typing import Annotated
@@ -112,8 +117,9 @@ distance({"x": 3, "y": 4})  # 7
 ## Extra rules per parameter
 
 The annotation gives you the type check. For anything more (a length, a range, a
-pattern), pass a `{parameter: validator}` map as the first argument. It runs after
-the inferred type, exactly like a dataclass's `additional_constraints`.
+pattern), pass a `{parameter: validator}` map as the first argument. It runs
+after the inferred type. (If you know `DataclassSchema`, this is its
+`additional_constraints` in decorator form.)
 
 ```python
 from probatio import probatio, Length
@@ -129,7 +135,9 @@ greet("ada")  # 'hi ada'
 
 A constraint that names no parameter, or names a `*args`/`**kwargs`, is refused
 when the function is decorated, so a typo fails loudly instead of silently doing
-nothing.
+nothing. The packed parameters themselves are skipped entirely: an annotation on
+`*args` or `**kwargs` names no single value to validate, so it is ignored and
+the values pass through unchecked.
 
 ## Validating the return value
 
@@ -205,6 +213,14 @@ def widen(value: Annotated[int, Coerce(int)]) -> int:
 widen("5")             # 5, validated and coerced
 widen.__wrapped__("5") # '5', straight through, no validation
 ```
+
+That escape hatch frames when not to use the decorator at all. Every decorated
+call pays for validation, so decorate boundaries (a request handler, a service
+entry point, the public surface of a library), not hot inner functions that run
+in tight loops on values already validated one frame up. When a single hot call
+site sits behind an otherwise useful boundary check, `__wrapped__` skips the
+cost for just that site. See [Performance](/reference/performance/) for the
+cost model.
 
 ## Where to next
 

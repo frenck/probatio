@@ -142,3 +142,8 @@ message, with the close matches also available raw on `context["candidates"]`
 | `value_was_not_false`              | `value was not false`                                                                               |
 | `value_was_not_true`               | `value was not true`                                                                                |
 | `write_once_already_set`           | `{field!r} is write-once and already set`                                                           |
+
+Three keys are JSON Schema-only: `max_contains`, `min_contains`, and
+`must_not_match_not_schema`. They fire only from schemas built by
+`from_json_schema` (see the [JSON Schema guide](/guides/json-schema/)); no
+hand-written validator emits them.

@@ -30,11 +30,13 @@ schema = Schema(
 try:
     schema({})
 except MultipleInvalid as err:
+    # error_message is the bare message, without the path
     print(err.errors[0].error_message)  # a port is required
 
 try:
     schema({"port": 0})
 except MultipleInvalid as err:
+    # printing the error itself appends the path
     print(err.errors[0])  # not a valid port number at 'port'
 ```
 

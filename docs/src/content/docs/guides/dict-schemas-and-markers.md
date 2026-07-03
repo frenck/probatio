@@ -216,6 +216,10 @@ schema({"alias": "ada"})  # {'name': 'ada'}
 schema({"name": "ada"})   # {} (the canonical name is not an input name here)
 ```
 
+Note what the second call does: the canonical key is still recognized, so it is
+not reported as an unknown key, but its value is dropped from the output. An
+actually unknown key would raise.
+
 An aliased key is optional by default (its `default` applies when absent under
 every name); pass `required=True` to demand one of its names. An alias that names
 another key in the schema, or that two keys share, is rejected at build time, so
@@ -226,13 +230,13 @@ an ambiguous schema fails fast rather than at validation.
 `Secret` marks a key whose value is a credential, so a validation failure under it
 is redacted: the error still reports the path and the reason, but shows
 `<redacted>` instead of the offending value (in `Invalid` rendering and
-`humanize_error`). The value passes through validation unchanged; `Secret` marks
-the key, it does not transform the value.
+`humanize_error`, see [error handling](/guides/error-handling/)). The value
+passes through validation unchanged; `Secret` marks the key, it does not
+transform the value.
 
 ```python
-from probatio import Schema, Required, Secret
+from probatio import Schema, Required, Secret, MultipleInvalid
 from probatio.humanize import humanize_error
-from probatio.error import MultipleInvalid
 
 schema = Schema({Required(Secret("password")): int})
 data = {"password": "hunter2"}
@@ -319,6 +323,9 @@ try:
 except Invalid as err:
     print(err)  # some but not all values in the same group of inclusion 'coords' at '<coords>'
 ```
+
+Since no single key is at fault, a group error reports a synthetic path segment
+named after the group, in angle brackets: `<coords>` here, `<auth>` below.
 
 An exclusive group is optional by default (none of its keys is fine). Two flags
 change what an empty group does. `required=True` makes the group demand exactly

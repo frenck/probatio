@@ -79,12 +79,12 @@ matcher just as well as a fresh one.
 
 ```python
 from pytest_probatio import Exact, Partial
-from probatio import Schema, Email, Range
+from probatio import Schema, All, Email, Range
 
 # The shape of a user, defined once and shared by every test below.
 USER = Schema(
     {
-        "id": Range(min=1),
+        "id": All(int, Range(min=1)),
         "name": str,
         "email": Email(),
     }
@@ -112,15 +112,48 @@ def test_user_detail_may_carry_extra_fields(api):
     assert api.get("/users/1?expand=true").json() == Partial(USER)
 ```
 
-Here `api` is your application's test client, an ordinary pytest fixture you
-provide (a `fixture` that returns the schema works the same way, if you would
-rather inject the schema than import a module-level constant). When a response is
-wrong, the failure names the exact field, even inside the composed list:
+The `id` field is `All(int, Range(min=1))` rather than a bare `Range`: `Range`
+alone accepts any comparable value, like `1.5`, so pin the type first. Here
+`api` is your application's test client, an ordinary pytest fixture you
+provide. The schema can be injected the same way: a fixture that returns `USER`
+works just as well as the module-level constant. When a response is wrong, the
+failure names the exact field, even inside the composed list:
 
 ```text
 data does not match the probatio schema (==):
   users[0].email: expected an email address
 ```
+
+## Asserting a rejection with `raises`
+
+The matchers assert that data _fits_ a schema. To assert that a schema
+_rejects_ something, the core library ships a `raises` context manager, kept
+for drop-in compatibility with voluptuous. It comes from `probatio` itself, not
+from the plugin, so it works with or without pytest:
+
+```python
+from probatio import Schema, MultipleInvalid, raises
+
+schema = Schema({"port": int})
+
+with raises(MultipleInvalid):
+    schema({"port": "nope"})
+```
+
+The optional second argument asserts the exact `str()` of the error, and
+`regex=` matches it with `re.search` instead:
+
+```python
+with raises(MultipleInvalid, "expected int at 'port'"):
+    schema({"port": "nope"})
+
+with raises(MultipleInvalid, regex=r"expected int"):
+    schema({"port": "nope"})
+```
+
+`pytest.raises` works too, of course. Reach for probatio's `raises` when
+porting voluptuous tests that already use it, or when you want the exact-match
+message check without the pytest import.
 
 ## Why a separate package
 

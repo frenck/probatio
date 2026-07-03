@@ -62,6 +62,11 @@ change before 1.0 while the project gathers production feedback.
   </Card>
 </CardGrid>
 
+It is also fast for pure Python: roughly two to three times voluptuous's speed
+on a representative config schema, and about seven times once a schema
+[compiles itself](/guides/compiled-schemas/). The numbers, and how to reproduce
+them, are on the [performance page](/reference/performance/).
+
 ## At a glance
 
 Define a schema, then call it with a value to validate it:
@@ -81,18 +86,18 @@ schema({"name": "Frenck", "age": 40})
 ```
 
 When a value does not match, the schema raises `Invalid` (or `MultipleInvalid`)
-with a path to the offending value:
+with a path to the offending value, however deep it sits:
 
 ```python
 from probatio import Schema, Invalid
 
-schema = Schema({"port": int})
+schema = Schema({"server": {"port": int}})
 
 try:
-    schema({"port": "nope"})
+    schema({"server": {"port": "nope"}})
 except Invalid as err:
     print(err)
-    # expected int at 'port'
+    # expected int at 'server.port'
 ```
 
 ## Why trust it

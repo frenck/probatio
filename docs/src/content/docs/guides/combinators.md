@@ -97,6 +97,8 @@ schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
 
 The win is the error message: with a discriminant, a bad `point` reports the
 problem with its own fields, rather than "matched none of the alternatives."
+Note that the discriminant sees the raw input, and the one above assumes a
+mapping; a production discriminant should also handle a non-mapping value.
 `Switch` is an alias for `Union`.
 
 ## SomeOf: enough of them
@@ -112,8 +114,9 @@ schema = Schema(SomeOf(min_valid=2, validators=[Range(1, 5), int, 3]))
 schema(3)  # 3
 ```
 
-Too few passes raises `NotEnoughValid`; too many raises `TooManyValid`. Like
-`All`, each validator's output feeds the next.
+Too few passes raises [`NotEnoughValid`](/reference/errors/); too many raises
+[`TooManyValid`](/reference/errors/). Like `All`, each validator's output feeds
+the next.
 
 ## Combinators nest
 

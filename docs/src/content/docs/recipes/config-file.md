@@ -50,7 +50,7 @@ config = {
     "name": "my-app",
     "server": {"host": "localhost", "port": "9000"},
 }
-Path("config.json").write_text(json.dumps(config, indent=2))  # 85
+_ = Path("config.json").write_text(json.dumps(config, indent=2))
 ```
 
 ## Load and validate

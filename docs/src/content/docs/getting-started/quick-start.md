@@ -8,6 +8,9 @@ types and a few helpers, then call it with a value. A valid value comes back
 (possibly normalized); an invalid one raises an error that points at what went
 wrong.
 
+Probatio not installed yet? Start with
+[installation](/getting-started/installation/).
+
 ## Your first schema
 
 ```python
@@ -46,17 +49,18 @@ string becomes an int and then the int is range-checked.
 ## Handling failures
 
 When validation fails, the schema raises `MultipleInvalid` (a subclass of
-`Invalid`) with a path to the value that did not match:
+`Invalid`) with a path to the value that did not match, rendered as a dotted
+trail into the nested data:
 
 ```python
 from probatio import Schema, Invalid
 
-schema = Schema({"port": int})
+schema = Schema({"server": {"port": int}})
 
 try:
-    schema({"port": "nope"})
+    schema({"server": {"port": "nope"}})
 except Invalid as err:
-    print(err)  # expected int at 'port'
+    print(err)  # expected int at 'server.port'
 ```
 
 Catching `Invalid` catches every validation error, because everything Probatio
@@ -73,4 +77,10 @@ and human-readable messages.
 - [Dict schemas and markers](/guides/dict-schemas-and-markers/): required and
   optional keys, defaults, and extra-key policy.
 - [Validating a config file](/recipes/config-file/): a worked end-to-end example.
+- [Dataclasses](/guides/dataclasses/) and [TypedDict](/guides/typeddict/): skip
+  writing the schema when the type already says it.
+- [JSON Schema](/guides/json-schema/) and [OpenAPI](/guides/openapi/): export
+  what you validate.
+- [Performance](/reference/performance/): fast for pure Python, with an opt-in
+  compiled mode.
 - [API reference](/reference/): the full public surface.

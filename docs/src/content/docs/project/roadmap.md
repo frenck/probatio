@@ -4,6 +4,9 @@ description: Where Probatio stands today, and what stable means before 1.0.
 ---
 
 Probatio is pre-1.0. Honest status: it works, it is tested, and it is young.
+The current release line is 0.5, with v0.5.4 the latest at the time of writing;
+the [release notes on GitHub](https://github.com/frenck/probatio/releases)
+track what each release changed.
 
 ## The goal
 
@@ -37,8 +40,8 @@ internals are not.
 Probatio follows semantic versioning. While it is pre-1.0 (`0.x`), the practical
 reading is: a patch release (`0.x.y`) is for fixes and compatibility
 corrections, a minor release (`0.x`) may add to the public surface or change an
-internal, and any breaking change to the public API is called out in the release
-notes.
+internal, and any breaking change to the public API is called out in the
+[release notes](https://github.com/frenck/probatio/releases).
 
 Because the public API tracks voluptuous, most changes are really compatibility
 fixes: Probatio moving closer to how voluptuous behaves. Those are bug fixes,
@@ -52,5 +55,6 @@ traceable to its reason.
 
 There are no dates here, and no feature list of things that do not yet exist.
 The roadmap is the goal above: faithful compatibility, then iteration from real
-use. When something ships, it ships in the docs and the changelog, not as a
-promise on this page.
+use. When something ships, it ships in the docs and the
+[release notes](https://github.com/frenck/probatio/releases), not as a promise
+on this page.

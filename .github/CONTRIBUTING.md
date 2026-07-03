@@ -48,6 +48,17 @@ Or run the full gate at once:
 uv run --no-sync just check
 ```
 
+## Working on the documentation
+
+The documentation checks itself: every Python block in `docs/` is executed in
+CI and its output comments are compared against what the code really produces.
+If you touch a page with code on it, run the harness before opening a pull
+request:
+
+```shell
+uv run --no-sync just examples
+```
+
 ## Pull request process
 
 1. Search our repository for open or closed [pull requests][prs] that relate

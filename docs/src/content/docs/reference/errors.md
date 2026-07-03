@@ -55,7 +55,7 @@ the legacy output.
 - `as_dict()`: the structured layer rendered as a serializable dict, handy for a
   JSON API.
 
-Reading `.path`, `.code`, and `.as_dict()` off a caught error. Remember the
+Read `.path`, `.code`, and `.as_dict()` off a caught error. Remember the
 schema raises `MultipleInvalid`, so reach into `err.errors[0]`:
 
 ```python
@@ -116,6 +116,8 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `LiteralInvalid` (`not_valid`): the value does not match a `Literal`.
 - `CoerceInvalid` (`coerce`): a value could not be coerced to the requested type;
   for an `Enum` with string values, carries `candidates`, the close matches.
+- `EnumInvalid` (`enum`): the value is not a member of the expected enum, nor one
+  of its values (raised by an enum class used as a schema).
 - `AnyInvalid` (`no_match`): the value matched none of the candidates.
 - `AllInvalid` (`all`): the value failed one of a chain of validators.
 - `MatchInvalid` (`match`): the value does not match the expected pattern.
@@ -149,7 +151,9 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `DateInvalid` (`date`): the value is not a valid date.
 - `TimeInvalid` (`time`): the value is not a valid time of day.
 - `DurationInvalid` (`duration`): the value is not a valid duration.
-- `TimeZoneInvalid` (`time_zone`): the value is not a valid IANA time zone.
+- `TimeZoneInvalid` (`time_zone`): the value is not a valid time zone: an IANA
+  name (`TimeZoneInfo`) or a UTC offset (`TimeZone`, `AsTimezone`).
+- `EpochInvalid` (`epoch`): the value is not a valid Unix epoch timestamp.
 - `IpInvalid` (`ip`): the value is not a valid IP address or network.
 - `MacAddressInvalid` (`mac_address`): the value is not a valid MAC address.
 - `UuidInvalid` (`uuid`): the value is not a valid UUID.
@@ -158,6 +162,8 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `MultipleOfInvalid` (`multiple_of`): the value is not a multiple of the factor.
 - `JsonInvalid` (`json`): the value is not valid JSON.
 - `YamlInvalid` (`yaml`): the value is not valid YAML.
+- `ImmutableInvalid` (`immutable`): a field that may not change (`Immutable` or
+  `WriteOnce`) was changed.
 - `NotEnoughValid` (`not_enough_valid`): too few of a `SomeOf` group's validators
   passed.
 - `TooManyValid` (`too_many_valid`): too many of a `SomeOf` group's validators

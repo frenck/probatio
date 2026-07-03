@@ -5,12 +5,13 @@ description: Where Probatio fits, and who is using it.
 
 Probatio is young. This page tracks projects that use it and, just as usefully,
 the ecosystems it is built to serve. If you adopt Probatio, please
-[open a pull request](https://github.com/frenck/probatio) to add yourself here.
+[edit this page on GitHub](https://github.com/frenck/probatio/edit/main/docs/src/content/docs/project/projects.md)
+and open a pull request to add yourself here.
 
 ## Using Probatio
 
 _Be the first._ There are no public adopters yet. If your project validates data
-with Probatio, we would love to list it.
+with Probatio, I would love to list it.
 
 ## Where Probatio fits
 
@@ -23,10 +24,10 @@ for its design.
 
 Home Assistant validates every integration's configuration with voluptuous, on a
 hot path hit by millions of installations at startup and on every reload.
-Probatio tracks that behavior closely (with documented deviations), its
-compatibility is pinned against Home Assistant's own `config_validation` test
-suite (the full suite passing), and it adds
-a cleaner error model with paths, no interpreter-level `RecursionError` on deep
+Probatio tracks that behavior closely, with documented deviations; how that
+compatibility is measured, including against Home Assistant's own test suite, is
+on the [about page](/project/about/). On top of it, Probatio adds a cleaner
+error model with paths, no interpreter-level `RecursionError` on deep
 configuration, and "did you mean ...?" suggestions for misspelled keys. See the
 [Home Assistant recipe](/recipes/home-assistant/).
 

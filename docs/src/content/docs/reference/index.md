@@ -6,7 +6,8 @@ description: The public surface of Probatio, grouped by what each name does.
 This is the public surface of `probatio`. It mirrors voluptuous, so the names
 and signatures match what you already know. Everything here is importable
 straight from `probatio` (for example `from probatio import Schema, All, Range`),
-except the error-humanizing helpers, which live in `probatio.humanize`.
+except `humanize_error` and `validate_with_humanized_errors`, which live in
+`probatio.humanize`.
 
 ## Schema
 
@@ -73,6 +74,15 @@ The extra-key policy is set with the `extra` argument to `Schema`:
 - `ALLOW_EXTRA`: keep them untouched.
 - `REMOVE_EXTRA`: drop them from the output.
 
+## Constants and sentinels
+
+- `UNDEFINED`: the "no value" sentinel for marker defaults.
+- `Undefined`: the type of `UNDEFINED`, for `isinstance` checks.
+- `default_factory(value)`: normalize a marker default into a zero-argument
+  factory (the voluptuous helper).
+- `Schemable`: the type alias for anything `Schema` accepts, for annotations.
+- `__version__`: the installed Probatio version string.
+
 ## Combinators
 
 - `All(*validators, msg=None, required=False)`: every validator must pass, the output of each feeding the next. Aliased as `And`.
@@ -104,11 +114,10 @@ schema({"type": "a", "v": 1})  # {'type': 'a', 'v': 1}
 
 ## Validators
 
-The leaf validators, grouped by category. Select a category to expand it. Every
-name is importable straight from `probatio`.
+The leaf validators, grouped by category. Every name is importable straight
+from `probatio`.
 
-<details>
-<summary>Type and value</summary>
+### Type and value
 
 - `Coerce(type, msg=None)`: convert with `type(value)`, failing cleanly as
   `CoerceInvalid`.
@@ -126,10 +135,7 @@ mean ...?`) and records them on the error's `candidates`.
 - `Contains(item, msg=None)`: the value (a collection) must contain `item`.
 - `Match(pattern, msg=None)`: the value must match a regular expression.
 
-</details>
-
-<details>
-<summary>Numbers</summary>
+### Numbers
 
 - `Range(min=None, max=None, min_included=True, max_included=True, msg=None)`:
   numeric bounds, inclusive by default.
@@ -147,10 +153,7 @@ mean ...?`) and records them on the error's `candidates`.
 - `Latitude(msg=None)`, `Longitude(msg=None)`: a coordinate in -90 to 90, or -180
   to 180.
 
-</details>
-
-<details>
-<summary>Collections and structure</summary>
+### Collections and structure
 
 - `Length(min=None, max=None, msg=None)`: bound the length of a sized value.
 - `Unique(msg=None)`: require all items to be distinct.
@@ -182,10 +185,7 @@ result = Schema(Object({"x": int, "y": int}))(Point(1, 2))  # validates the attr
 result.x  # 1
 ```
 
-</details>
-
-<details>
-<summary>Strings</summary>
+### Strings
 
 The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 
@@ -208,13 +208,11 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 - `HexColor(msg=None)`: validate a hex color string (`#rgb` or `#rrggbb`), returned
   unchanged. Compose with `Lower` (or `Upper`) to fold case: `All(HexColor(), Lower)`.
 
-</details>
+### Date and time
 
-<details>
-<summary>Date and time</summary>
-
-- `Datetime(format=None, msg=None)`: validate a datetime string (default ISO
-  8601).
+- `Datetime(format=None, msg=None)`: validate a datetime string against a
+  `strptime` format, default `%Y-%m-%dT%H:%M:%S.%fZ`, matching voluptuous. Use
+  `AsDatetime` for ISO 8601 parsing.
 - `Date(format=None, msg=None)`: validate a date string (default `%Y-%m-%d`).
 - `Time(format=None, msg=None)`: validate a time-of-day string (default
   `%H:%M:%S`).
@@ -239,10 +237,7 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 - `FromEpoch(unit="seconds", msg=None)`: parse a Unix timestamp (`int` or `float`,
   `unit="seconds"` or `"milliseconds"`) into a timezone-aware UTC `datetime`.
 
-</details>
-
-<details>
-<summary>Filesystem</summary>
+### Filesystem
 
 - `IsDir(msg=None)`: an existing directory path.
 - `IsFile(msg=None)`: an existing file path.
@@ -252,10 +247,7 @@ The transforms are plain functions; use them bare (`Lower`, not `Lower()`).
 - `IsFifo(msg=None)`: an existing named pipe (FIFO).
 - `IsBlockDevice(msg=None)`: an existing block device.
 
-</details>
-
-<details>
-<summary>Network and identifiers</summary>
+### Network and identifiers
 
 These are Probatio additions (voluptuous has no equivalent). They validate and
 return the value unchanged; wrap with `Coerce(the type)` when you want the parsed
@@ -284,10 +276,7 @@ Python object.
 - `Fqdn(msg=None)`: a fully-qualified domain name (a dotted hostname).
 - `Port(msg=None)`: a port number (1 to 65535), returned as an `int`.
 
-</details>
-
-<details>
-<summary>Encoding</summary>
+### Encoding
 
 - `JSONString(schema=None, msg=None)`: validate a JSON string (optionally the decoded
   value against `schema`), returning the string unchanged.
@@ -314,18 +303,12 @@ Python object.
   dialable. Grouping characters are stripped by default; `normalize=False` rejects
   them and returns the value unchanged.
 
-</details>
-
-<details>
-<summary>Truthiness</summary>
+### Truthiness
 
 - `IsTrue(msg=None)`: the value must be truthy.
 - `IsFalse(msg=None)`: the value must be falsy.
 
-</details>
-
-<details>
-<summary>Cross-field rules</summary>
+### Cross-field rules
 
 Apply these after a dict schema with `All`; they inspect the whole mapping.
 
@@ -351,17 +334,12 @@ Apply these after a dict schema with `All`; they inspect the whole mapping.
 - `WriteOnce(*fields, msg=None)`: allow a field to be set once (from absent or
   `None`), then reject a later change.
 
-</details>
-
-<details>
-<summary>Defaults and messages</summary>
+### Defaults and messages
 
 - `DefaultTo(default, msg=None)`: replace `None` with a default.
 - `SetTo(value)`: ignore the input and always produce a fixed value.
 - `Msg(validator, msg, cls=None)`: wrap a validator and replace its failure
   message.
-
-</details>
 
 ## Decorators and helpers
 
@@ -374,6 +352,19 @@ Apply these after a dict schema with `All`; they inspect the whole mapping.
   `__return__`) against hand-named schemas (the voluptuous drop-in).
 - `raises(exc, msg=None, regex=None)`: context manager asserting a block raises
   `exc`, optionally matching it.
+- `message(default=None, cls=None, *, translation_key=None)`: decorator turning
+  a function that raises `ValueError` into a validator factory (the voluptuous
+  helper). The decorated function becomes a factory: call it to get the
+  validator (`Schema(isint())`, not `Schema(isint)`), optionally passing a
+  per-use message and `Invalid` subclass.
+- `truth(func)`: decorator turning a predicate into a validator (the voluptuous
+  helper). A truthy result returns the value unchanged; a falsy one fails as
+  "not a valid value". Use the decorated function directly: `Schema(isdir)`.
+- `current_context()`: the `context` value of the active
+  `schema(data, context=...)` call, or `None` outside one. Lets a custom
+  validator read call-time state, such as the previous value `Immutable`
+  compares against. See the
+  [custom validators guide](/guides/custom-validators/).
 
 ```python
 from typing import Annotated
@@ -410,6 +401,10 @@ In `probatio.humanize`:
 
 - `humanize_error(data, validation_error, max_sub_error_length=..., *, locator=None)`: render an error against the data as a readable string, naming the offending value. With a `locator` (a callable mapping an error `path` to a `Location`, such as the one from `load_yaml_with_locations`), each line gains its source position.
 - `validate_with_humanized_errors(data, schema, ...)`: validate, raising `Error` with a humanized message on failure.
+
+Importable straight from `probatio` (it lives in `probatio.error`, not
+`probatio.humanize`):
+
 - `Location`: a source position (`line`, `column`, `file`) a locator returns; renders as `file:line:column`.
 
 ## Schema interchange
@@ -439,6 +434,7 @@ guide](/guides/typeddict/)):
 - `is_dataclass(obj)`: the standard-library check, re-exported.
 - `TypedDictSchema(typeddict_type, additional_constraints=None, *, extra=PREVENT_EXTRA)`: a `Schema` that validates a mapping against a `TypedDict` and returns it typed as that `TypedDict` (nothing is constructed).
 - `create_typeddict_schema(typeddict_type, additional_constraints=None, *, extra=PREVENT_EXTRA)`: the functional form, returning the same `Schema`.
+- `Key(secret=False, alias=None, accept_canonical=True, forbidden=False, remove=False, inclusive=None, exclusive=None, required=None, description=None, msg=None)`: configure the marker a builder generates for an `Annotated` field, so a dataclass or `TypedDict` field carries the marker behavior (secret, alias, forbidden, remove, group membership, and the rest) without a hand-written dict schema. See the [dataclasses guide](/guides/dataclasses/).
 
 A field without a default is `Required`, one with a `default`/`default_factory`
 is `Optional`. Annotations map deeply (`list[str]` to `[str]`, `X | None` to
@@ -455,6 +451,16 @@ more than `isinstance`:
 - `unregister_type(cls)`: drop the registration for `cls`, so its fields go back to a strict `isinstance` check. A no-op when `cls` is not registered.
 - `clear_type_registry()`: empty the registry, dropping every registration.
 - `type_registry(registrations)`: a context manager that applies a mapping of `{type: validator}` for the duration of a `with` block, then restores the previous state. Async- and thread-safe, so a library should prefer it over the process-wide `register_type`.
+
+## Compile policy
+
+A hot schema compiles itself into a specialized validator; these names control
+that process-wide (see [Compiled schemas](/guides/compiled-schemas/)):
+
+- `CompilePolicy`: the policy enum: `OFF`, `ON`, and `AUTO` (the default, which
+  compiles a schema once it runs hot).
+- `get_compile_policy()`: return the active policy.
+- `set_compile_policy(policy)`: set the process-wide policy.
 
 ## Loading and dumping
 

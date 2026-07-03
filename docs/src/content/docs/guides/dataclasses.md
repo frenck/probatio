@@ -126,18 +126,24 @@ schema = DataclassSchema(User, {"name": Length(min=2)})
 schema({"name": "ada"})  # User(name='ada')
 ```
 
-The same rule can live on the field itself with `Annotated`. The first argument
-is the type and any callable after it is applied as a validator, in order. The
-type is checked on the result, not the raw input, so the annotation says what the
-field _is_: a coercer runs first and the type confirms what it produced.
-`Annotated[datetime, AsDatetime()]` accepts the string, parses it, and confirms a
-`datetime`, keeping the field honestly typed instead of annotating `str` and hiding
-the real type in the validator. This keeps the constraint next to the field instead
-of in a separate map, and it composes inside containers
-(`list[Annotated[int, Range(min=1)]]` checks every element). Metadata that is not
-callable is left alone, so an `Annotated` value you share with another tool passes
-through untouched. To find the right callable to drop in here, whether it checks
-the value or transforms it, see [Built-ins by role](/reference/builtins-by-role/).
+The same rule can live on the field itself with `Annotated`, keeping the
+constraint next to the field instead of in a separate map. The rules:
+
+- The first argument is the type; every callable after it is applied as a
+  validator, in order.
+- The type is checked on the result, not the raw input, so the annotation says
+  what the field _is_: a coercer runs first and the type confirms what it
+  produced.
+- It composes inside containers: `list[Annotated[int, Range(min=1)]]` checks
+  every element.
+- Metadata that is not callable is left alone, so an `Annotated` value you
+  share with another tool passes through untouched.
+
+That second rule is what keeps a coerced field honestly typed.
+`Annotated[datetime, AsDatetime()]` accepts the string, parses it, and confirms
+a `datetime`, instead of annotating `str` and hiding the real type in the
+validator. To find the right callable to drop in here, whether it checks the
+value or transforms it, see [Built-ins by role](/reference/builtins-by-role/).
 
 ```python
 from dataclasses import dataclass
@@ -156,8 +162,7 @@ schema = DataclassSchema(User)
 schema({"name": "ada", "age": 30})  # User(name='ada', age=30)
 ```
 
-Because the type checks the result, a coercer produces the annotated type while the
-field stays honestly typed:
+Here is that coercer-plus-type pairing in practice:
 
 ```python
 from dataclasses import dataclass
@@ -198,9 +203,29 @@ class Account:
     password: Annotated[str, Key(secret=True), Length(min=8)]  # redacted, length-checked
     user_name: Annotated[str, Key(alias=["user-name", "userName"])] = ""  # accept aliases
     is_admin: Annotated[bool, Key(forbidden=True)] = False  # reject if the caller sends it
+
+
+schema = DataclassSchema(Account)
+schema({"name": "a", "password": "secret123", "user-name": "frenck"})
+# Account(name='a', password='secret123', user_name='frenck', is_admin=False)
 ```
 
-`Key(secret=True)` redacts the field's value in validation errors.
+`Key(secret=True)` redacts the field's value in validation errors. It shows up
+when an error renders the offending value: the message stays useful, the secret
+does not leak.
+
+```python
+from probatio import MultipleInvalid
+from probatio.humanize import humanize_error
+
+data = {"name": "a", "password": "short", "user-name": "frenck"}
+try:
+    schema(data)
+except MultipleInvalid as err:
+    print(humanize_error(data, err))
+# length of value must be at least 8 at 'password'. Got <redacted>
+```
+
 `Key(alias=[...])` accepts the field under alternate input names (a bare string
 works for one), emitting it under the field name; `accept_canonical=False` makes it
 a strict rename. `Key(inclusive="grp")` / `Key(exclusive="grp")` group fields the
@@ -218,12 +243,17 @@ dataclass (whose constructor needs a value for every field) such a field must ha
 a default; without one it raises `SchemaError`. A TypedDict constructs nothing, so
 there they need no default.
 
-One boundary to know: a field the schema keeps out of the input, a `forbidden`
-field, a `remove` field, or an unselected `exclusive` member, takes the dataclass's
-own default exactly as declared, without validation or coercion (an `optional` or
-selected field carries its default through the schema and is coerced). The schema
-validates input, and these values are not input, so write an already-typed default
-for such a field; a wrong-typed one is a type error your type-checker flags. See
+One boundary to know, on which defaults pass through the schema:
+
+- An `optional` field, or a selected `exclusive` member, carries its default
+  through the schema, so it is validated and coerced like input.
+- A field the schema keeps out of the input (a `forbidden` field, a `remove`
+  field, an unselected `exclusive` member) takes the dataclass's own default
+  exactly as declared: no validation, no coercion.
+
+The schema validates input, and that second group's values are not input, so
+write an already-typed default for such a field; a wrong-typed one is a type
+error your type-checker flags. See
 [ADR-013](https://github.com/frenck/probatio/blob/main/adr/013-markers-on-annotated-fields.md)
 for the model.
 
@@ -316,7 +346,8 @@ DataclassSchema(Tree)({"name": "root", "children": [{"name": "leaf"}]})
 Recursion follows the data, with the same depth guard as `Self`: cyclic or
 pathologically deep input raises a clean `Invalid`, never a `RecursionError`. A
 recursive dataclass level does more work than a bare `Self` level, so it bottoms
-out sooner; raise `sys.setrecursionlimit` if you genuinely need to go deeper.
+out sooner; raise the limit with `sys.setrecursionlimit()` if you genuinely need
+to go deeper.
 
 ## Discriminated unions
 
@@ -359,12 +390,6 @@ The tag field must be a single-value `Literal` present on every member, with a
 distinct value per member. Without one (or if a member is not a dataclass), the
 union stays an ordinary "try each" `Any`. An unknown tag value falls back to
 trying every member, so it still fails cleanly rather than silently.
-
-## From a TypedDict
-
-The same engine builds a schema from a `TypedDict`. Because that is a different
-tool with a different result (the validated dict, not a constructed instance), it
-has its own page: [Schemas from TypedDicts](/guides/typeddict/).
 
 ## Speed
 
@@ -431,5 +456,31 @@ trusted dict unchanged.
 ## Limits
 
 A field with `init=False` is left out of the schema, since it is not a constructor
-argument. The value is not coerced between container types: a list stays a list
-even where the annotation says `tuple`.
+argument; it keeps whatever its default or `__post_init__` gives it. An `InitVar`
+goes the other way: it is a constructor argument, so it becomes a schema key,
+validated against its annotation like any field, and it feeds `__post_init__` as
+usual.
+
+```python
+from dataclasses import InitVar, dataclass, field
+
+from probatio import DataclassSchema
+
+
+@dataclass
+class Rect:
+    width: int
+    height: int
+    scale: InitVar[int] = 1
+    area: int = field(init=False, default=0)
+
+    def __post_init__(self, scale: int) -> None:
+        self.area = self.width * self.height * scale
+
+
+DataclassSchema(Rect)({"width": 2, "height": 3, "scale": 10})
+# Rect(width=2, height=3, area=60)
+```
+
+The value is not coerced between container types: a list stays a list even where
+the annotation says `tuple`.

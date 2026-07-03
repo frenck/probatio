@@ -12,7 +12,7 @@ MIT was a deliberate choice: it lets Probatio fit anywhere voluptuous did,
 including Home Assistant, without trading a maintenance win for a license
 headache ([ADR-002](https://github.com/frenck/probatio/blob/main/adr/002-mit-license.md)).
 The clean-room reimplementation ([ADR-001](https://github.com/frenck/probatio/blob/main/adr/001-clean-room-reimplementation-of-voluptuous.md)) is what makes that
-license honest, no voluptuous source is copied, so nothing constrains it.
+license honest: no voluptuous source is copied, so nothing constrains it.
 
 The authoritative copy is [`LICENSE`](https://github.com/frenck/probatio/blob/main/LICENSE)
 in the repository.

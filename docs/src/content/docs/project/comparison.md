@@ -18,16 +18,17 @@ better job, and this page says where.
 
 ## The short answer
 
-| Pick this when                                              | Reach for      |
-| ----------------------------------------------------------- | -------------- |
-| You use voluptuous today and want a maintained replacement  | Probatio       |
-| Your data is plain dicts and lists, schema as data          | Probatio       |
-| You want typed model objects with editor and type support   | pydantic       |
-| You want declarative schema classes with load and dump      | marshmallow    |
-| Your contract is a JSON Schema document                     | jsonschema     |
-| You are (de)serializing your own classes                    | attrs / cattrs |
-| You (de)serialize dataclasses fast, in a known format       | mashumaro      |
-| You just need a dict turned into a dataclass, no validation | dacite         |
+| Pick this when                                              | Reach for                     |
+| ----------------------------------------------------------- | ----------------------------- |
+| You use voluptuous today and want a maintained replacement  | Probatio                      |
+| Your data is plain dicts and lists, schema as data          | Probatio                      |
+| You want typed model objects with editor and type support   | pydantic                      |
+| You want declarative schema classes with load and dump      | marshmallow                   |
+| Your schemas are cerberus rule dicts                        | cerberus, or port to Probatio |
+| Your contract is a JSON Schema document                     | jsonschema                    |
+| You are (de)serializing your own classes                    | attrs / cattrs                |
+| You (de)serialize dataclasses fast, in a known format       | mashumaro                     |
+| You just need a dict turned into a dataclass, no validation | dacite                        |
 
 ## voluptuous
 
@@ -66,16 +67,16 @@ better or worse one.
 
 On raw speed the Rust core is genuinely fast, but the advantage is not uniform, and
 it is worth being precise about where it comes from. It is largest on heavy coercion
-and decoding, parsing a stack of ISO datetimes and enums out of JSON, where the
-native code does real work Probatio does in Python (the cross-library benchmark on
+and decoding: parsing a stack of ISO datetimes and enums out of JSON, where the
+native code does real work Probatio does in Python. The cross-library benchmark on
 the [performance page](/reference/performance/) is exactly that kind of workload, and
-pydantic v2 sits near the top of it). It shrinks on a schema dominated by your own
-**custom validators**: a native core cannot run a Python validator natively, it has
-to call it across the Rust boundary (pydantic does so efficiently, but it is still a
-Python call), so the speedup is muted exactly where the work is your code rather than
-the library's. "Faster because Rust" holds in the parsing-heavy regime, not
-everywhere, and Probatio stays pure Python with no native extension to build or
-install.
+pydantic v2 sits near the top of it. The advantage shrinks on a schema dominated by
+your own **custom validators**, because a native core cannot run a Python validator
+natively; it has to call it across the Rust boundary (pydantic does so efficiently,
+but it is still a Python call), so the speedup is muted exactly where the work is
+your code rather than the library's. "Faster because Rust" holds in the
+parsing-heavy regime, not everywhere, and Probatio stays pure Python with no native
+extension to build or install.
 
 :::note
 The two can live side by side. Use pydantic where you want typed models, use
@@ -95,8 +96,25 @@ Probatio is the better fit when the schema is data you build and compose at runt
 rather than a class you declare, when you validate free-form dicts, or when you are
 replacing voluptuous. marshmallow fits when you want explicit schema classes and its
 serialization story. Probatio is also a good deal faster on the cross-library
-[benchmark](/reference/performance/), marshmallow does more per field and is pure
-Python, but speed is not the main axis here; the model is.
+[benchmark](/reference/performance/) (marshmallow does more per field and is pure
+Python), but speed is not the main axis here; the model is.
+
+## cerberus
+
+`cerberus` is the other schema-is-data validator. You describe rules in a dict
+of string rule names (`{"name": {"type": "string", "required": True}}`), hand
+it to a `Validator`, and check the result. The shared instinct with Probatio is
+real: the schema is data, not a class hierarchy.
+
+The difference is what that data is made of. A cerberus schema is a small rule
+language interpreted by the library, so extending it means registering a rule
+or subclassing the validator. A Probatio schema is live Python objects: plain
+types, callables, and validators you compose directly, so a custom rule is just
+a function, and the schema participates in the rest of your code (imports,
+refactoring, composition) like any other Python value. cerberus is maintained
+and still ships releases; if its rule dicts fit how you think, it is a fine
+choice. If you want the schema itself to be Python you compose, Probatio fits
+better.
 
 ## jsonschema
 
@@ -145,9 +163,9 @@ The two are close on the dict-to-dataclass path, which is worth seeing precisely
 because they do different amounts of work. mashumaro deserializes and largely
 trusts the declared types; Probatio's `DataclassSchema` validates every field
 against its type and then constructs. On a small dataclass, mashumaro builds it in
-about 0.5 µs and a compiled Probatio schema in about 0.7 µs, so Probatio is within
-roughly 1.3x while actually validating, and the gap all but closes as the field
-count grows. That is the trade: mashumaro is faster because it trusts the input,
+about 0.5 µs and Probatio in about 0.7 µs compiled (about 1.5 µs interpreted,
+before the schema compiles itself), so compiled Probatio is within roughly 1.4x
+while actually validating, and the gap all but closes as the field count grows. That is the trade: mashumaro is faster because it trusts the input,
 Probatio costs a little more because it does not. If the input is wrong (a string
 where an int belongs), mashumaro may hand you a dataclass whose values do not match
 their annotations, and Probatio rejects it. Numbers, and how to run them yourself,
@@ -172,8 +190,8 @@ the same family as cattrs and mashumaro: dataclass (de)serialization driven by t
 declared types, not schema validation of free-form data.
 
 Reach for them when you own the dataclasses and want them filled from a dict and do
-not need full validation. Probatio's `DataclassSchema` covers the same dict-to-
-dataclass path with a richer type mapping and real validation, or its opt-in
+not need full validation. Probatio's `DataclassSchema` covers the same
+dict-to-dataclass path with a richer type mapping and real validation, or its opt-in
 `construct` for trusted input. Among the pure (de)serializers, mashumaro and cattrs
 are the fast ones; on the cross-library
 [benchmark](/reference/performance/) `dacite` and `dataclasses-json` are a good deal

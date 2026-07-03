@@ -24,8 +24,9 @@ except Invalid as err:
     print(err)  # expected int
 ```
 
-A broken schema _definition_ is different: that raises `SchemaError`, because it
-is a programming mistake, not bad input. The two never overlap.
+A broken schema _definition_ raises `SchemaError` instead: you wrote the schema
+wrong, and no input would make it right. The two never overlap: `SchemaError`
+means fix the code, `Invalid` means reject the data.
 
 ## The path to the value
 
@@ -50,9 +51,9 @@ find the exact value that failed.
 
 ## Many errors at once
 
-A schema does not stop at the first problem. It collects every failure into a
-`MultipleInvalid`, which is itself an `Invalid`. Its `errors` list holds the
-individual failures:
+A dict schema does not stop at the first failing key (and a list schema not at
+the first failing element). It collects every failure into a `MultipleInvalid`,
+which is itself an `Invalid`. Its `errors` list holds the individual failures:
 
 ```python
 from probatio import Schema, MultipleInvalid
@@ -89,8 +90,9 @@ except Invalid as err:
 ```
 
 `validate_with_humanized_errors(data, schema)` (also in `probatio.humanize`) does
-both steps: it validates and, on failure, raises `Error` carrying the humanized
-message.
+both steps: it validates and, on failure, raises `Error` (importable from
+`probatio` or `probatio.error`) carrying the humanized message. The
+[errors reference](/reference/errors/) has the class.
 
 ## Catching a specific kind
 

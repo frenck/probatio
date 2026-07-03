@@ -5,8 +5,8 @@ description: A name-by-name map of voluptuous's public API and its status in Pro
 
 The drop-in promise is the point of Probatio. This page makes it checkable. Below
 is voluptuous's meaningful public surface, name by name, with its status in
-Probatio and a short note. Presence was confirmed with `hasattr(probatio, name)`
-against voluptuous 0.16.0, not from memory.
+Probatio and a short note. Every name in voluptuous 0.16.0's public surface was
+checked against Probatio with `hasattr(probatio, name)`, not from memory.
 
 The status column uses three values:
 
@@ -91,7 +91,7 @@ voluptuous](/getting-started/migrating-from-voluptuous/) and
 | `Email`         | Supported | Backtracking-safe email format check.                                          |
 | `Url`           | Supported | Backtracking-safe URL format check.                                            |
 | `FqdnUrl`       | Supported | URL with a fully qualified domain.                                             |
-| `Datetime`      | Supported | Validate a datetime string (default ISO 8601).                                 |
+| `Datetime`      | Supported | Validate a datetime string (default `%Y-%m-%dT%H:%M:%S.%fZ`).                  |
 | `Date`          | Supported | Validate a date string (default `%Y-%m-%d`).                                   |
 | `IsDir`         | Supported | An existing directory path.                                                    |
 | `IsFile`        | Supported | An existing file path.                                                         |
