@@ -563,3 +563,20 @@ def test_empty_description_is_emitted() -> None:
     """An empty-string description is a real description, not dropped as falsy."""
     result = to_json_schema(Schema({Optional("a", description=""): int}))
     assert result["properties"]["a"]["description"] == ""
+
+
+def test_forbidden_type_key_closes_the_object() -> None:
+    """Forbidden(str) rejects every string key at runtime, so the schema closes."""
+    from probatio.markers import Forbidden  # noqa: PLC0415
+
+    result = to_json_schema(Schema({"a": int, Forbidden(str): object}))
+    assert result["properties"] == {"a": {"type": "integer"}}
+    assert result["additionalProperties"] is False
+
+
+def test_forbidden_type_key_closes_over_allow_extra() -> None:
+    """A Forbidden type key closes the object even under ALLOW_EXTRA."""
+    from probatio.markers import Forbidden  # noqa: PLC0415
+
+    result = to_json_schema(Schema({Forbidden(str): object}, extra=ALLOW_EXTRA))
+    assert result["additionalProperties"] is False

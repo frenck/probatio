@@ -167,6 +167,10 @@ def _convert_mapping(
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
     variable_values: list[dict[str, Any]] = []
+    # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
+    # string key, so every JSON key) closes the object regardless of the extra
+    # policy.
+    forbid_extra = False
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
         # is classified by the marker it actually carries, not just the outer wrapper.
@@ -176,6 +180,17 @@ def _convert_mapping(
         value_schema = _convert(
             value, required_default=required_default, allow_extra=allow_extra
         )
+
+        if isinstance(marker, Forbidden):
+            # A literal forbidden key is a rejected property; a type/callable one
+            # forbids a class of keys, which for JSON (string keys) closes the
+            # object. Checked before the variable-key branch so ``Forbidden(str)``
+            # does not fall through into an accepting ``additionalProperties``.
+            if isinstance(name, str):
+                properties[name] = False
+            else:
+                forbid_extra = True
+            continue
 
         if isinstance(name, type) or callable(name):
             # A type/callable key is a variable key. ``Remove`` still validates a
@@ -198,10 +213,6 @@ def _convert_mapping(
             properties[name] = value_schema
             continue
 
-        if isinstance(marker, Forbidden):
-            properties[name] = False
-            continue
-
         properties[name] = _decorate_property(
             value_schema,
             marker,
@@ -214,12 +225,15 @@ def _convert_mapping(
         if _is_required(marker, required_default=required_default):
             required.append(name)
 
+    additional: Any = (
+        False
+        if forbid_extra
+        else _additional_properties(variable_values, allow_extra=allow_extra)
+    )
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
-        "additionalProperties": _additional_properties(
-            variable_values, allow_extra=allow_extra
-        ),
+        "additionalProperties": additional,
     }
     if required:
         result["required"] = required
