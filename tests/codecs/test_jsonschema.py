@@ -717,3 +717,90 @@ def test_const_with_a_non_string_dict_key_widens_to_open() -> None:
 def test_const_with_an_unrepresentable_dict_value_widens_to_open() -> None:
     """A dict const holding an unrepresentable value opens rather than crashing."""
     assert to_json_schema(Schema(Equal({"a": b"raw"}))) == {}
+
+
+def test_alias_emits_every_accepted_name() -> None:
+    """An aliased key renders each of its accepted names as a property."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_json_schema(Schema({Alias("name", "userName"): str}))
+    assert result["properties"] == {
+        "name": {"type": "string"},
+        "userName": {"type": "string"},
+    }
+    assert "allOf" not in result
+
+
+def test_required_alias_demands_one_name() -> None:
+    """A required Alias adds an anyOf requiring at least one of its names."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_json_schema(Schema({Alias("name", "userName", required=True): str}))
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["name"]}, {"required": ["userName"]}]},
+    ]
+
+
+def test_inclusive_group_is_all_or_none() -> None:
+    """An Inclusive group renders dependentRequired, so members come all or none."""
+    from probatio.markers import Inclusive  # noqa: PLC0415
+
+    schema = Schema({Inclusive("a", "g"): int, Inclusive("b", "g"): int})
+    assert to_json_schema(schema)["allOf"] == [
+        {"dependentRequired": {"a": ["b"], "b": ["a"]}},
+    ]
+
+
+def test_exclusive_group_is_at_most_one() -> None:
+    """An Exclusive group forbids more than one member being present."""
+    from probatio.markers import Exclusive  # noqa: PLC0415
+
+    schema = Schema({Exclusive("a", "g"): int, Exclusive("b", "g"): int})
+    assert to_json_schema(schema)["allOf"] == [
+        {"not": {"anyOf": [{"required": ["a", "b"]}]}},
+    ]
+
+
+def test_required_exclusive_group_is_exactly_one() -> None:
+    """A required Exclusive group (no default) demands exactly one member."""
+    from probatio.markers import Exclusive  # noqa: PLC0415
+
+    schema = Schema(
+        {Exclusive("a", "g", required=True): int, Exclusive("b", "g"): int},
+    )
+    assert to_json_schema(schema)["allOf"] == [
+        {"oneOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+def test_required_exclusive_group_with_default_stays_at_most_one() -> None:
+    """A default fills the empty group, so a required-with-default group is at-most-one."""
+    from probatio.markers import Exclusive  # noqa: PLC0415
+
+    schema = Schema(
+        {
+            Exclusive("a", "g", required=True, default=1): int,
+            Exclusive("b", "g"): int,
+        },
+    )
+    result = to_json_schema(schema)
+    assert result["properties"]["a"]["default"] == 1
+    assert result["allOf"] == [{"not": {"anyOf": [{"required": ["a", "b"]}]}}]
+
+
+def test_single_member_groups_add_no_vacuous_constraint() -> None:
+    """A one-member Inclusive or at-most-one Exclusive group needs no constraint."""
+    from probatio.markers import Exclusive, Inclusive  # noqa: PLC0415
+
+    assert "allOf" not in to_json_schema(Schema({Inclusive("a", "g"): int}))
+    assert "allOf" not in to_json_schema(Schema({Exclusive("a", "g"): int}))
+
+
+def test_required_alias_with_default_adds_no_constraint() -> None:
+    """A required Alias with a default fills the empty case, so it demands no name."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    schema = Schema({Alias("name", "userName", required=True, default=5): int})
+    result = to_json_schema(schema)
+    assert "allOf" not in result
+    assert result["properties"]["name"]["default"] == 5
