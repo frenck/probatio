@@ -32,7 +32,7 @@ from probatio.markers import (
     Undefined,
     resolve_key,
 )
-from probatio.schema import ALLOW_EXTRA, Schema, recursion_guard
+from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema, recursion_guard
 from probatio.validators import (
     UUID,
     All,
@@ -114,10 +114,13 @@ def to_json_schema(schema: Any) -> dict[str, Any]:
 def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[str, Any]:
     """Dispatch a schema node to the right JSON Schema renderer."""
     if isinstance(node, Schema):
+        # ``REMOVE_EXTRA`` accepts extra keys on input (it strips them from the
+        # output), so for input-side fidelity it renders open like ``ALLOW_EXTRA``,
+        # not closed like the strict default.
         return _convert(
             node.schema,
             required_default=node.required,
-            allow_extra=node.extra == ALLOW_EXTRA,
+            allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
         )
 
     if isinstance(node, dict):
@@ -128,13 +131,22 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
         )
 
     if isinstance(node, list | tuple | set | frozenset):
-        return _convert_sequence(node)
+        return _convert_sequence(
+            node, required_default=required_default, allow_extra=allow_extra
+        )
 
     return _convert_leaf(node)
 
 
 def _child(node: Any) -> dict[str, Any]:
-    """Convert a nested node with default (non-required, closed) settings."""
+    """Convert a validator-internal node with default (non-required, closed) settings.
+
+    Used where the validation engine does *not* inherit the enclosing schema's
+    required/extra policy: combinator branches, ``Maybe``, ``Contains``, and
+    ``ExactSequence`` compile their contents under their own policy. Structural
+    nesting (a dict value, a list element) does inherit, and threads the policy
+    through ``_convert`` instead.
+    """
     return _convert(node, required_default=False, allow_extra=False)
 
 
@@ -144,42 +156,70 @@ def _convert_mapping(
     required_default: bool,
     allow_extra: bool,
 ) -> dict[str, Any]:
-    """Render a mapping schema as a JSON Schema object."""
+    """Render a mapping schema as a JSON Schema object.
+
+    Nested dict values and variable-key values inherit the enclosing schema's
+    required/extra policy, mirroring the validation engine, so a nested object
+    keeps its own ``required`` list and open/closed shape.
+    """
     properties: dict[Any, Any] = {}
     required: list[Any] = []
-    additional: Any = allow_extra
+    # Multiple variable keys ({str: int, int: str}) merge into one
+    # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
+    variable_values: list[dict[str, Any]] = []
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
         # is classified by the marker it actually carries, not just the outer wrapper.
         facets = resolve_key(key)
         marker = facets.marker
         name = facets.key
+        value_schema = _convert(
+            value, required_default=required_default, allow_extra=allow_extra
+        )
+
+        if isinstance(name, type) or callable(name):
+            # A type/callable key is a variable key. ``Remove`` still validates a
+            # present value before dropping it, so its value schema still applies
+            # to the keys it matches, the same as a plain variable key.
+            variable_values.append(value_schema)
+            continue
+
+        if not isinstance(name, str):
+            # A non-string literal key never matches a JSON object key (those are
+            # strings), so emitting ``properties[name]`` would render an entry
+            # ``json.dumps`` coerces to a string the schema does not actually
+            # match. Skip it deliberately rather than emit a misleading property.
+            continue
+
         if isinstance(marker, Remove):
+            # A removed key is stripped from the output, but a present value is
+            # validated first, so input carrying it is valid: emit it as an
+            # optional property (never rejected as an extra key).
+            properties[name] = value_schema
             continue
 
         if isinstance(marker, Forbidden):
             properties[name] = False
             continue
 
-        if isinstance(name, type) or callable(name):
-            additional = _child(value)
-            continue
-
-        properties[name] = _property(
+        properties[name] = _decorate_property(
+            value_schema,
             marker,
-            value,
             secret=facets.secret,
             description=facets.description,
         )
-        if isinstance(marker, Required) or (
-            not isinstance(marker, Optional) and required_default
-        ):
+        # A ``Required`` marker carrying a default does not demand presence (the
+        # default fills the key in), so it stays out of ``required``; the
+        # ``default`` keyword already conveys it.
+        if _is_required(marker, required_default=required_default):
             required.append(name)
 
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
-        "additionalProperties": additional,
+        "additionalProperties": _additional_properties(
+            variable_values, allow_extra=allow_extra
+        ),
     }
     if required:
         result["required"] = required
@@ -187,16 +227,47 @@ def _convert_mapping(
     return result
 
 
-def _property(
+def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
+    """Whether a mapping key must be present in the emitted schema.
+
+    A ``Required`` marker demands presence unless it carries a default (which
+    fills the key in, so the input may omit it). A bare key follows the schema's
+    ``required`` default, and an ``Optional`` never demands presence.
+    """
+    if isinstance(marker, Required):
+        return isinstance(marker.default, Undefined)
+    if isinstance(marker, Optional):
+        return False
+    return required_default
+
+
+def _additional_properties(
+    variable_values: list[dict[str, Any]],
+    *,
+    allow_extra: bool,
+) -> Any:
+    """Combine the variable-key value schemas into one ``additionalProperties``.
+
+    No variable key falls back to the extra policy (open or closed). One renders
+    as its value schema; several ({str: int, int: str}) merge into an ``anyOf``
+    so no pair is silently dropped.
+    """
+    if not variable_values:
+        return allow_extra
+    if len(variable_values) == 1:
+        return variable_values[0]
+    return {"anyOf": variable_values}
+
+
+def _decorate_property(
+    prop: dict[str, Any],
     marker: Marker | None,
-    value: Any,
     *,
     secret: bool = False,
     description: Any = None,
 ) -> dict[str, Any]:
-    """Render one mapping value, attaching a description and default if present."""
-    prop = _child(value)
-    if description:
+    """Attach a description, default, and secret flag to a rendered value schema."""
+    if description is not None:
         prop = {**prop, "description": description}
     if isinstance(marker, Optional | Required) and not isinstance(
         marker.default,
@@ -222,9 +293,23 @@ def _ordered(values: Any) -> list[Any]:
     return list(values)
 
 
-def _convert_sequence(node: Any) -> dict[str, Any]:
-    """Render a sequence/set schema as a JSON Schema array."""
-    items = [_child(element) for element in _ordered(node)]
+def _convert_sequence(
+    node: Any,
+    *,
+    required_default: bool = False,
+    allow_extra: bool = False,
+) -> dict[str, Any]:
+    """Render a sequence/set schema as a JSON Schema array.
+
+    A list or tuple element inherits the enclosing schema's required/extra
+    policy, mirroring the validation engine (a set holds only hashable leaves,
+    so its policy is moot). Combinator branches reach ``_convert_sequence``
+    through ``_child`` with the strict default, matching the engine.
+    """
+    items = [
+        _convert(element, required_default=required_default, allow_extra=allow_extra)
+        for element in _ordered(node)
+    ]
 
     result: dict[str, Any] = {"type": "array"}
     if len(items) == 1:

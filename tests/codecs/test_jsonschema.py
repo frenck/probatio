@@ -7,6 +7,7 @@ import pytest
 from probatio import (
     ALLOW_EXTRA,
     ASCII,
+    REMOVE_EXTRA,
     UUID,
     All,
     Alpha,
@@ -271,10 +272,18 @@ def test_one_sided_bounds() -> None:
     assert to_json_schema(Schema(Length(max=3))) == {"maxLength": 3}
 
 
-def test_remove_keys_are_skipped() -> None:
-    """A Remove key does not appear in the exported properties."""
+def test_remove_key_stays_an_accepted_property() -> None:
+    """A Remove key is stripped from output, but a present value is validated first.
+
+    So input carrying it is valid, and the emitted schema must accept it rather
+    than reject it as an extra key: it renders as an optional property with the
+    value schema Remove would have checked.
+    """
     schema = Schema({"a": int, Remove("debug"): bool})
-    assert to_json_schema(schema)["properties"] == {"a": {"type": "integer"}}
+    assert to_json_schema(schema)["properties"] == {
+        "a": {"type": "integer"},
+        "debug": {"type": "boolean"},
+    }
 
 
 def test_extra_key_becomes_additional_properties() -> None:
@@ -491,3 +500,66 @@ def test_equal_and_literal_encode_to_const() -> None:
 def test_not_in_encodes_to_not_enum() -> None:
     """NotIn encodes to a JSON Schema not over an enum."""
     assert to_json_schema(Schema(NotIn([1, 2]))) == {"not": {"enum": [1, 2]}}
+
+
+def test_nested_required_default_propagates() -> None:
+    """A schema-wide required default reaches nested dict values, like the engine."""
+    schema = Schema({"outer": {"inner": int}}, required=True)
+    result = to_json_schema(schema)
+    assert result["required"] == ["outer"]
+    assert result["properties"]["outer"]["required"] == ["inner"]
+
+
+def test_nested_allow_extra_propagates() -> None:
+    """ALLOW_EXTRA reaches nested dict values, so a nested object stays open."""
+    schema = Schema({"outer": {"inner": int}}, extra=ALLOW_EXTRA)
+    result = to_json_schema(schema)
+    assert result["additionalProperties"] is True
+    assert result["properties"]["outer"]["additionalProperties"] is True
+
+
+def test_required_default_propagates_through_a_list() -> None:
+    """The required default reaches a dict nested inside a list value."""
+    schema = Schema({"a": [{"b": int}]}, required=True)
+    item = to_json_schema(schema)["properties"]["a"]["items"]
+    assert item["required"] == ["b"]
+
+
+def test_required_default_propagates_into_variable_key_values() -> None:
+    """The required default reaches a dict nested under a variable (type) key."""
+    schema = Schema({str: {"b": int}}, required=True)
+    additional = to_json_schema(schema)["additionalProperties"]
+    assert additional["required"] == ["b"]
+
+
+def test_required_with_default_stays_out_of_required() -> None:
+    """A Required marker with a default does not demand presence (default fills it)."""
+    result = to_json_schema(Schema({Required("n", default=5): int}))
+    assert "required" not in result
+    assert result["properties"]["n"] == {"type": "integer", "default": 5}
+
+
+def test_remove_extra_renders_open() -> None:
+    """REMOVE_EXTRA accepts extra keys on input, so it renders additionalProperties true."""
+    result = to_json_schema(Schema({"a": int}, extra=REMOVE_EXTRA))
+    assert result["additionalProperties"] is True
+
+
+def test_multiple_variable_keys_merge_into_any_of() -> None:
+    """Several variable keys merge into an additionalProperties anyOf, none dropped."""
+    result = to_json_schema(Schema({str: int, int: str}))
+    assert result["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}],
+    }
+
+
+def test_non_string_literal_key_is_skipped() -> None:
+    """A non-string literal key never matches a JSON key, so it is not emitted."""
+    result = to_json_schema(Schema({"a": int, 1: str}))
+    assert result["properties"] == {"a": {"type": "integer"}}
+
+
+def test_empty_description_is_emitted() -> None:
+    """An empty-string description is a real description, not dropped as falsy."""
+    result = to_json_schema(Schema({Optional("a", description=""): int}))
+    assert result["properties"]["a"]["description"] == ""
