@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from decimal import Decimal
+
 import pytest
 
 from probatio import (
@@ -205,11 +208,32 @@ def test_match_drops_a_python_only_pattern(pattern: str) -> None:
     ],
 )
 def test_match_keeps_an_ecma_compatible_pattern(pattern: str) -> None:
-    """An ECMA-compatible pattern, including ones that resemble Python-only, is kept."""
+    """An ECMA-compatible pattern is kept, anchored at the start like re.match."""
     assert to_json_schema(Schema(Match(pattern))) == {
         "type": "string",
-        "pattern": pattern,
+        "pattern": f"^(?:{pattern})",
     }
+
+
+def test_match_anchors_an_unanchored_pattern() -> None:
+    """Match validates with re.match (start-anchored); the emitted pattern matches."""
+    assert to_json_schema(Schema(Match(r"\d+"))) == {
+        "type": "string",
+        "pattern": r"^(?:\d+)",
+    }
+
+
+def test_match_leaves_an_already_anchored_pattern() -> None:
+    """A pattern already anchored at the start is emitted unchanged."""
+    assert to_json_schema(Schema(Match(r"^\d+$"))) == {
+        "type": "string",
+        "pattern": r"^\d+$",
+    }
+
+
+def test_match_bytes_pattern_renders_a_plain_string() -> None:
+    """A bytes pattern has no JSON Schema, so it renders a string, not a crash."""
+    assert to_json_schema(Schema(Match(re.compile(rb"\d+")))) == {"type": "string"}
 
 
 def test_maybe_is_nullable() -> None:
@@ -294,8 +318,8 @@ def test_extra_key_becomes_additional_properties() -> None:
 
 
 def test_empty_list_schema() -> None:
-    """An empty list schema exports an array with no item constraint."""
-    assert to_json_schema(Schema([])) == {"type": "array"}
+    """An empty list schema accepts only the empty array, not any array."""
+    assert to_json_schema(Schema([])) == {"type": "array", "maxItems": 0}
 
 
 def test_raw_schema_input() -> None:
@@ -580,3 +604,116 @@ def test_forbidden_type_key_closes_over_allow_extra() -> None:
 
     result = to_json_schema(Schema({Forbidden(str): object}, extra=ALLOW_EXTRA))
     assert result["additionalProperties"] is False
+
+
+def test_self_exports_a_recursive_ref() -> None:
+    """A Self reference exports as a $ref to the document root, not an open schema."""
+    from probatio import Self  # noqa: PLC0415
+
+    schema = Schema({"name": str, Optional("children"): [Self]})
+    result = to_json_schema(schema)
+    assert result["properties"]["children"]["items"] == {"$ref": "#"}
+
+
+def test_all_with_colliding_keywords_uses_all_of() -> None:
+    """Two validators emitting the same keyword merge into allOf, not last-writer-wins."""
+    result = to_json_schema(Schema(All(Any(int, str), Any(str, float))))
+    assert result == {
+        "allOf": [
+            {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+            {"anyOf": [{"type": "string"}, {"type": "number"}]},
+        ],
+    }
+
+
+def test_all_without_collisions_still_merges() -> None:
+    """Non-colliding validators keep the compact single-object merge."""
+    assert to_json_schema(Schema(All(int, Range(min=0)))) == {
+        "type": "integer",
+        "minimum": 0,
+    }
+
+
+def test_enum_with_a_datetime_member_stays_serializable() -> None:
+    """An In holding a datetime renders ISO strings, not raw datetimes."""
+    from datetime import datetime  # noqa: PLC0415
+
+    result = to_json_schema(Schema(In([datetime(2020, 1, 1)])))
+    assert result == {"enum": ["2020-01-01T00:00:00"]}
+
+
+def test_enum_with_enum_members_renders_their_values() -> None:
+    """An In holding Enum members renders the member values."""
+    from enum import Enum  # noqa: PLC0415
+
+    class Color(Enum):
+        RED = "red"
+        BLUE = "blue"
+
+    assert to_json_schema(Schema(In([Color.RED, Color.BLUE]))) == {
+        "enum": ["red", "blue"],
+    }
+
+
+def test_const_with_a_decimal_renders_a_float() -> None:
+    """An Equal holding a Decimal renders a float const, not a raw Decimal."""
+    assert to_json_schema(Schema(Equal(Decimal("1.5")))) == {"const": 1.5}
+
+
+def test_enum_with_tuples_renders_lists() -> None:
+    """An In holding tuples renders JSON arrays (the wire form)."""
+    assert to_json_schema(Schema(In([(1, 2), (3, 4)]))) == {"enum": [[1, 2], [3, 4]]}
+
+
+def test_datetime_default_renders_iso() -> None:
+    """A datetime default renders its ISO string rather than a raw datetime."""
+    from datetime import datetime  # noqa: PLC0415
+
+    schema = Schema({Optional("t", default=datetime(2020, 1, 1)): object})
+    assert to_json_schema(schema)["properties"]["t"]["default"] == "2020-01-01T00:00:00"
+
+
+def test_unrepresentable_default_is_omitted() -> None:
+    """A default with no JSON form is dropped rather than emitted raw."""
+    schema = Schema({Optional("t", default=b"raw"): object})
+    assert "default" not in to_json_schema(schema)["properties"]["t"]
+
+
+def test_non_numeric_range_bound_is_omitted() -> None:
+    """A non-numeric Range bound has no JSON keyword, so it is omitted."""
+    from datetime import datetime  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Range(min=datetime(2020, 1, 1)))) == {}
+
+
+def test_unrepresentable_enum_member_widens_to_open() -> None:
+    """A member with no JSON form drops the enum to an open schema, not a crash."""
+    assert to_json_schema(Schema(In([b"bytes"]))) == {}
+
+
+def test_cyclic_raw_schema_is_a_clean_error() -> None:
+    """A raw dict that references itself is refused, not a bare RecursionError."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    node: dict[object, object] = {"v": int}
+    node["next"] = node
+    with pytest.raises(SchemaError, match="references itself"):
+        to_json_schema(node)
+
+
+def test_const_with_a_dict_renders_json_safe_values() -> None:
+    """A dict const renders with each value made JSON-safe (a datetime to ISO)."""
+    from datetime import datetime  # noqa: PLC0415
+
+    result = to_json_schema(Schema(Equal({"when": datetime(2020, 1, 1)})))
+    assert result == {"const": {"when": "2020-01-01T00:00:00"}}
+
+
+def test_const_with_a_non_string_dict_key_widens_to_open() -> None:
+    """A dict const with a non-string key has no JSON object form, so it opens."""
+    assert to_json_schema(Schema(Equal({1: "a"}))) == {}
+
+
+def test_const_with_an_unrepresentable_dict_value_widens_to_open() -> None:
+    """A dict const holding an unrepresentable value opens rather than crashing."""
+    assert to_json_schema(Schema(Equal({"a": b"raw"}))) == {}
