@@ -11,7 +11,16 @@ import time
 import pytest
 
 import probatio as p
-from probatio.codecs._regex_safety import _quantifier_is_variable, is_catastrophic
+from probatio.codecs._regex_safety import (
+    _MAX_GROUP_DEPTH,
+    _MAX_NULLABLE_DEPTH,
+    _body_charset,
+    _group_is_nullable,
+    _leading_chars,
+    _leading_run,
+    _quantifier_is_variable,
+    is_catastrophic,
+)
 from probatio.error import SchemaError
 
 CATASTROPHIC = [
@@ -86,6 +95,24 @@ CATASTROPHIC = [
     "((a?))*",  # a group whose only atom is optional is itself nullable
     "(a{,3})*",  # a brace whose minimum is zero is nullable, like a{0,3}
     "(^a?)*",  # a zero-width anchor in the body does not stop it being nullable
+    # Overlapping runs seen through something transparent between them: a group
+    # boundary, an optional atom, a zero-matching run, or a nullable group.
+    "(a+)a+$",  # the run leaks out of the group
+    "(?:a+)(?:a+)$",  # both runs group-wrapped
+    "a+b?a+$",  # an optional atom cannot separate the runs
+    "(?:a+a+)$",  # the pair sits inside a group body
+    "((a+))*",  # an unquantified inner group is transparent to its parent
+    "a*b*a*",  # the zero-matching middle run can vanish
+    "a+(?:b?c?)a+",  # a nullable group cannot separate the runs
+    "a+(a+b)",  # the group's leading run merges with the prior run
+    # A repeated body whose seam is not guarded: the trailing run overlaps what
+    # the next iteration can start with.
+    "(x?a+)+",  # the optional lead-in can vanish, merging the a-runs
+    "(a+b?)+",  # the optional tail can vanish, merging the a-runs
+    # An alternative with an exposed run beside one without still leaks it.
+    "(a+|bc)a+",
+    # Nesting past the analysis depth cap fails closed.
+    "(" * 25 + "a+" + ")" * 25,
 ]
 
 SAFE = [
@@ -136,6 +163,17 @@ SAFE = [
     "(a{3})+",  # a fixed count is one length, so no ambiguous split
     "(a{1,3}(b))+",  # a nested group in the body is left to the other checks
     "(a{x,y})+",  # a non-numeric brace is a literal, not a variable repeat
+    # A repeated body with an unbounded quantifier is fine when a mandatory
+    # disjoint atom guards every iteration seam.
+    "^[a-z0-9]+(?:[._-][a-z0-9]+)*$",  # the slug idiom
+    "^[a-z]+(-[a-z]+)*$",  # hyphenated words, same shape
+    "(a+b)+",  # the mandatory disjoint tail closes each iteration
+    "(ba+)+",  # the mandatory disjoint lead opens each iteration
+    r"(\w+\s)+$",  # words separated by mandatory whitespace
+    "^([a-z]+[0-9]+)+$",  # two disjoint runs per iteration, seam still guarded
+    # The separated overlap X+cX+ is quadratic, not exponential, and it is the
+    # shape of the canonical email pattern; it deliberately passes.
+    r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$",
 ]
 
 
@@ -336,3 +374,38 @@ def test_self_rejects_cyclic_data() -> None:
 
     with pytest.raises(p.MultipleInvalid, match="nested too deeply"):
         _recursive_schema()(cyclic)
+
+
+def test_exposure_helpers_fail_closed_past_the_depth_cap() -> None:
+    """Each recursive exposure helper degrades to ANY (or blocks) at its cap."""
+
+    assert _leading_run("a+", _MAX_GROUP_DEPTH) is None
+    assert _leading_chars("a", _MAX_GROUP_DEPTH) is None
+    assert _body_charset("a", _MAX_GROUP_DEPTH) is None
+
+
+def test_group_nullability_assumes_nullable_past_the_depth_cap() -> None:
+    """Nullability analysis past its cap assumes nullable (conservative)."""
+
+    assert _group_is_nullable("a", _MAX_NULLABLE_DEPTH) is True
+
+
+def test_body_charset_skips_lookarounds() -> None:
+    """A lookaround inside a body contributes no characters to its charset."""
+
+    assert _body_charset("(?=x)b", 0) == frozenset("b")
+
+
+def test_leading_run_walks_anchors_lookarounds_and_groups() -> None:
+    """The leading-run walk sees through anchors, lookarounds, and groups."""
+
+    assert _leading_run("^b?a+", 0) == frozenset("a")
+    assert _leading_run("(?=x)a+", 0) == frozenset("a")
+    assert _leading_run("(a+)b", 0) == frozenset("a")
+    assert _leading_run("(a?)b+", 0) == frozenset("b")
+
+
+def test_leading_chars_walks_lookarounds() -> None:
+    """The leading-chars walk skips a lookaround and reads the real first atom."""
+
+    assert _leading_chars("(?=x)ab", 0) == frozenset("a")
