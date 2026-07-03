@@ -59,11 +59,40 @@ rebuilt({"name": "Ada", "age": 37})  # {'name': 'Ada', 'age': 37}
 
 :::note
 The mapping is not lossless. `to_json_schema` renders what JSON Schema can
-express and turns anything it does not recognize into an open schema (`{}`).
-`from_json_schema` ignores purely descriptive keywords but refuses a restrictive
-keyword it cannot honor (see below). Treat a round trip as "the validatable
-shape survives", not "byte for byte identical".
+express and turns a construct it cannot into an open schema (`{}`). Pass
+`strict=True` to make that a `SchemaError` instead, so a lossy conversion is
+caught rather than accepted silently. `from_json_schema` ignores purely
+descriptive keywords but refuses a restrictive keyword it cannot honor (see
+below). Treat a round trip as "the validatable shape survives", not "byte for
+byte identical".
 :::
+
+## Widening the encoder, and overriding it
+
+By default `to_json_schema` never rejects an input the schema accepts: where it
+cannot express a construct exactly it widens (an open `{}`, or a looser keyword),
+so the emitted schema stays a superset of what Probatio validates. Two options
+tune that:
+
+- `strict=True` raises `SchemaError` for a construct with no JSON Schema form (an
+  unknown validator, a `Coerce` with a non-type target, an `enum` member with no
+  JSON representation), instead of widening to `{}`.
+- `custom_serializer` is called first for each node and may return a dict to
+  override the rendering, or the `UNSUPPORTED` sentinel to defer to the default,
+  the same hook [`to_openapi`](/guides/openapi/) takes.
+
+```python
+from probatio import Schema, to_json_schema
+from probatio.codecs import UNSUPPORTED
+
+def as_password(node):
+    if node is str.strip:
+        return {"type": "string", "writeOnly": True}
+    return UNSUPPORTED
+
+to_json_schema(Schema({"token": str.strip}), custom_serializer=as_password)
+# {'type': 'object', 'properties': {'token': {'type': 'string', 'writeOnly': True}}, 'additionalProperties': False}
+```
 
 ## Supported keywords
 
@@ -108,8 +137,26 @@ round-trip:
 | `MultipleOf`                  | `multipleOf`                                                                                                                      |
 | `Secret` key                  | its property with `writeOnly: true`                                                                                               |
 | `Base64`                      | `contentEncoding: base64`                                                                                                         |
+| `Duration` / `AsTimedelta`    | `format: duration`                                                                                                                |
 
-The one known widener: JSON Schema has a single `hostname` format, so both
+Combinators and a few more constructs also render, though most have no inverse
+so they do not round-trip:
+
+| Probatio construct   | JSON Schema output                                                        |
+| -------------------- | ------------------------------------------------------------------------- |
+| `Any` / `Or`         | `anyOf`                                                                   |
+| `Union` / `Switch`   | `anyOf` (the discriminant is an optimization, so any branch is allowed)   |
+| `All` / `And`        | one merged object, or `allOf` when two validators emit the same keyword   |
+| `Maybe`              | `anyOf` with `{"type": "null"}`                                           |
+| `SomeOf`             | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)           |
+| `Msg`                | the wrapped validator's shape (the message has no JSON Schema equivalent) |
+| An `enum.Enum` class | `enum` of the member values                                               |
+| `Self`               | `{"$ref": "#"}` (a recursive reference to the document root)              |
+| `Alias`              | one property per accepted name (plus `anyOf` of `required` when required) |
+| `Inclusive` group    | `dependentRequired` (all-or-none)                                         |
+| `Exclusive` group    | at-most-one (`not` over the pairs), or `oneOf` when the group is required |
+
+The known widener: JSON Schema has a single `hostname` format, so both
 `Hostname` and `Fqdn` export to it and decode back as `Hostname`, meaning a
 round-tripped `Fqdn` accepts a dotless host the original would reject. Pin it
 with a `pattern` or an explicit check if the distinction matters.
@@ -120,11 +167,13 @@ so one matching two or more is rejected), unlike the looser `anyOf`.
 `from_openapi` adds the OpenAPI `nullable` keyword, covered in
 [OpenAPI](/guides/openapi/).
 
-:::note[Integers and booleans]
-A decoded `{"type": "integer"}` validates with Python's `int`, and in Python
-`bool` is a subclass of `int`. So a decoded integer schema accepts `True` as an
-integer, where a strict JSON Schema validator would not. If that distinction
-matters for your data, add an explicit check.
+:::note[The JSON data model]
+The decoder follows JSON's types, not Python's. A decoded `{"type": "integer"}`
+rejects `True` (a boolean is not a JSON number) and accepts `1.0` (a number with
+no fractional part), and a decoded `enum` or `const` keeps booleans distinct from
+`1` and `0`. On the encode side, `Datetime`, `Date`, and `Time` render ISO
+strings, and a decoded `format: date-time` accepts RFC 3339 timestamps (a `Z` or
+a numeric offset, with or without fractional seconds).
 :::
 
 ## Untrusted input is the default assumption
