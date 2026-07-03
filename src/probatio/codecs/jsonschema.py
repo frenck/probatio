@@ -742,6 +742,12 @@ _UNSUPPORTED_KEYWORDS = frozenset(
         # would widen the schema (accept data the author forbade), so fail closed.
         "unevaluatedProperties",
         "unevaluatedItems",
+        # Dynamic references are restrictive (they point at a constraint), so they
+        # fail closed too. Their anchors are declarations, not constraints: with
+        # every dynamic reference refused, a leftover anchor is inert, so anchors
+        # are not refused.
+        "$dynamicRef",
+        "$recursiveRef",
     },
 )
 
@@ -947,6 +953,46 @@ _NUMERIC_BOUND_KEYS = frozenset(
     {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"},
 )
 
+# Object and array assertion keywords. On a node without a ``type``, these still
+# constrain instances of their type (any other instance passes them vacuously),
+# so a typeless node carrying one must not decode to an accept-anything schema.
+_OBJECT_KEYWORDS = frozenset(
+    {
+        "properties",
+        "required",
+        "additionalProperties",
+        "minProperties",
+        "maxProperties",
+    },
+)
+_ARRAY_KEYWORDS = frozenset({"items", "prefixItems", "minItems", "maxItems"})
+
+
+class _WhenType:
+    """Apply a subschema only to instances of one JSON type.
+
+    JSON Schema object and array keywords constrain only instances of their own
+    type; every other value passes them vacuously. This wrapper carries that
+    conditional applicability for a typeless node, so ``properties`` or ``items``
+    without a ``type`` is honored on matching instances without rejecting the
+    rest.
+    """
+
+    def __init__(self, base: type, subschema: Any) -> None:
+        """Compile the subschema and remember the instance type it applies to."""
+        self._base = base
+        self._schema = Schema(subschema)
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return f"WhenType({self._base.__name__}, {self._schema.schema!r})"
+
+    def __call__(self, value: Any) -> Any:
+        """Validate instances of the type; pass every other value through."""
+        if not isinstance(value, self._base):
+            return value
+        return self._schema(value)
+
 
 def _combine_constraints(node: dict[str, Any], ctx: _Decode) -> Any:
     """Combine a node's standalone constraint keywords into one validator, or None.
@@ -955,7 +1001,9 @@ def _combine_constraints(node: dict[str, Any], ctx: _Decode) -> Any:
     ``minimum``, ``minLength``, ``multipleOf``, ``uniqueItems``, and ``contains``.
     Each becomes its matching validator so the encoder's typeless output (a bare
     ``Range``, ``Length``, ``MultipleOf``, ``Unique``, or ``ContainsCount``) round
-    trips. None means the node carries no recognized constraint.
+    trips. Object and array assertions (``properties``, ``required``, ``items``,
+    and their siblings) also apply without a ``type``, scoped to instances of
+    their type. None means the node carries no recognized constraint.
     """
     constraints = _from_constraints(node, ctx)
     if not constraints:
@@ -970,6 +1018,7 @@ def _combine_constraints(node: dict[str, Any], ctx: _Decode) -> Any:
 def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
     """Collect the standalone constraint validators present on a node."""
     constraints: list[Any] = []
+    has_array = bool(_ARRAY_KEYWORDS & node.keys())
     if _NUMERIC_BOUND_KEYS & node.keys():
         constraints.append(_from_range(node))
     if "multipleOf" in node:
@@ -982,10 +1031,17 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
         )
     if "pattern" in node:
         constraints.append(Match(_safe_pattern(node["pattern"])))
-    if node.get("uniqueItems") is True:
+    # When array keywords are present, the array facet below reads uniqueItems
+    # and contains itself, scoped to arrays; adding them standalone here too
+    # would double-apply them.
+    if node.get("uniqueItems") is True and not has_array:
         constraints.append(Unique())
-    if "contains" in node:
+    if "contains" in node and not has_array:
         constraints.append(_from_contains(node, ctx))
+    if _OBJECT_KEYWORDS & node.keys():
+        constraints.append(_WhenType(dict, _from_object(node, ctx)))
+    if has_array:
+        constraints.append(_WhenType(list, _from_array(node, ctx)))
 
     return constraints
 
@@ -1020,10 +1076,23 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
         mapping[key] = _from_node(subschema, ctx)
 
     additional = node.get("additionalProperties")
-    if isinstance(additional, dict):
-        mapping[str] = _from_node(additional, ctx)
+    additional_schema = (
+        _from_node(additional, ctx) if isinstance(additional, dict) else None
+    )
 
-    base = _object_base(mapping, additional)
+    # A ``required`` name with no ``properties`` entry is still a presence
+    # constraint; dropping it would widen an untrusted schema. Its value schema
+    # is whatever ``additionalProperties`` says (an undeclared property), or
+    # anything.
+    for name in sorted(required - properties.keys()):
+        mapping[Required(name)] = (
+            additional_schema if additional_schema is not None else object
+        )
+
+    if additional_schema is not None:
+        mapping[str] = additional_schema
+
+    base = _object_base(mapping, additional, declared="properties" in node)
     min_props = _item_count(node, "minProperties")
     max_props = _item_count(node, "maxProperties")
     if min_props is not None or max_props is not None:
@@ -1032,19 +1101,21 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     return base
 
 
-def _object_base(mapping: dict[Any, Any], additional: Any) -> Any:
+def _object_base(mapping: dict[Any, Any], additional: Any, *, declared: bool) -> Any:
     """Pick the base object schema from the property map and additionalProperties.
 
     A declared property set is a closed contract (probatio's deliberate strict
     default). But ``{"type": "object"}`` with no declared properties and no
     explicit ``additionalProperties`` is "any object", not a closed empty one; an
-    explicit ``additionalProperties: false`` keeps an empty object closed.
+    explicit ``additionalProperties: false`` keeps an empty object closed. And a
+    ``required`` list without a ``properties`` set constrains presence only, so
+    undeclared extra keys stay allowed.
     """
     if additional is True:
         return Schema(mapping, extra=ALLOW_EXTRA)
 
-    if not mapping and additional is None:
-        return dict
+    if not declared and additional is None:
+        return Schema(mapping, extra=ALLOW_EXTRA) if mapping else dict
 
     return mapping
 
@@ -1055,10 +1126,16 @@ def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
     A ``writeOnly`` property is a secret, so the key is wrapped in ``Secret`` (its
     value is redacted from error output), the counterpart of the ``writeOnly`` that
     ``to_json_schema`` emits for a ``Secret`` key.
+
+    JSON Schema ``default`` is an annotation: it never satisfies ``required``. A
+    probatio ``Required`` marker with a default does (it fills the value in), so a
+    required property keeps presence enforcement and drops the default. On an
+    optional property the default only fills the output, leaving the accept set
+    unchanged, so there it is applied.
     """
     marker_cls = Required if required else Optional
     description = subschema.get("description") if isinstance(subschema, dict) else None
-    if isinstance(subschema, dict) and "default" in subschema:
+    if not required and isinstance(subschema, dict) and "default" in subschema:
         marker: Marker = marker_cls(
             name,
             default=subschema["default"],
@@ -1102,18 +1179,18 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     """Render a JSON Schema array as a sequence schema, honoring item-count bounds.
 
     ``prefixItems`` with ``items: false`` (a closed, fixed-length positional array)
-    round-trips an ``ExactSequence``. A bool ``items`` (``false`` forbids extra
-    items, ``true`` allows any) carries no per-item schema, so it is treated as an
-    unconstrained list rather than fed to the node decoder.
+    round-trips an ``ExactSequence``. Without ``prefixItems``, ``items: false``
+    forbids every element (only the empty array validates) and ``items: true``
+    carries no per-item schema, so it reads as an unconstrained list.
     """
     prefix = node.get("prefixItems")
     if prefix is not None:
         return _from_prefix_items(prefix, node, ctx)
 
     items = node.get("items")
-    if isinstance(items, bool):
+    if items is True:
         items = None
-    elif items is not None and not isinstance(items, dict):
+    elif items is not None and items is not False and not isinstance(items, dict):
         # The Draft-4 positional form ``items: [schema, ...]`` is not supported;
         # the supported positional form is ``prefixItems``. Refuse it cleanly
         # rather than leaking a TypeError from the node decoder.
@@ -1129,14 +1206,23 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     has_contains = "contains" in node
     has_unique = node.get("uniqueItems") is True
 
-    if items is None:
+    if items is False:
+        # ``items: false`` with no ``prefixItems``: no element is allowed, so
+        # only the empty array validates (an empty sequence schema is exactly
+        # that).
+        sequence: Any = []
+    elif items is None:
         # No item schema: any list. Length, uniqueItems, and contains still apply,
         # so a constrained array accepts any element ([object]) but must satisfy
         # them.
         if not bounded and not has_contains and not has_unique:
             return list
-        sequence: Any = [object]
-    elif isinstance(items, dict) and "anyOf" in items:
+        sequence = [object]
+    elif items.keys() == {"anyOf"}:
+        # The encoder renders a multi-item sequence schema ([int, str]) as an
+        # ``items`` carrying only an ``anyOf``; decode that shape back to the
+        # branch list. Any sibling keyword beside the ``anyOf`` makes it a
+        # normal node whose facets must all apply, handled below.
         sequence = [_from_node(sub, ctx) for sub in items["anyOf"]]
     else:
         sequence = [_from_node(items, ctx)]
@@ -1355,8 +1441,17 @@ def _resolve_bound(
     inclusive = _numeric(node, inclusive_key)
     raw_exclusive = node.get(exclusive_key)
 
-    # Draft-04: ``exclusiveMinimum: true`` flips ``minimum`` to exclusive.
+    # Draft-04: ``exclusiveMinimum: true`` flips ``minimum`` to exclusive. The
+    # boolean form is only meaningful beside its inclusive partner (Draft 4
+    # requires it); without one there is no bound to flip, so the document is
+    # malformed and silently producing no constraint would widen it.
     if isinstance(raw_exclusive, bool):
+        if inclusive is None:
+            message = (
+                f"JSON Schema boolean {exclusive_key!r} (Draft 4 form) requires "
+                f"{inclusive_key!r} beside it"
+            )
+            raise SchemaError(message)
         return inclusive, not raw_exclusive
 
     exclusive = _numeric(node, exclusive_key)

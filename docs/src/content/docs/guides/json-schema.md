@@ -60,20 +60,23 @@ rebuilt({"name": "Ada", "age": 37})  # {'name': 'Ada', 'age': 37}
 :::note
 The mapping is not lossless. `to_json_schema` renders what JSON Schema can
 express and turns anything it does not recognize into an open schema (`{}`).
-`from_json_schema` ignores keywords it does not handle rather than rejecting
-them. Treat a round trip as "the validatable shape survives", not "byte for byte
-identical".
+`from_json_schema` ignores purely descriptive keywords but refuses a restrictive
+keyword it cannot honor (see below). Treat a round trip as "the validatable
+shape survives", not "byte for byte identical".
 :::
 
 ## Supported keywords
 
 `from_json_schema` understands the keywords below. A purely descriptive keyword
-it does not read (`title`, `description`, `examples`) is ignored, so a partial
-schema still yields a usable validator. A _restrictive_ keyword it cannot honor
+it does not read (`title`, `examples`) is ignored, so a partial schema still
+yields a usable validator. A _restrictive_ keyword it cannot honor
 (`if`/`then`/`else`, `propertyNames`, `patternProperties`, `dependentRequired`,
-`dependentSchemas`) is refused with a `SchemaError` rather than silently dropped,
-so an untrusted schema is never quietly widened to accept what its author meant
-to forbid. `to_json_schema` emits the same constructs in the other direction.
+`dependentSchemas`, `dependencies`, `unevaluatedProperties`, `unevaluatedItems`,
+`$dynamicRef`, `$recursiveRef`) is refused with a `SchemaError` rather than
+silently dropped, so an untrusted schema is never quietly widened to accept what
+its author meant to forbid. The object and array keywords apply even on a node
+without a `type` (scoped to instances of their type, as the spec says).
+`to_json_schema` emits the same constructs in the other direction.
 
 | Area    | Keywords                                                                                                                                                                           |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

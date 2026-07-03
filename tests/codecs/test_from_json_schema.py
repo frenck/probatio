@@ -459,9 +459,17 @@ def test_prefix_items_round_trips_an_exact_sequence() -> None:
         schema([1, 2])
 
 
-def test_bool_items_decodes_without_leaking() -> None:
-    """A bool 'items' (false/true) carries no per-item schema and is handled."""
-    assert from_json_schema({"type": "array", "items": False})([1, "x"]) == [1, "x"]
+def test_items_true_is_any_list() -> None:
+    """items: true carries no per-item schema, so any list passes."""
+    assert from_json_schema({"type": "array", "items": True})([1, "x"]) == [1, "x"]
+
+
+def test_items_false_forbids_every_element() -> None:
+    """items: false (without prefixItems) allows only the empty array."""
+    schema = from_json_schema({"type": "array", "items": False})
+    assert schema([]) == []
+    with pytest.raises(MultipleInvalid):
+        schema([1])
 
 
 def test_non_list_prefix_items_is_a_clean_schema_error() -> None:
@@ -766,6 +774,8 @@ def test_not_and_contains_count_repr_readably() -> None:
     assert "Not(" in repr(not_schema.schema)
     count_schema = from_json_schema({"contains": {"const": 5}, "minContains": 2})
     assert "ContainsCount(" in repr(count_schema.schema)
+    typeless_schema = from_json_schema({"required": ["a"]})
+    assert "WhenType(dict" in repr(typeless_schema.schema)
 
 
 @pytest.mark.parametrize(
@@ -903,3 +913,115 @@ def test_object_length_round_trips_as_property_count() -> None:
     assert schema({"a": 1, "b": 2}) == {"a": 1, "b": 2}
     with pytest.raises(Invalid):
         schema({"a": 1})  # below the property count
+
+
+def test_typeless_object_assertions_are_honored() -> None:
+    """properties/required without a type still constrain objects (fail closed)."""
+    schema = from_json_schema(
+        {"properties": {"a": {"type": "integer"}}, "required": ["a"]},
+    )
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(MultipleInvalid):
+        schema({})
+    with pytest.raises(MultipleInvalid):
+        schema({"a": "text"})
+
+
+def test_typeless_object_assertions_pass_other_types() -> None:
+    """Object keywords without a type apply only to objects; other values pass."""
+    schema = from_json_schema({"required": ["a"]})
+    assert schema("not an object") == "not an object"
+    assert schema(42) == 42
+
+
+def test_typeless_array_assertions_are_honored() -> None:
+    """items/minItems without a type still constrain arrays (fail closed)."""
+    schema = from_json_schema({"items": {"type": "integer"}, "minItems": 2})
+    assert schema([1, 2]) == [1, 2]
+    with pytest.raises(MultipleInvalid):
+        schema(["x", "y"])
+    with pytest.raises(MultipleInvalid):
+        schema([1])
+
+
+def test_typeless_array_assertions_pass_other_types() -> None:
+    """Array keywords without a type apply only to arrays; other values pass."""
+    schema = from_json_schema({"minItems": 2})
+    assert schema("ab") == "ab"
+    assert schema({"a": 1}) == {"a": 1}
+
+
+def test_required_without_properties_enforces_presence() -> None:
+    """A required name with no properties entry still requires the key."""
+    schema = from_json_schema({"type": "object", "required": ["a"]})
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(MultipleInvalid):
+        schema({})
+
+
+def test_required_without_properties_keeps_extras_open() -> None:
+    """Bare required declares no property set, so undeclared keys stay allowed."""
+    schema = from_json_schema({"type": "object", "required": ["a"]})
+    assert schema({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+
+
+def test_required_key_honors_additional_properties_schema() -> None:
+    """An undeclared required key is an additional property, so its schema applies."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "required": ["a"],
+            "additionalProperties": {"type": "integer"},
+        },
+    )
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(MultipleInvalid):
+        schema({"a": "text"})
+
+
+def test_items_anyof_sibling_keywords_apply() -> None:
+    """A keyword beside anyOf inside items is enforced, not silently dropped."""
+    schema = from_json_schema(
+        {
+            "type": "array",
+            "items": {
+                "anyOf": [{"type": "string"}, {"type": "integer"}],
+                "not": {"const": "x"},
+            },
+        },
+    )
+    assert schema(["y", 1]) == ["y", 1]
+    with pytest.raises(MultipleInvalid):
+        schema(["x"])
+
+
+@pytest.mark.parametrize("keyword", ["$dynamicRef", "$recursiveRef"])
+def test_dynamic_references_fail_closed(keyword: str) -> None:
+    """A dynamic reference is a constraint probatio cannot honor, so it is refused."""
+    with pytest.raises(SchemaError, match="not supported"):
+        from_json_schema({keyword: "#meta"})
+
+
+@pytest.mark.parametrize("key", ["exclusiveMinimum", "exclusiveMaximum"])
+@pytest.mark.parametrize("flag", [True, False])
+def test_draft4_boolean_exclusive_without_partner_is_refused(
+    key: str,
+    flag: bool,  # noqa: FBT001
+) -> None:
+    """A Draft-4 boolean exclusive bound without its inclusive partner is malformed."""
+    with pytest.raises(SchemaError, match="Draft 4"):
+        from_json_schema({"type": "integer", key: flag})
+
+
+def test_required_property_default_does_not_satisfy_presence() -> None:
+    """default is an annotation: it never satisfies required (spec semantics)."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"a": {"type": "integer", "default": 5}},
+            "required": ["a"],
+        },
+    )
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(MultipleInvalid):
+        schema({})
