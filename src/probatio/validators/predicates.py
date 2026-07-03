@@ -81,18 +81,15 @@ class IsFalse(_SafeValidator):
 class _FilesystemCheck(_SafeValidator):
     """Shared base for the filesystem-path predicates.
 
-    Each subclass names the ``os.path`` test, the error class, and the two
-    messages voluptuous uses: ``default_msg`` for a value that fails the test
-    (and which a custom message overrides), and ``empty_msg`` for a falsy or
-    un-stringable value (which a custom message does not override, matching
-    voluptuous). ``default_key``/``empty_key`` are the matching translation
-    keys in the message catalog.
+    Each subclass names the ``os.path`` test, the error class, and two
+    translation keys into the message catalog: ``default_key`` for a value
+    that fails the test (and whose message a custom ``msg`` overrides), and
+    ``empty_key`` for a falsy or un-stringable value (which a custom message
+    does not override, matching voluptuous).
     """
 
     test: typing.Callable[[str], bool]
     error: type[Invalid]
-    default_msg: str
-    empty_msg: str
     default_key: str
     empty_key: str
 
@@ -124,8 +121,6 @@ class IsDir(_FilesystemCheck):
 
     test = staticmethod(os.path.isdir)
     error = DirInvalid
-    default_msg = "Not a directory"
-    empty_msg = "Not a directory"
     default_key = "not_a_directory"
     empty_key = "not_a_directory"
 
@@ -135,8 +130,6 @@ class IsFile(_FilesystemCheck):
 
     test = staticmethod(os.path.isfile)
     error = FileInvalid
-    default_msg = "Not a file"
-    empty_msg = "Not a file"
     default_key = "not_a_file"
     empty_key = "not_a_file"
 
@@ -146,8 +139,6 @@ class PathExists(_FilesystemCheck):
 
     test = staticmethod(os.path.exists)
     error = PathInvalid
-    default_msg = "path does not exist"
-    empty_msg = "Not a Path"
     default_key = "path_does_not_exist"
     empty_key = "not_a_path"
 
@@ -157,8 +148,6 @@ class IsSymlink(_FilesystemCheck):
 
     test = staticmethod(os.path.islink)
     error = SymlinkInvalid
-    default_msg = "Not a symlink"
-    empty_msg = "Not a symlink"
     default_key = "not_a_symlink"
     empty_key = "not_a_symlink"
 
@@ -168,8 +157,6 @@ class IsSocket(_FilesystemCheck):
 
     test = staticmethod(_mode_check(stat.S_ISSOCK))
     error = SocketInvalid
-    default_msg = "Not a socket"
-    empty_msg = "Not a socket"
     default_key = "not_a_socket"
     empty_key = "not_a_socket"
 
@@ -179,8 +166,6 @@ class IsFifo(_FilesystemCheck):
 
     test = staticmethod(_mode_check(stat.S_ISFIFO))
     error = FifoInvalid
-    default_msg = "Not a FIFO"
-    empty_msg = "Not a FIFO"
     default_key = "not_a_fifo"
     empty_key = "not_a_fifo"
 
@@ -190,7 +175,5 @@ class IsBlockDevice(_FilesystemCheck):
 
     test = staticmethod(_mode_check(stat.S_ISBLK))
     error = BlockDeviceInvalid
-    default_msg = "Not a block device"
-    empty_msg = "Not a block device"
     default_key = "not_a_block_device"
     empty_key = "not_a_block_device"

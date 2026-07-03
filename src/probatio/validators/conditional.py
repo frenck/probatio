@@ -77,11 +77,6 @@ def _require_keys(keys: tuple[typing.Any, ...]) -> tuple[typing.Any, ...]:
     return keys
 
 
-def _key_list(keys: tuple[typing.Any, ...]) -> str:
-    """Render a key list for a message: ``'a', 'b', 'c'``."""
-    return ", ".join(repr(key) for key in keys)
-
-
 def _present(
     value: Mapping[typing.Any, typing.Any], keys: tuple[typing.Any, ...]
 ) -> list[typing.Any]:
@@ -327,7 +322,7 @@ class AtLeastOne(_KeyGroup):
             raise RequiredFieldInvalid(
                 self.msg,
                 translation_key="required_any_of",
-                placeholders={"keys": _key_list(self.keys)},
+                placeholders={"keys": list(self.keys)},
             )
         return value
 
@@ -348,7 +343,7 @@ class AtMostOne(_KeyGroup):
         if mapping is not None:
             present = _present(mapping, self.keys)
             if len(present) > 1:
-                placeholders = {"keys": _key_list(self.keys)}
+                placeholders = {"keys": list(self.keys)}
                 raise MultipleInvalid(
                     [
                         ExclusiveInvalid(
@@ -382,10 +377,10 @@ class ExactlyOne(_KeyGroup):
                 raise RequiredFieldInvalid(
                     self.msg,
                     translation_key="required_one_of",
-                    placeholders={"keys": _key_list(self.keys)},
+                    placeholders={"keys": list(self.keys)},
                 )
             if len(present) > 1:
-                placeholders = {"keys": _key_list(self.keys)}
+                placeholders = {"keys": list(self.keys)}
                 raise MultipleInvalid(
                     [
                         ExclusiveInvalid(
@@ -417,7 +412,7 @@ class AllOrNone(_KeyGroup):
             present = _present(mapping, self.keys)
             if present and len(present) != len(self.keys):
                 missing = [key for key in self.keys if key not in mapping]
-                placeholders = {"keys": _key_list(self.keys)}
+                placeholders = {"keys": list(self.keys)}
                 raise MultipleInvalid(
                     [
                         InclusiveInvalid(

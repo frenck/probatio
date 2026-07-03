@@ -56,7 +56,6 @@ _DELIBERATE_DEVIATIONS = {
     "test_not_in_unsortable_container": "NotIn message renders the container "
     "differently",
     "test_maybe_returns_default_error": "Maybe surfaces the wrapped error message",
-    "test_coerce_enum": "Coerce-on-Enum failure message is worded differently",
     "test_fqdn_url_validation_with_bad_data": "FqdnUrl rejects (correct UrlInvalid), "
     "with a different message",
     "test_set_of_integers": "a bad set element reports an indexed value error, not "
@@ -66,7 +65,6 @@ _DELIBERATE_DEVIATIONS = {
     "test_frozenset_of_integers_and_strings": "frozenset element error message differs",
     "test_schema_empty_list": "empty-list element rejection uses an index path",
     "test_schema_empty_dict_key": "empty-list value rejection message differs",
-    "test_ordered_dict": "a non-dict Mapping validates and returns a plain dict",
     "test_SomeOf_on_bounds_assertion": "SomeOf with no bounds raises a ValueError "
     "with a different message",
     "test_repr": "validators repr readably now, but probatio's Maybe is its own "
@@ -84,7 +82,6 @@ _RENDERING_DEVIATIONS = dict.fromkeys(
         "test_required",
         "test_in",
         "test_not_in",
-        "test_literal",
         "test_email_validation_with_none",
         "test_email_validation_with_empty_string",
         "test_email_validation_without_host",
@@ -108,6 +105,11 @@ _RENDERING_DEVIATIONS = dict.fromkeys(
     _RENDERING_REASON,
 )
 
+_WORDING_DEVIATIONS = {
+    "test_literal": "Literal message reads 'expected {lit}', not "
+    "'{value} not match for {lit}'",
+}
+
 _OUT_OF_SCOPE = {
     "test_iterate_candidates": "tests the voluptuous internal "
     "_iterate_mapping_candidates, not the public contract",
@@ -115,6 +117,7 @@ _OUT_OF_SCOPE = {
 
 _KNOWN_DIVERGENCES = {
     **_RENDERING_DEVIATIONS,
+    **_WORDING_DEVIATIONS,
     **_DELIBERATE_DEVIATIONS,
     **_OUT_OF_SCOPE,
 }

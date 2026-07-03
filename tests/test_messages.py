@@ -55,7 +55,8 @@ def test_docs_reference_mirrors_the_catalog() -> None:
     """
     documented: dict[str, str] = {}
     for line in _DOCS_TABLE.read_text().splitlines():
-        match = re.fullmatch(r"\| `([a-z0-9_]+)` \| `(.*)` \|", line)
+        # Tolerate prettier's column alignment padding around the cells.
+        match = re.fullmatch(r"\| `([a-z0-9_]+)`\s*\| `(.*)`\s*\|", line)
         if match:
             documented[match.group(1)] = match.group(2).replace("\\|", "|")
 

@@ -333,6 +333,15 @@ def test_explicit_message_wins_over_the_catalog(
     assert err.translation_key == "test_min"
 
 
+def test_deferred_message_repr_renders_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """repr of a deferred error shows the rendered message, not the sentinel."""
+    monkeypatch.setitem(_messages.CATALOG, "test_plain", "value is not allowed")
+    err = Invalid(translation_key="test_plain")
+    assert repr(err) == "Invalid('value is not allowed')"
+
+
 def test_invalid_without_message_or_key_is_empty() -> None:
     """Neither a message nor a key renders as an empty message."""
     err = Invalid()

@@ -204,7 +204,18 @@ def _detail(builder: Any, data: Any, lib: Any) -> Any:
 # ``ExtraKeysInvalid`` with a "not a valid option, did you mean ...?" message on
 # an unknown key, where voluptuous raises a bare ``Invalid("extra keys not
 # allowed")``; a deliberate improvement that carries close-match suggestions.
-_MESSAGE_DEVIATIONS = {any_value, basic_mapping, remove_key}
+# ``Literal`` reads "expected {lit}" instead of voluptuous's broken-English
+# "{value} not match for {lit}", and ``Unordered`` reads "expected a sequence"
+# / "expected a sequence of N items" / "item N (...) does not match any
+# validator" instead of the upstream developer-speak; deliberate rewording,
+# documented in the compatibility matrix.
+_MESSAGE_DEVIATIONS = {
+    any_value,
+    basic_mapping,
+    remove_key,
+    literal_value,
+    unordered_pair,
+}
 
 _DETAIL_CASES = [case for case in CASES if case[0] not in _MESSAGE_DEVIATIONS]
 

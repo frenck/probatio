@@ -98,8 +98,8 @@ class Literal(_SafeValidator):
         if unequal:
             raise LiteralInvalid(
                 msg,
-                translation_key="value_not_match",
-                placeholders={"value": value, "lit": self.lit},
+                translation_key="expected_type",
+                placeholders={"expected": self.lit},
             )
         return self.lit
 

@@ -206,17 +206,14 @@ class Unordered(_SafeValidator):
         if not isinstance(value, list | tuple):
             raise Invalid(
                 self.msg,
-                translation_key="not_a_sequence_value",
-                placeholders={"value": value},
+                translation_key="expected_sequence",
+                placeholders={"expected": "sequence"},
             )
         if len(value) != len(self._schemas):
             raise Invalid(
                 self.msg,
-                translation_key="list_lengths_differ",
-                placeholders={
-                    "value_length": len(value),
-                    "target_length": len(self._schemas),
-                },
+                translation_key="expected_sequence_of_items",
+                placeholders={"count": len(self._schemas)},
             )
 
         consumed: set[int] = set()

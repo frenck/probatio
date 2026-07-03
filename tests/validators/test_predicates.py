@@ -73,11 +73,11 @@ def test_is_dir_rejects_a_non_path() -> None:
     assert isinstance(caught.value.errors[0], DirInvalid)
 
 
-def test_is_dir_message_matches_voluptuous() -> None:
-    """IsDir reports the voluptuous wording on a missing directory."""
+def test_is_dir_reports_a_readable_message() -> None:
+    """IsDir reads "not a directory" on a missing directory (ADR-015 wording)."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(IsDir())("/no_such_dir_xyz")
-    assert caught.value.errors[0].error_message == "Not a directory"
+    assert caught.value.errors[0].error_message == "not a directory"
 
 
 def test_is_file_accepts_a_file(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ def test_is_file_rejects_an_empty_value() -> None:
     """A falsy value is reported as FileInvalid, not a crash."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(IsFile())(None)
-    assert caught.value.errors[0].error_message == "Not a file"
+    assert caught.value.errors[0].error_message == "not a file"
 
 
 def test_path_exists_accepts_a_path(tmp_path: Path) -> None:
@@ -116,10 +116,10 @@ def test_path_exists_rejects_a_missing_path(tmp_path: Path) -> None:
 
 
 def test_path_exists_rejects_an_empty_value() -> None:
-    """A falsy value gets the distinct 'Not a Path' message, like voluptuous."""
+    """A falsy value gets the distinct 'not a path' message (own wording)."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(PathExists())(None)
-    assert caught.value.errors[0].error_message == "Not a Path"
+    assert caught.value.errors[0].error_message == "not a path"
 
 
 def test_filesystem_check_handles_an_unstringable_value() -> None:
