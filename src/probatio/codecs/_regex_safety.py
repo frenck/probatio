@@ -17,10 +17,18 @@ group that can match the same input more than one way:
 The other family is two adjacent unbounded quantifiers on atoms whose character
 sets overlap, where the engine can split the input between them many ways:
 
-- ``a+a+``, ``\d+\d+``, ``.*.*``, ``[a-z]+[a-z]*``.
+- ``a+a+``, ``\d+\d+``, ``.*.*``, ``[a-z]+[a-z]*``;
+- the same pair seen through anything transparent between the runs: a group
+  boundary (``(a+)a+``, ``(?:a+a+)``), an optional atom (``a+b?a+``), or a
+  zero-matching run (``a*b*a*``).
 
 Disjoint adjacent quantifiers (``\w+\s+``, ``\d+\D+``) do not backtrack and are
-left alone.
+left alone. So is a repeated group whose iterations cannot merge because a
+mandatory disjoint atom guards the seam: ``(?:[._-][a-z0-9]+)*`` (the slug
+idiom) and ``(a+b)+`` are linear and pass. The *separated* overlap ``X+cX+``
+with ``c`` in ``X`` also passes: it is quadratic rather than exponential, and it
+is the shape of the canonical email pattern; refusing it would push users to
+disable the guard entirely.
 
 This is a heuristic, not a proof. It targets the dominant catastrophic shapes,
 not every pathological pattern (a disjoint alternation like ``(foo|bar)+`` is
@@ -156,7 +164,9 @@ def _next_atom(pattern: str, index: int) -> tuple[_CharSet, int]:  # noqa: PLR09
             return frozenset({"["}), index + 1
         return _class_set(pattern[index + 1 : end]), end + 1
     if char == "(":
-        return None, _skip_group(pattern, index)
+        # Every caller intercepts groups before reaching here and walks them
+        # with the group-aware helpers; this stays as a safety net only.
+        return None, _skip_group(pattern, index)  # pragma: no cover
     if char == ".":
         return None, index + 1
     return frozenset({char}), index + 1
@@ -186,32 +196,359 @@ def _skip_group(pattern: str, index: int) -> int:
     return index
 
 
+# Deepest group nesting the run-exposure analysis recurses into; past it a
+# pattern is treated as catastrophic (fail closed on the untrusted decode path).
+_MAX_GROUP_DEPTH = 20
+
+# No exposed run: the sentinel distinguishing "nothing unbounded here" from ANY
+# (which _CharSet spells as None).
+_NO_RUN = "none"
+
+
+def _union_exposure(left: _CharSet, right: _CharSet) -> _CharSet:
+    """Union two exposures; a complement or ANY on either side widens to ANY."""
+    if left == _NO_RUN:
+        return right
+    if right == _NO_RUN:
+        return left
+    if left is None or right is None or isinstance(left, tuple | str):
+        return None
+    if isinstance(right, tuple | str):
+        return None
+    return left | right
+
+
+def _run_overlaps(exposure: _CharSet, atom: _CharSet) -> bool:
+    """Whether an exposed run and an atom set can share a character."""
+    if _NO_RUN in (exposure, atom):
+        return False
+    return _overlaps(exposure, atom)
+
+
+def _is_lookaround(inner: str) -> bool:
+    """Whether a group body is a lookaround (zero-width, transparent to a run)."""
+    return inner.startswith(("?=", "?!", "?<=", "?<!"))
+
+
 def _has_adjacent_overlap(pattern: str) -> bool:
-    r"""Return whether two adjacent unbounded-quantified atoms can overlap.
+    r"""Return whether two overlapping unbounded runs sit next to each other.
 
     ``a+a+`` / ``\d+\d+`` / ``.*.*`` backtrack catastrophically; ``\w+\s+`` and
-    other disjoint pairs do not. Atoms inside a ``[...]`` class are not atoms in
-    their own right, so the scan skips class interiors.
+    other disjoint pairs do not. Adjacency is tracked as *run exposure*, so the
+    pair is still seen through anything transparent between the two runs: a
+    group boundary (``(a+)a+``, ``(?:a+)(?:a+)``), an optional atom
+    (``a+b?a+``), or a zero-matching unbounded atom (``a*b*a*``). Group bodies
+    are scanned recursively, so ``(?:a+a+)`` is caught too.
     """
-    previous: _CharSet = "none"  # The prior atom's set if it was unbounded-quantified.
-    index = 0
-    while index < len(pattern):
-        char = pattern[index]
-        if char in "|^$":
-            previous = "none"  # Alternation or an anchor breaks adjacency.
-            index += 1
-            continue
-        if char == ")":
-            index += 1
-            continue
-        current, after = _next_atom(pattern, index)
-        unbounded = _quantifier_after(pattern, after)
-        if unbounded and previous != "none" and _overlaps(previous, current):
-            return True
-        previous = current if unbounded else "none"
-        index = _skip_quantifier(pattern, after) if unbounded else after
+    return any(
+        _scan_alternative(alternative, 0)[0]
+        for alternative in _split_top_level(pattern)
+    )
 
-    return False
+
+def _scan_alternative(alternative: str, depth: int) -> tuple[bool, _CharSet]:
+    """Scan one alternative for overlapping runs; return (catastrophic, exposure).
+
+    The exposure is the character set of an unbounded run that can sit at the
+    *end* of the alternative, which a caller uses as what an enclosing group
+    leaks to whatever follows it.
+    """
+    exposure: _CharSet = _NO_RUN
+    index = 0
+    while index < len(alternative):
+        char = alternative[index]
+        if char in "^$":
+            index += 1  # Zero-width anchors are transparent to a run.
+            continue
+        if char == "(":
+            caught, exposure, index = _scan_group(alternative, index, exposure, depth)
+            if caught:
+                return True, None
+            continue
+        atom, after = _next_atom(alternative, index)
+        unbounded = _quantifier_after(alternative, after)
+        zero = _quantifier_allows_zero(alternative, after)
+        if unbounded:
+            if _run_overlaps(exposure, atom):
+                return True, None
+            # A zero-matching run (``*``) can vanish, so the prior run stays
+            # exposed beside it; a mandatory run (``+``) replaces it.
+            exposure = _union_exposure(exposure, atom) if zero else atom
+        elif zero:
+            pass  # An optional atom is transparent: the run may continue past it.
+        else:
+            # A mandatory atom breaks the run, even one drawn from the same
+            # set: ``X+cX+`` with ``c`` in ``X`` is quadratic, not exponential,
+            # and it is the shape of the canonical email pattern
+            # (``[\w.-]+\.[a-z]{2,}``). Refusing that would push users to turn
+            # the guard off, so the separated form is deliberately left alone.
+            exposure = _NO_RUN
+        index = (
+            _skip_quantifier(alternative, after)
+            if _has_quantifier(alternative, after)
+            else after
+        )
+
+    return False, exposure
+
+
+def _scan_group(
+    alternative: str,
+    index: int,
+    exposure: _CharSet,
+    depth: int,
+) -> tuple[bool, _CharSet, int]:
+    """Scan one group atom; return (catastrophic, new exposure, next index).
+
+    The group is scanned recursively for internal overlaps, then treated as one
+    atom whose leading and trailing runs interact with the surrounding runs.
+    """
+    after = _skip_group(alternative, index)
+    inner = alternative[index + 1 : after - 1]
+    next_index = (
+        _skip_quantifier(alternative, after)
+        if _has_quantifier(alternative, after)
+        else after
+    )
+    if _is_lookaround(inner):
+        # A lookaround consumes nothing, so it is transparent to the run.
+        return False, exposure, next_index
+
+    if depth + 1 >= _MAX_GROUP_DEPTH:
+        return True, None, next_index  # Too nested to analyze: fail closed.
+
+    body = _strip_group_modifier(inner)
+    alternatives = _split_top_level(body)
+    trailing: _CharSet = _NO_RUN
+    for part in alternatives:
+        caught, part_exposure = _scan_alternative(part, depth + 1)
+        if caught:
+            return True, None, next_index
+        trailing = _union_exposure(trailing, part_exposure)
+
+    zero = _quantifier_allows_zero(alternative, after)
+    if _quantifier_after(alternative, after):
+        caught, new = _repeated_group_outcome(body, exposure, depth, zero=zero)
+    else:
+        caught, new = _plain_group_outcome(inner, trailing, exposure, depth, zero=zero)
+    return caught, new, next_index
+
+
+def _repeated_group_outcome(
+    body: str,
+    exposure: _CharSet,
+    depth: int,
+    *,
+    zero: bool,
+) -> tuple[bool, _CharSet]:
+    """Judge an unbounded-quantified group against the surrounding runs.
+
+    The repeat merges with a prior run only when an iteration can *start* with
+    a character from that run (a mandatory disjoint lead-in keeps the seam
+    unambiguous). After the group, the repeat is itself a run over its whole
+    body charset: a second repeat drawing on the same characters
+    (``(a[xy]b)+(a[xy]b)+``) splits the units between them ambiguously. A ``*``
+    group can also vanish, keeping the prior run exposed beside it.
+    """
+    if _run_overlaps(exposure, _leading_chars(body, depth + 1)):
+        return True, None
+    charset = _body_charset(body, depth + 1)
+    return False, _union_exposure(exposure, charset) if zero else charset
+
+
+def _plain_group_outcome(
+    inner: str,
+    trailing: _CharSet,
+    exposure: _CharSet,
+    depth: int,
+    *,
+    zero: bool,
+) -> tuple[bool, _CharSet]:
+    """Judge an unquantified group against the surrounding runs.
+
+    A prior run merges with an unbounded run at the group's *start*
+    (``a+(a+b)``). Past the group, its trailing run becomes the exposure; a
+    group that can match nothing (optional or nullable) is transparent, so the
+    prior run stays exposed beside whatever the group adds.
+    """
+    leading: _CharSet = _NO_RUN
+    for part in _split_top_level(_strip_group_modifier(inner)):
+        leading = _union_exposure(leading, _leading_run(part, depth + 1))
+    if _run_overlaps(exposure, leading):
+        return True, None
+
+    transparent = zero or _group_is_nullable(inner, depth)
+    if trailing != _NO_RUN:
+        return False, _union_exposure(exposure, trailing) if transparent else trailing
+    return False, exposure if transparent else _NO_RUN
+
+
+def _leading_run(alternative: str, depth: int) -> _CharSet:
+    """Return the set of an unbounded run reachable at the alternative's start.
+
+    Optional atoms and nullable groups before it are transparent (they can
+    match nothing); the walk stops at the first mandatory atom.
+    """
+    if depth >= _MAX_GROUP_DEPTH:
+        return None  # Too nested to analyze: ANY, conservative.
+    exposure: _CharSet = _NO_RUN
+    index = 0
+    while index < len(alternative):
+        char = alternative[index]
+        if char in "^$":
+            index += 1
+            continue
+        if char == "(":
+            after = _skip_group(alternative, index)
+            inner = alternative[index + 1 : after - 1]
+            next_index = (
+                _skip_quantifier(alternative, after)
+                if _has_quantifier(alternative, after)
+                else after
+            )
+            if _is_lookaround(inner):
+                index = next_index
+                continue
+            body = _strip_group_modifier(inner)
+            if _quantifier_after(alternative, after):
+                exposure = _union_exposure(exposure, _body_charset(body, depth + 1))
+            else:
+                for part in _split_top_level(body):
+                    exposure = _union_exposure(exposure, _leading_run(part, depth + 1))
+            zero_group = _quantifier_allows_zero(
+                alternative, after
+            ) or _group_is_nullable(inner, depth)
+            if not zero_group:
+                break
+            index = next_index
+            continue
+        atom, after = _next_atom(alternative, index)
+        if _quantifier_after(alternative, after):
+            exposure = _union_exposure(exposure, atom)
+        if not _quantifier_allows_zero(alternative, after):
+            break
+        index = (
+            _skip_quantifier(alternative, after)
+            if _has_quantifier(alternative, after)
+            else after
+        )
+
+    return exposure
+
+
+def _leading_chars(body: str, depth: int) -> _CharSet:
+    """Return the set of characters an iteration of ``body`` can start with.
+
+    Every atom reachable through optional prefixes contributes, including a
+    mandatory bounded one: for the repeat-boundary check the trailing run
+    supplies the unboundedness, so any overlapping first character merges runs.
+    """
+    if depth >= _MAX_GROUP_DEPTH:
+        return None
+    chars: _CharSet = _NO_RUN
+    for alternative in _split_top_level(body):
+        index = 0
+        while index < len(alternative):
+            char = alternative[index]
+            if char in "^$":
+                index += 1
+                continue
+            if char == "(":
+                after = _skip_group(alternative, index)
+                inner = alternative[index + 1 : after - 1]
+                next_index = (
+                    _skip_quantifier(alternative, after)
+                    if _has_quantifier(alternative, after)
+                    else after
+                )
+                if _is_lookaround(inner):
+                    index = next_index
+                    continue
+                chars = _union_exposure(
+                    chars,
+                    _leading_chars(_strip_group_modifier(inner), depth + 1),
+                )
+                if not (
+                    _quantifier_allows_zero(alternative, after)
+                    or _group_is_nullable(inner, depth)
+                ):
+                    break
+                index = next_index
+                continue
+            atom, after = _next_atom(alternative, index)
+            chars = _union_exposure(chars, atom)
+            if not _quantifier_allows_zero(alternative, after):
+                break
+            index = (
+                _skip_quantifier(alternative, after)
+                if _has_quantifier(alternative, after)
+                else after
+            )
+
+    return chars
+
+
+def _body_charset(body: str, depth: int) -> _CharSet:
+    """Union of every atom set in ``body``, or ANY when too nested to analyze."""
+    if depth >= _MAX_GROUP_DEPTH:
+        return None
+    charset: _CharSet = _NO_RUN
+    for alternative in _split_top_level(body):
+        index = 0
+        while index < len(alternative):
+            char = alternative[index]
+            if char in "^$":
+                index += 1
+                continue
+            if char == "(":
+                after = _skip_group(alternative, index)
+                inner = alternative[index + 1 : after - 1]
+                if not _is_lookaround(inner):
+                    charset = _union_exposure(
+                        charset,
+                        _body_charset(_strip_group_modifier(inner), depth + 1),
+                    )
+                index = (
+                    _skip_quantifier(alternative, after)
+                    if _has_quantifier(alternative, after)
+                    else after
+                )
+                continue
+            atom, after = _next_atom(alternative, index)
+            charset = _union_exposure(charset, atom)
+            index = (
+                _skip_quantifier(alternative, after)
+                if _has_quantifier(alternative, after)
+                else after
+            )
+
+    return charset
+
+
+def _repeat_boundary_merges(body: str) -> bool:
+    """Whether repeating ``body`` lets an unbounded run span the iteration seam.
+
+    A repeated body whose iterations *end* in an unbounded run that overlaps a
+    character its next iteration can *start* with (``(a+)+``, ``(a+b?)+``) lets
+    the engine split one homogeneous run across iterations many ways: that is
+    the catastrophic shape. A mandatory disjoint lead-in
+    (``(?:[._-][a-z0-9]+)*``, the slug idiom) makes every seam unambiguous, so
+    such a body is safe to repeat even though it contains an unbounded
+    quantifier.
+    """
+    body = _strip_group_modifier(body)
+    trailing: _CharSet = _NO_RUN
+    for alternative in _split_top_level(body):
+        caught, exposure = _scan_alternative(alternative, 0)
+        if caught:
+            # The adjacency scan already walked every group body, so a body
+            # that scans catastrophic was refused before this is reached; this
+            # stays as a safety net only.
+            return True  # pragma: no cover
+        trailing = _union_exposure(trailing, exposure)
+    if trailing == _NO_RUN:
+        return False
+    return _run_overlaps(trailing, _leading_chars(body, 0))
 
 
 def _skip_quantifier(pattern: str, index: int) -> int:
@@ -268,13 +605,21 @@ def is_catastrophic(pattern: str) -> bool:
 
             # A repeat of 2+ (``+``, ``*``, ``{2,}``, ``{2}``, ``{,3}`` ...) drives
             # backtracking; a fixed ``{15}`` on an unbounded body is just as
-            # exponential as ``+``, so it counts too.
+            # exponential as ``+``, so it counts too. An unbounded quantifier in
+            # the body only blows up when a run can span the iteration seam
+            # (``(a+)+``); a mandatory disjoint lead-in (``(?:[._-][a-z0-9]+)*``)
+            # keeps every seam unambiguous and is left alone.
             quantified = _quantifier_repeats(pattern, index + 1)
             body = pattern[start + 1 : index]
-            if quantified and (body_unbounded or _body_is_ambiguous(body)):
+            if quantified and _body_is_ambiguous(body):
                 return True
-            if quantified and stack:
-                stack[-1][1] = True
+            if quantified and body_unbounded and _repeat_boundary_merges(body):
+                return True
+            if stack:
+                # A quantified group is an unbounded quantifier in its parent's
+                # body; an unquantified group is transparent, so its unbounded
+                # content marks the parent too (``((a+))*``).
+                stack[-1][1] = stack[-1][1] or quantified or body_unbounded
         elif stack and _quantifier_after(pattern, index):
             # An unbounded quantifier in this group's body marks it, so a quantifier
             # on the group itself later makes the nesting catastrophic.
