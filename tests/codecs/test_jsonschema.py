@@ -804,3 +804,105 @@ def test_required_alias_with_default_adds_no_constraint() -> None:
     result = to_json_schema(schema)
     assert "allOf" not in result
     assert result["properties"]["name"]["default"] == 5
+
+
+def test_union_becomes_any_of() -> None:
+    """Union accepts any branch, so it exports anyOf like Any."""
+    from probatio.validators import Union  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Union(int, str))) == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}],
+    }
+
+
+def test_switch_becomes_any_of() -> None:
+    """Switch is an alias of Union, so it exports anyOf too."""
+    from probatio.validators import Switch  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Switch(int, str))) == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}],
+    }
+
+
+def test_some_of_exactly_one_becomes_one_of() -> None:
+    """SomeOf(min=max=1) is exactly-one, which exports as oneOf."""
+    from probatio.validators import SomeOf  # noqa: PLC0415
+
+    schema = SomeOf([int, str], min_valid=1, max_valid=1)
+    assert to_json_schema(Schema(schema)) == {
+        "oneOf": [{"type": "integer"}, {"type": "string"}],
+    }
+
+
+def test_some_of_at_least_one_becomes_any_of() -> None:
+    """SomeOf(min=1, max=count) is at-least-one, which exports as anyOf."""
+    from probatio.validators import SomeOf  # noqa: PLC0415
+
+    schema = SomeOf([int, str], min_valid=1, max_valid=2)
+    assert to_json_schema(Schema(schema)) == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}],
+    }
+
+
+def test_some_of_all_becomes_all_of() -> None:
+    """SomeOf(min=max=count) requires every branch, which exports as allOf."""
+    from probatio.validators import SomeOf  # noqa: PLC0415
+
+    schema = SomeOf([int, Range(min=0)], min_valid=2, max_valid=2)
+    assert to_json_schema(Schema(schema)) == {
+        "allOf": [{"type": "integer"}, {"minimum": 0}],
+    }
+
+
+def test_some_of_uncommon_count_widens_to_open() -> None:
+    """A SomeOf count JSON Schema cannot express widens to an open schema."""
+    from probatio.validators import SomeOf  # noqa: PLC0415
+
+    schema = SomeOf([int, str, float], min_valid=2, max_valid=2)
+    assert to_json_schema(Schema(schema)) == {}
+
+
+def test_msg_unwraps_to_its_validator() -> None:
+    """Msg only swaps the error message, so it exports the wrapped validator's shape."""
+    from probatio.validators import Msg  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Msg(int, "nope"))) == {"type": "integer"}
+
+
+def test_enum_class_becomes_enum_of_values() -> None:
+    """An Enum class exports an enum of its member values (the wire form)."""
+    from enum import Enum  # noqa: PLC0415
+
+    class Color(Enum):
+        RED = "red"
+        BLUE = "blue"
+
+    assert to_json_schema(Schema(Color)) == {"enum": ["red", "blue"]}
+
+
+def test_duration_exports_format_duration() -> None:
+    """Duration and AsTimedelta export the standard format: duration."""
+    from probatio.validators import AsTimedelta, Duration  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Duration())) == {
+        "type": "string",
+        "format": "duration",
+    }
+    assert to_json_schema(Schema(AsTimedelta())) == {
+        "type": "string",
+        "format": "duration",
+    }
+
+
+def test_non_empty_exports_min_length() -> None:
+    """NonEmpty requires a non-empty value, exported as minLength for strings."""
+    from probatio.validators import NonEmpty  # noqa: PLC0415
+
+    assert to_json_schema(Schema(NonEmpty())) == {"minLength": 1}
+
+
+def test_default_to_exports_a_default() -> None:
+    """DefaultTo carries only its default value into the schema."""
+    from probatio.validators import DefaultTo  # noqa: PLC0415
+
+    assert to_json_schema(Schema(DefaultTo(5))) == {"default": 5}
