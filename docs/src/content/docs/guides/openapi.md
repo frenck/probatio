@@ -4,10 +4,13 @@ description: Render a Probatio schema as an OpenAPI Schema object, build one bac
 ---
 
 OpenAPI Schema objects are JSON Schema with a few of their own rules. `to_openapi`
-and `from_openapi` are the OpenAPI pair, exported from the top level. They share
-the JSON Schema codec, so most of the behavior, the supported keywords, the
-round-trip caveats, and the untrusted-input guards, is the same. Read [JSON
-Schema](/guides/json-schema/) first; this page covers what OpenAPI adds.
+and `from_openapi` are the OpenAPI pair, exported from the top level. `from_openapi`
+is the JSON Schema decoder plus the OpenAPI extras, so its supported keywords,
+round-trip caveats, and untrusted-input guards match [JSON
+Schema](/guides/json-schema/); read that page first. The `to_openapi` encoder is a
+separate implementation (it targets OpenAPI 3.0 or 3.1 and takes a
+`custom_serializer`), so its construct coverage differs from `to_json_schema` in
+places. This page covers what OpenAPI adds.
 
 ## Both directions
 
