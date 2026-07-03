@@ -980,8 +980,11 @@ _FROM_FORMATS: dict[str, Any] = {
     "uuid": UUID(),
     "hostname": Hostname(),
 }
-# JSON Schema scalar types that map to a fixed probatio fragment.
-_SIMPLE_TYPES: dict[str, Any] = {"boolean": bool, "null": None}
+# JSON Schema scalar types that map to a fixed probatio fragment. ``null`` maps
+# to ``Literal(None)``, not the bare ``None`` schema: ``None`` is also the "no
+# facet" sentinel the facet collector drops, so a bare ``{"type": "null"}`` would
+# otherwise lose its constraint and widen to accept anything.
+_SIMPLE_TYPES: dict[str, Any] = {"boolean": bool, "null": Literal(None)}
 
 
 class _JsonNumberType:

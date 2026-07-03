@@ -1264,3 +1264,12 @@ def test_const_rejects_a_hostile_container_value() -> None:
     schema = from_json_schema({"const": [1, 2]})
     with pytest.raises(MultipleInvalid):
         schema(HostileList([1, 2]))
+
+
+def test_type_null_accepts_only_none() -> None:
+    """A bare type: null validates only None, not any value (issue: it widened)."""
+    schema = from_json_schema({"type": "null"})
+    assert schema(None) is None
+    for bad in ([], 0, "x", False):
+        with pytest.raises(MultipleInvalid):
+            schema(bad)
