@@ -1081,6 +1081,94 @@ def test_format_datetime_and_time_round_trip() -> None:
         assert to_json_schema(from_json_schema(document)) == document
 
 
+def test_integer_follows_the_json_data_model() -> None:
+    """type: integer rejects booleans and accepts a float with a zero fraction."""
+    schema = from_json_schema({"type": "integer"})
+    assert schema(3) == 3
+    assert schema(1.0) == 1.0
+    with pytest.raises(MultipleInvalid):
+        schema(True)
+    with pytest.raises(MultipleInvalid):
+        schema(1.5)
+
+
+def test_number_rejects_booleans() -> None:
+    """type: number rejects booleans; JSON has no boolean-as-number."""
+    schema = from_json_schema({"type": "number"})
+    assert schema(1.5) == 1.5
+    with pytest.raises(MultipleInvalid):
+        schema(True)
+
+
+def test_enum_keeps_booleans_and_numbers_distinct() -> None:
+    """A numeric enum rejects booleans and a boolean enum rejects numbers."""
+    numeric = from_json_schema({"enum": [1, 0]})
+    assert numeric(1) == 1
+    assert numeric(1.0) == 1.0  # numbers compare across int/float per spec
+    with pytest.raises(MultipleInvalid):
+        numeric(True)
+    with pytest.raises(MultipleInvalid):
+        numeric(False)
+
+    boolean = from_json_schema({"enum": [True]})
+    assert boolean(True) is True
+    with pytest.raises(MultipleInvalid):
+        boolean(1)
+
+
+def test_const_keeps_booleans_and_numbers_distinct() -> None:
+    """A numeric const rejects the equal-under-Python boolean, and the reverse."""
+    one = from_json_schema({"const": 1})
+    assert one(1) == 1
+    assert one(1.0) == 1.0
+    with pytest.raises(MultipleInvalid):
+        one(True)
+
+    false = from_json_schema({"const": False})
+    assert false(False) is False
+    with pytest.raises(MultipleInvalid):
+        false(0)
+
+
+def test_const_container_compares_elementwise_under_json_equality() -> None:
+    """A container const keeps nested booleans distinct from nested numbers."""
+    schema = from_json_schema({"const": [1, 2]})
+    assert schema([1, 2]) == [1, 2]
+    assert schema([1.0, 2]) == [1.0, 2]
+    with pytest.raises(MultipleInvalid):
+        schema([True, 2])
+
+    nested = from_json_schema({"const": {"a": 0}})
+    assert nested({"a": 0}) == {"a": 0}
+    with pytest.raises(MultipleInvalid):
+        nested({"a": False})
+
+
+def test_const_rejects_a_value_whose_equality_raises() -> None:
+    """A hostile __eq__ on the value is a mismatch, never a leaked exception."""
+
+    class Hostile:
+        def __eq__(self, other: object) -> bool:
+            raise RuntimeError
+
+        __hash__ = None  # type: ignore[assignment]
+
+    schema = from_json_schema({"const": 1})
+    with pytest.raises(MultipleInvalid):
+        schema(Hostile())
+
+
+def test_json_strict_enum_const_and_integer_round_trip() -> None:
+    """The JSON-strict validators re-emit their keyword through to_json_schema."""
+    for document in (
+        {"enum": [1, 0]},
+        {"const": 1},
+        {"type": "integer"},
+        {"type": "number"},
+    ):
+        assert to_json_schema(from_json_schema(document)) == document
+
+
 def test_unique_items_compares_unhashable_elements_by_value() -> None:
     """uniqueItems accepts distinct arrays/objects and rejects duplicate ones."""
     schema = from_json_schema({"type": "array", "uniqueItems": True})
@@ -1148,3 +1236,31 @@ def test_unique_items_passes_non_arrays_vacuously() -> None:
     schema = from_json_schema({"uniqueItems": True})
     assert schema("aa") == "aa"
     assert schema(5) == 5
+
+
+def test_json_strict_validators_repr_readably() -> None:
+    """The internal JSON-strict validators repr readably for error paths."""
+    assert "JsonEnum(" in repr(from_json_schema({"enum": [1]}).schema)
+    assert "JsonConst(" in repr(from_json_schema({"const": 1}).schema)
+    assert "JsonInteger()" in repr(from_json_schema({"type": "integer"}).schema)
+    assert "JsonNumber()" in repr(from_json_schema({"type": "number"}).schema)
+
+
+def test_const_string_container_stays_an_equal_check() -> None:
+    """A container const without numbers keeps Equal, not a structural subschema."""
+    schema = from_json_schema({"const": ["a", "b"]})
+    assert schema(["a", "b"]) == ["a", "b"]
+    with pytest.raises(MultipleInvalid):
+        schema(["a"])
+
+
+def test_const_rejects_a_hostile_container_value() -> None:
+    """A list subclass whose dunders raise is a mismatch, never a leaked exception."""
+
+    class HostileList(list):
+        def __len__(self) -> int:
+            raise RuntimeError
+
+    schema = from_json_schema({"const": [1, 2]})
+    with pytest.raises(MultipleInvalid):
+        schema(HostileList([1, 2]))
