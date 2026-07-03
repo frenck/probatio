@@ -25,17 +25,64 @@ def test_invalid_defaults() -> None:
 
 
 def test_invalid_renders_path() -> None:
-    """The path is appended to the string form, the message stays bare."""
+    """The path is appended as a dotted trail, the message stays bare."""
     err = Invalid("expected int", path=["config", "port"])
     assert err.path == ["config", "port"]
     assert err.error_message == "expected int"
-    assert str(err) == "expected int @ data['config']['port']"
+    assert str(err) == "expected int at 'config.port'"
 
 
-def test_invalid_renders_error_type() -> None:
-    """The error type is appended after the message in the string form."""
+def test_invalid_renders_deep_path_with_indices() -> None:
+    """Sequence indices render as [n] inside the dotted trail."""
+    err = Invalid(
+        "expected str",
+        path=["automation", 0, "triggers", 2, "entity_id"],
+    )
+    assert str(err) == "expected str at 'automation[0].triggers[2].entity_id'"
+
+
+def test_invalid_renders_index_first_path_segment() -> None:
+    """A path starting at a sequence index renders without a leading dot."""
+    err = Invalid("expected str", path=[1, "name"])
+    assert str(err) == "expected str at '[1].name'"
+
+
+def test_invalid_renders_hyphenated_key_bare() -> None:
+    """A hyphenated key (common in configuration) renders without brackets."""
+    err = Invalid("expected int", path=["scan-interval"])
+    assert str(err) == "expected int at 'scan-interval'"
+
+
+def test_invalid_renders_awkward_key_bracketed() -> None:
+    """A key that does not read cleanly bare falls back to a bracketed repr."""
+    err = Invalid("expected int", path=["server", "my key"])
+    assert str(err) == "expected int at 'server['my key']'"
+
+
+def test_invalid_renders_angle_bracket_key_with_control_chars_bracketed() -> None:
+    """An attacker-shaped <...> key falls back to repr; no raw control characters."""
+    err = Invalid("bad", path=["<bad\nkey>"])
+    assert str(err) == "bad at '['<bad\\nkey>']'"
+    assert "\n" not in str(err)
+
+
+def test_invalid_renders_group_segment_bare() -> None:
+    """An identifier-like <group> segment renders bare, keeping its brackets."""
+    err = Invalid("bad", path=["server", "<auth>"])
+    assert str(err) == "bad at 'server.<auth>'"
+
+
+def test_invalid_renders_bool_key_bracketed() -> None:
+    """A boolean key renders as its repr, not as a sequence index."""
+    err = Invalid("expected int", path=[True])
+    assert str(err) == "expected int at '[True]'"
+
+
+def test_invalid_does_not_render_error_type() -> None:
+    """The error type attribute is kept, but no longer rendered (ADR-015)."""
     err = Invalid("nope", error_type="dictionary value")
-    assert str(err) == "nope for dictionary value"
+    assert err.error_type == "dictionary value"
+    assert str(err) == "nope"
 
 
 def test_invalid_error_message_is_independent_of_message() -> None:
@@ -226,11 +273,11 @@ def test_long_path_segment_is_truncated_in_str() -> None:
     huge = "k" * 5000
     err = Invalid("bad", path=[huge])
     rendered = str(err)
-    assert rendered.endswith("...]")
+    assert rendered.endswith("...]'")
     assert len(rendered) < 600
 
 
 def test_normal_path_segment_is_not_truncated() -> None:
     """An ordinary key renders in full, with no truncation."""
     err = Invalid("bad", path=["port"])
-    assert str(err) == "bad @ data['port']"
+    assert str(err) == "bad at 'port'"

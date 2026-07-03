@@ -29,7 +29,8 @@ is a programming mistake, not bad input. The two never overlap.
 
 ## The path to the value
 
-An error knows where in the data it happened. `str(error)` appends that path, and
+An error knows where in the data it happened. `str(error)` appends that path as
+a dotted trail (mapping keys joined with dots, sequence indices as `[n]`), and
 `error.path` is the list of keys and indices to walk:
 
 ```python
@@ -40,7 +41,7 @@ schema = Schema({"server": {"ports": [int]}})
 try:
     schema({"server": {"ports": [80, "nope"]}})
 except Invalid as err:
-    print(err)        # expected int @ data['server']['ports'][1]
+    print(err)        # expected int at 'server.ports[1]'
     print(err.path)   # ['server', 'ports', 1]
 ```
 
@@ -84,7 +85,7 @@ schema = Schema({"port": int})
 try:
     schema(data)
 except Invalid as err:
-    print(humanize_error(data, err))  # expected int for dictionary value @ data['port']. Got 'nope'
+    print(humanize_error(data, err))  # expected int at 'port'. Got 'nope'
 ```
 
 `validate_with_humanized_errors(data, schema)` (also in `probatio.humanize`) does
@@ -141,3 +142,7 @@ except Invalid as err:
 The legacy fields (`msg`, `path`, `error_message`) are untouched by this layer,
 so nothing about the voluptuous-compatible behavior changes; the structured data
 is purely additive.
+
+To override a validator's message, or to build your own output (or
+translations) from this layer, see
+[Custom error messages](/guides/custom-error-messages/).

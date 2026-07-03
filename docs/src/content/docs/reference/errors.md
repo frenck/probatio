@@ -28,7 +28,9 @@ So when you catch one, the individual failures live in `err.errors`, and
 
 Every `Invalid` carries two layers. The voluptuous-compatible layer (`msg`,
 `path`, `error_message`, `error_type`) keeps its original wording and behavior, so
-code that string-matches it still works. The structured layer (`code`, `context`,
+code that reads those fields still works. Only the rendered `str(error)` differs
+from voluptuous: it appends the path as a dotted trail and drops the error-type
+clause. The structured layer (`code`, `context`,
 `translation_key`, `placeholders`, `as_dict()`) is additive: it changes none of
 the legacy output.
 
@@ -36,7 +38,7 @@ the legacy output.
 - `path`: the list of keys and indices to walk to the offending value.
 - `error_message`: the bare message, without the path appended.
 - `error_type`: the kind of value that failed, such as `dictionary value` (may be
-  `None`).
+  `None`). Kept for compatibility; it is no longer rendered in `str(error)`.
 - `code`: the stable machine-readable code (the class default unless overridden).
 - `secret`: whether the offending value must be redacted, not echoed, when
   rendered. Set for an error under a
@@ -81,6 +83,16 @@ except MultipleInvalid as err:
     print(err.as_dict()["errors"][0]["code"])  # type
 ```
 
+To render a path the way `str(error)` does, use `render_path` from
+`probatio.error`. A consumer building its own error output stays consistent
+with the library's rendering:
+
+```python
+from probatio.error import render_path
+
+print(render_path(["server", "ports", 1]))  # server.ports[1]
+```
+
 ## Semantic subclasses
 
 The subclasses let callers branch on what went wrong. They mirror voluptuous, so
@@ -90,7 +102,7 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 
 - `RequiredFieldInvalid` (`required`): a required key was missing from the data.
 - `ObjectInvalid` (`object`): the value is not the expected object.
-- `DictInvalid` (`not_a_dictionary`): the value is not a dictionary.
+- `DictInvalid` (`not_a_dictionary`): the value is not a mapping.
 - `ExtraKeysInvalid` (`extra_keys_not_allowed`): a key matched no schema key under
   `PREVENT_EXTRA`; carries `candidates`, the close matches.
 - `SequenceTypeInvalid` (`not_a_sequence`): the value is not the expected sequence

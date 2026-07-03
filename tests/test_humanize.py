@@ -34,7 +34,7 @@ def test_humanize_single_error_shows_path_and_value() -> None:
     message = humanize_error({"port": "nope"}, caught.value)
 
     assert "expected int" in message
-    assert "data['port']" in message
+    assert "at 'port'" in message
     assert "Got 'nope'" in message
 
 
@@ -115,7 +115,7 @@ def test_humanize_error_without_a_locator_is_unchanged() -> None:
     except MultipleInvalid as err:
         rendered = humanize_error({"port": "nope"}, err)
 
-    assert "at " not in rendered
+    assert "(at " not in rendered
 
 
 def test_humanize_error_locator_returning_none_adds_no_location() -> None:

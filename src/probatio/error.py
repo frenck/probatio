@@ -6,17 +6,24 @@ semantic subclasses that callers catch by type.
 
 Every error carries two layers. The voluptuous-compatible layer is ``path`` (a
 list of segments), ``msg``, ``error_message`` (the bare message, without the
-path), and ``error_type``; downstream code reads and string-matches these, so
-they keep their original behavior and wording. The structured layer is additive:
-a stable machine-readable ``code`` (defaulted per error class) and a ``context``
-dict, both filled in by the built-in validators, plus ``translation_key`` /
+path), and ``error_type``; downstream code reads these attributes, so they keep
+their voluptuous semantics. The structured layer is additive: a stable
+machine-readable ``code`` (defaulted per error class) and a ``context`` dict,
+both filled in by the built-in validators, plus ``translation_key`` /
 ``placeholders`` slots for localization that the built-ins leave empty for a
 caller raising its own error to populate. All four are surfaced together by
-``as_dict()``. Adding the structured layer changes none of the legacy output.
+``as_dict()``.
+
+``str(error)`` is for humans and deliberately deviates from voluptuous
+(ADR-015): the path renders as a dotted trail (``at 'hosts[2].name'``) instead
+of ``@ data['hosts'][2]['name']``, and the ``error_type`` clause is not
+rendered. Programmatic consumers read ``path``, ``code``, and ``as_dict()``;
+the rendered string promises readability, not stability.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any, cast
@@ -63,6 +70,46 @@ def _render_segment(segment: Any) -> str:
     if len(text) > _MAX_PATH_SEGMENT_LENGTH:
         return text[: _MAX_PATH_SEGMENT_LENGTH - 3] + "..."
     return text
+
+
+# A mapping key that reads cleanly bare in a dotted path: identifier-like,
+# hyphens allowed (common in configuration keys).
+_BARE_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
+
+
+def render_path(path: list[Any]) -> str:
+    """Render an error path as a dotted trail: ``server.port``, ``hosts[2].name``.
+
+    This is the rendering ``str(error)`` uses; it is public so a consumer
+    building its own error output renders paths the same way. Mapping keys join
+    with dots, integer segments (list indices, integer keys) render as ``[n]``,
+    and anything else (a key with spaces, a marker object) falls back to its
+    bracketed ``repr``. Group segments keep their ``<group>`` rendering (see
+    ``VirtualPathComponent``), for identifier-like group names only: path
+    segments can be attacker-controlled mapping keys, and ``repr`` in the
+    fallback is what keeps control characters out of the rendered string. An
+    empty path renders as an empty string.
+    """
+    parts: list[str] = []
+    for segment in path:
+        if isinstance(segment, str):
+            # str(...) honors subclasses like VirtualPathComponent (``<group>``).
+            text = str(segment)
+            if len(text) <= _MAX_PATH_SEGMENT_LENGTH and (
+                _BARE_KEY.fullmatch(text)
+                or (
+                    text.startswith("<")
+                    and text.endswith(">")
+                    and _BARE_KEY.fullmatch(text[1:-1])
+                )
+            ):
+                parts.append(f".{text}" if parts else text)
+                continue
+        elif isinstance(segment, int) and not isinstance(segment, bool):
+            parts.append(f"[{segment}]")
+            continue
+        parts.append(f"[{_render_segment(segment)}]")
+    return "".join(parts)
 
 
 class Error(Exception):
@@ -190,14 +237,11 @@ class Invalid(Error):
         return self._placeholders
 
     def __str__(self) -> str:
-        """Render the message with the error type and data path appended."""
+        """Render the message with the path to the offending value appended."""
         output = Exception.__str__(self)
 
-        if self._error_type:
-            output += " for " + self._error_type
         if self._path:
-            path = "][".join(_render_segment(segment) for segment in self._path)
-            output += f" @ data[{path}]"
+            output += f" at '{render_path(self._path)}'"
 
         return output
 
@@ -316,14 +360,11 @@ class _SuggestionInvalid(Invalid):
         return ctx
 
     def __str__(self) -> str:
-        """Render the (suffixed) message with the error type and data path."""
+        """Render the (suffixed) message with the path to the offending value."""
         output = self.error_message
 
-        if self._error_type:
-            output += " for " + self._error_type
         if self._path:
-            path = "][".join(_render_segment(segment) for segment in self._path)
-            output += f" @ data[{path}]"
+            output += f" at '{render_path(self._path)}'"
 
         return output
 
@@ -427,7 +468,7 @@ class ObjectInvalid(Invalid):
 
 
 class DictInvalid(Invalid):
-    """The value is not a dictionary."""
+    """The value is not a mapping."""
 
     default_code = "not_a_dictionary"
 

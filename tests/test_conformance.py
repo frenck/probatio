@@ -177,16 +177,24 @@ def test_matches_voluptuous(builder: Any, data: Any) -> None:
 
 
 def _detail(builder: Any, data: Any, lib: Any) -> Any:
-    """Run a schema, returning the result or each error's class name and string.
+    """Run a schema, returning the result or each error's class, message, and path.
 
     A drop-in is judged on more than the error path: downstream code reads
-    ``str(error)``, ``.msg``, and the error subclass. This pins all three.
+    ``.msg``, ``error_message``, and the error subclass. This pins all three.
+    ``str(error)`` is left out: probatio deliberately renders the path as a
+    dotted trail and drops the error-type clause (ADR-015).
     """
     try:
         return ("ok", builder(lib)(data))
     except lib.Invalid as exc:
         errors = exc.errors if isinstance(exc, lib.MultipleInvalid) else [exc]
-        return ("error", sorted((type(e).__name__, str(e)) for e in errors))
+        return (
+            "error",
+            sorted(
+                (type(e).__name__, e.error_message, [str(s) for s in e.path])
+                for e in errors
+            ),
+        )
 
 
 # Builders whose error message/class intentionally diverges from voluptuous, so

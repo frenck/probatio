@@ -55,7 +55,7 @@ def test_assertrepr_hook_explains_partial_match_operators() -> None:
     for op in ("<=", ">="):
         lines = pytest_assertrepr_compare(op, matcher, {"port": "nope"})
         assert lines is not None
-        assert any("data['port']" in line for line in lines)
+        assert any("port:" in line for line in lines)
 
 
 def test_matcher_records_errors_with_paths() -> None:
@@ -72,7 +72,7 @@ def test_assertrepr_hook_lists_errors_by_path() -> None:
     matcher == {"port": "nope"}  # noqa: B015 - run the comparison to record errors
     lines = pytest_assertrepr_compare("==", matcher, {"port": "nope"})
     assert lines is not None
-    assert any("data['port']" in line for line in lines)
+    assert any("port:" in line for line in lines)
 
 
 def test_assertrepr_hook_ignores_unrelated_comparisons() -> None:
@@ -118,4 +118,4 @@ def test_plugin_explains_a_failed_assertion_end_to_end(pytester) -> None:
     result.assert_outcomes(failed=1)
     output = result.stdout.str()
     assert "does not match the probatio schema" in output
-    assert "data['port']" in output
+    assert "port:" in output

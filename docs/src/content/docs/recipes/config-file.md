@@ -106,10 +106,10 @@ try:
     schema.load(Path("bad.json"))
 except Invalid as err:
     print(humanize_error(bad, err))
-    # value must be at most 65535 for dictionary value @ data['server']['port']. Got '70000'
+    # value must be at most 65535 at 'server.port'. Got '70000'
 ```
 
-The message points straight at `data['server']['port']` and shows the offending
+The message points straight at `server.port` and shows the offending
 value. The [error handling guide](/guides/error-handling/) goes deeper into
 paths, collecting every error at once, and the structured layer underneath.
 

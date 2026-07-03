@@ -33,7 +33,12 @@ PYTHONPATH=/path/to/probatio/compat/home_assistant \
 
 ## Result
 
-All 142 tests in `tests/helpers/test_config_validation.py` pass against Probatio.
+136 of the 142 tests in `tests/helpers/test_config_validation.py` pass against
+Probatio. The 6 that fail all assert the exact voluptuous-rendered error string
+(`"... for dictionary value @ data[...]"`), which Probatio deliberately renders
+differently since ADR-015 (a dotted path, no error-type clause). The `path`
+segments, error classes, and bare messages still match; only the rendering
+around them differs.
 
 Getting there surfaced (and fixed) several real compatibility gaps that pure unit
 tests had not:
@@ -42,8 +47,8 @@ tests had not:
   validates is dropped, otherwise the key falls through to the extra-key policy.
 - `Email`, `Url`, and `FqdnUrl` are factories (`Url()` returns the validator),
   matching voluptuous, not direct validators.
-- A failed mapping _value_ error is tagged `error_type = "dictionary value"`, so
-  `str(error)` reads `"... for dictionary value @ data[...]"`.
+- A failed mapping _value_ error is tagged `error_type = "dictionary value"`
+  (the attribute is kept even though `str(error)` no longer renders it).
 - `All` and `Any` raise `MultipleInvalid` on failure (a bare `AllInvalid` /
   `AnyInvalid` only when a custom `msg` is given), and `Any` surfaces the branch
   error that reached the deepest path rather than a generic message.

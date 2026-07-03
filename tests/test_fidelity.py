@@ -1,9 +1,14 @@
-"""Error-output fidelity: probatio renders errors like voluptuous.
+"""Error-output fidelity: probatio words errors like voluptuous.
 
 The conformance suite pins behavior (accept/reject and error paths) but leaves
-wording free. For a drop-in, wording matters too: downstream code string-matches
-``str(error)``, ``.msg``, and ``humanize_error``. These cases lock the rendered
+wording free. For a drop-in, wording matters too: downstream code
+string-matches ``.msg`` and ``error_message``. These cases lock the bare
 message and path to voluptuous for the spots where the two once diverged.
+
+``str(error)`` is deliberately not compared: probatio renders the path as a
+dotted trail and drops the error-type clause (ADR-015), where voluptuous
+renders ``... for dictionary value @ data['key']``. The message text and the
+path segments still match; only the rendering around them differs.
 
 voluptuous is a dev-only oracle; no code is copied from it.
 """
@@ -111,19 +116,19 @@ CASES: list[tuple[Any, Any]] = [
 
 
 def _first_error(builder: Any, data: Any, lib: Any) -> Any:
-    """Return the first error's rendered string and path from a failed validation."""
+    """Return the first error's bare message and path from a failed validation."""
     try:
         builder(lib)(data)
     except lib.Invalid as exc:
         error = exc.errors[0] if isinstance(exc, lib.MultipleInvalid) else exc
-        return (str(error), [str(segment) for segment in error.path])
+        return (error.error_message, [str(segment) for segment in error.path])
     msg = "expected the schema to reject the value"
     raise AssertionError(msg)
 
 
 @pytest.mark.parametrize(("builder", "data"), CASES)
-def test_error_string_matches_voluptuous(builder: Any, data: Any) -> None:
-    """probatio renders the same error string and path as voluptuous."""
+def test_error_message_matches_voluptuous(builder: Any, data: Any) -> None:
+    """probatio words the same error message and path as voluptuous."""
     assert _first_error(builder, data, probatio) == _first_error(
         builder,
         data,
@@ -137,6 +142,6 @@ def test_virtual_path_component_renders_in_brackets() -> None:
         exclusive_group(probatio)({"a": 1, "b": 2})
 
     error = caught.value.errors[0]
-    assert str(error).endswith("@ data[<grp>]")
+    assert str(error).endswith("at '<grp>'")
     assert error.path == ["grp"]
     assert repr(error.path[0]) == "<grp>"

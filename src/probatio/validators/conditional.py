@@ -294,7 +294,7 @@ class _KeyGroup(_SafeValidator):
         if isinstance(value, Mapping):
             return value
         if self.require_mapping:
-            message = "expected a dictionary"
+            message = "expected a mapping"
             raise DictInvalid(message)
         return None
 

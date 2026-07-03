@@ -304,7 +304,7 @@ def test_key_group_rejects_a_non_mapping_by_default(validator: type) -> None:
 
     error = caught.value.errors[0]
     assert isinstance(error, DictInvalid)
-    assert error.error_message == "expected a dictionary"
+    assert error.error_message == "expected a mapping"
 
 
 @pytest.mark.parametrize("validator", [AtLeastOne, AtMostOne, ExactlyOne, AllOrNone])

@@ -6,8 +6,13 @@ public-API proof there is: voluptuous's own test authors' notion of the contract
 at the exact version Probatio targets.
 
 Most of the suite passes unchanged. The cases that do not are *known
-divergences*, marked ``xfail`` below with a reason, in two groups:
+divergences*, marked ``xfail`` below with a reason, in three groups:
 
+- The error rendering deviation (ADR-015): ``str(error)`` renders the path as a
+  dotted trail (``at 'a.b'``) instead of ``@ data['a']['b']`` and drops the
+  ``for dictionary value`` clause, and a non-mapping is rejected as "expected a
+  mapping". Every test that string-matches the rendered error diverges; the
+  ``path`` segments and the bare message still match.
 - Deliberate improvements Probatio chose (documented in the compatibility matrix):
   the "did you mean ...?" unknown-key error, lower-cased messages, richer ``Any``
   branch errors, set/empty-container wording, a non-dict ``Mapping`` returning a
@@ -68,12 +73,48 @@ _DELIBERATE_DEVIATIONS = {
     "validator and reprs as Maybe(...), where voluptuous implements Maybe as Any",
 }
 
+# One reason covers them all: these tests assert the exact rendered error
+# string, and ADR-015 deliberately renders it differently (dotted path, no
+# error-type clause, "expected a mapping"). Path segments and bare messages
+# still match voluptuous.
+_RENDERING_REASON = "asserts the voluptuous-rendered error string (ADR-015)"
+
+_RENDERING_DEVIATIONS = dict.fromkeys(
+    [
+        "test_required",
+        "test_in",
+        "test_not_in",
+        "test_literal",
+        "test_email_validation_with_none",
+        "test_email_validation_with_empty_string",
+        "test_email_validation_without_host",
+        "test_email_validation_with_bad_data",
+        "test_url_validation_with_bad_data",
+        "test_list_validation_messages",
+        "test_nested_multiple_validation_errors",
+        "test_humanize_error",
+        "test_any_required",
+        "test_any_required_with_subschema",
+        "test_inclusive",
+        "test_inclusive_defaults",
+        "test_exclusive",
+        "test_any_with_discriminant",
+        "test_key2",
+        "test_validate_with_humanized_errors_failure",
+        "test_humanize_error_with_multiple_invalid",
+        "test_humanize_error_with_single_invalid",
+        "test_humanize_error_with_none_data",
+    ],
+    _RENDERING_REASON,
+)
+
 _OUT_OF_SCOPE = {
     "test_iterate_candidates": "tests the voluptuous internal "
     "_iterate_mapping_candidates, not the public contract",
 }
 
 _KNOWN_DIVERGENCES = {
+    **_RENDERING_DEVIATIONS,
     **_DELIBERATE_DEVIATIONS,
     **_OUT_OF_SCOPE,
 }

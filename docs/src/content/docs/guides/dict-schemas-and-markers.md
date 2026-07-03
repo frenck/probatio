@@ -36,7 +36,7 @@ schema = Schema({Required("name"): str})
 try:
     schema({})
 except Invalid as err:
-    print(err)  # required key not provided @ data['name']
+    print(err)  # required key not provided at 'name'
 ```
 
 A marker compares and hashes by its key, so `Required("name")` and `"name"` are
@@ -99,7 +99,7 @@ schema = Schema({"name": str})
 try:
     schema({"name": "app", "debug": True})
 except Invalid as err:
-    print(err)  # not a valid option @ data['debug']
+    print(err)  # not a valid option at 'debug'
 ```
 
 When a rejected key looks like a misspelling of one the schema knows, the error
@@ -116,7 +116,7 @@ try:
     schema({"nmae": "app"})
 except Invalid as err:
     error = err.errors[0]
-    print(error)            # not a valid option, did you mean 'name'? @ data['nmae']
+    print(error)            # not a valid option, did you mean 'name'? at 'nmae'
     print(error.candidates)  # ['name']
 ```
 
@@ -178,7 +178,7 @@ from probatio import Schema, Forbidden
 
 schema = Schema({Forbidden("password"): object})
 
-schema({"password": "secret"})  # key not allowed @ data['password']
+schema({"password": "secret"})  # key not allowed at 'password'
 ```
 
 It composes with `extend`, so a base schema can be tightened to forbid a key it
@@ -240,7 +240,7 @@ try:
     schema(data)
 except MultipleInvalid as err:
     print(humanize_error(data, err))
-    # expected int for dictionary value @ data['password']. Got <redacted>
+    # expected int at 'password'. Got <redacted>
 ```
 
 Secrecy is an independent facet, so it composes with the presence markers by
@@ -279,7 +279,7 @@ schema = Schema({str: int})
 try:
     schema({1: 2})
 except Invalid as err:
-    print(err)  # expected str @ data[1]
+    print(err)  # expected str at '[1]'
 ```
 
 ## Co-dependent and exclusive keys
@@ -317,7 +317,7 @@ schema = Schema(
 try:
     schema({"lat": 52.1})
 except Invalid as err:
-    print(err)  # some but not all values in the same group of inclusion 'coords' @ data[<coords>]
+    print(err)  # some but not all values in the same group of inclusion 'coords' at '<coords>'
 ```
 
 An exclusive group is optional by default (none of its keys is fine). Two flags
@@ -336,7 +336,7 @@ schema = Schema(
     }
 )
 
-schema({})  # exactly one of ['token', 'password'] is required @ data[<auth>]
+schema({})  # exactly one of ['token', 'password'] is required at '<auth>'
 ```
 
 A `default` fills its member in when the group is empty (and wins over

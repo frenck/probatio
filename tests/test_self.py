@@ -85,7 +85,7 @@ def test_self_inside_any_falls_through_to_a_sibling_branch() -> None:
 
     The recursive branch is a mapping whose values are Self; the sibling branch is
     a scalar. A string leaf fails the mapping branch and must fall through to the
-    str branch, instead of stopping at "expected a dictionary". This is Home
+    str branch, instead of stopping at "expected a mapping". This is Home
     Assistant's recursive translations schema (config_panel sections that bottom
     out in string leaves).
     """

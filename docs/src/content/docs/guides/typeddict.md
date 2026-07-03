@@ -51,7 +51,7 @@ class Config(TypedDict):
     host: str
 
 
-TypedDictSchema(Config)({"port": 8080})  # required key not provided @ data['host']
+TypedDictSchema(Config)({"port": 8080})  # required key not provided at 'host'
 ```
 
 The keys are closed: an unknown key is rejected, the same as the default dict
