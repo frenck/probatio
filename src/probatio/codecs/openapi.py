@@ -30,7 +30,7 @@ from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
 from probatio.error import SchemaError
 from probatio.markers import Optional, Required, Self, Undefined, resolve_key
-from probatio.schema import ALLOW_EXTRA, Schema
+from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     All,
     AsDate,
@@ -134,7 +134,13 @@ def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
 def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
     """Convert one schema node into an OpenAPI Schema object."""
     additional: Any = None
+    # The strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
+    # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
+    # has no policy of its own and defaults to closed.
+    closed = True
     if isinstance(node, Schema):
+        if node.extra in (ALLOW_EXTRA, REMOVE_EXTRA):
+            closed = False
         if node.extra == ALLOW_EXTRA:
             additional = True
         node = node.schema
@@ -150,7 +156,7 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return {"$ref": "#"}
 
     if isinstance(node, dict):
-        return _oa_mapping(node, custom, version, additional)
+        return _oa_mapping(node, custom, version, additional, closed=closed)
     if isinstance(node, list | tuple | set | frozenset):
         return _oa_sequence(node, custom, version)
 
@@ -188,6 +194,8 @@ def _oa_mapping(
     custom: Any,
     version: str,
     additional: Any,
+    *,
+    closed: bool = True,
 ) -> dict[str, Any]:
     """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
     properties: dict[str, Any] = {}
@@ -232,7 +240,9 @@ def _oa_mapping(
         else:
             additional = _absorb_extra(pval, additional)
 
-    return _assemble_object(properties, required, additional, constraint_groups)
+    return _assemble_object(
+        properties, required, additional, constraint_groups, closed=closed
+    )
 
 
 def _expand_any_key(
@@ -262,15 +272,29 @@ def _assemble_object(
     required: list[str],
     additional: Any,
     constraint_groups: list[list[str]],
+    *,
+    closed: bool,
 ) -> dict[str, Any]:
-    """Build the final object dict from the collected pieces."""
+    """Build the final object dict from the collected pieces.
+
+    A closed mapping (the strict ``PREVENT_EXTRA`` default) emits
+    ``additionalProperties: false`` so undeclared keys are rejected. An open one
+    (``ALLOW_EXTRA``/``REMOVE_EXTRA``, or a variable-key value schema) emits the
+    open ``additionalProperties`` and, when it has no declared properties and no
+    variable-key schema, stays the bare open-object shape.
+    """
     result: dict[str, Any] = {"type": "object"}
 
     if properties or not additional:
         result["properties"] = properties
         result["required"] = required
     if additional:
+        # ``True`` (open) or a variable-key value schema.
         result["additionalProperties"] = additional
+    elif closed:
+        # A closed mapping rejects undeclared keys; an open (REMOVE_EXTRA) one is
+        # left without the keyword, accepting extra keys the way it strips them.
+        result["additionalProperties"] = False
     if constraint_groups:
         result["anyOf"] = [
             {"required": list(combination)}
@@ -351,7 +375,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, All):
         return _oa_all(node, custom, version)
     if isinstance(node, Clamp | Range):
-        return _oa_range(node)
+        return _oa_range(node, version)
     if isinstance(node, Length):
         return _oa_length(node)
 
@@ -430,14 +454,37 @@ def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
 
     if fallback:
         return {"allOf": all_of}
-    return _ensure_default(merged)
+    return _ensure_default(_retarget_length(merged))
 
 
-def _oa_range(node: Clamp | Range) -> dict[str, Any]:
+# A ``Length`` always renders the string-length keys, so an All that pins an
+# array or object length has to move the bounds onto the type's own keyword.
+_LENGTH_KEYS_BY_TYPE: dict[str, tuple[str, str]] = {
+    "array": ("minItems", "maxItems"),
+    "object": ("minProperties", "maxProperties"),
+}
+
+
+def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
+    """Move a merged Length's string-length keys onto the array/object keyword."""
+    keys = _LENGTH_KEYS_BY_TYPE.get(merged.get("type", ""))
+    if keys is None:
+        return merged
+    min_key, max_key = keys
+    if "minLength" in merged:
+        merged[min_key] = merged.pop("minLength")
+    if "maxLength" in merged:
+        merged[max_key] = merged.pop("maxLength")
+    return merged
+
+
+def _oa_range(node: Clamp | Range, version: str) -> dict[str, Any]:
     """Render a Range or Clamp as OpenAPI numeric bounds (Clamp is inclusive).
 
-    A non-numeric bound (a ``datetime``, say) has no OpenAPI numeric keyword and
-    would make the output non-serializable, so such a bound is omitted.
+    OpenAPI 3.0 (Draft 4) spells an exclusive bound as a boolean flag beside the
+    inclusive keyword (``minimum`` plus ``exclusiveMinimum: true``); 3.1 (JSON
+    Schema) uses the numeric ``exclusiveMinimum`` form. A non-numeric bound (a
+    ``datetime``, say) has no OpenAPI numeric keyword, so it is omitted.
     """
     result: dict[str, Any] = {}
     min_exclusive = isinstance(node, Range) and not node.min_included
@@ -445,10 +492,31 @@ def _oa_range(node: Clamp | Range) -> dict[str, Any]:
     minimum = _json_safe(node.min)
     maximum = _json_safe(node.max)
     if node.min is not None and isinstance(minimum, int | float):
-        result["exclusiveMinimum" if min_exclusive else "minimum"] = minimum
+        result.update(
+            _oa_bound("minimum", minimum, exclusive=min_exclusive, version=version)
+        )
     if node.max is not None and isinstance(maximum, int | float):
-        result["exclusiveMaximum" if max_exclusive else "maximum"] = maximum
+        result.update(
+            _oa_bound("maximum", maximum, exclusive=max_exclusive, version=version)
+        )
     return result
+
+
+def _oa_bound(
+    key: str,
+    value: float,
+    *,
+    exclusive: bool,
+    version: str,
+) -> dict[str, Any]:
+    """Render one numeric bound in the version's exclusive form."""
+    exclusive_key = "exclusiveMinimum" if key == "minimum" else "exclusiveMaximum"
+    if not exclusive:
+        return {key: value}
+    if version == _V3_1:
+        return {exclusive_key: value}
+    # OpenAPI 3.0: the boolean flag beside the inclusive bound.
+    return {key: value, exclusive_key: True}
 
 
 def _oa_length(node: Length) -> dict[str, Any]:
@@ -468,7 +536,7 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
     OpenAPI version (unlike ``Any``, which splits on version).
     """
     nullable = False
-    cleaned = []
+    cleaned: list[Any] = []
     for value in _ordered(values):
         if value is None or value is _NONE_TYPE:
             nullable = True

@@ -172,3 +172,32 @@ def _build_dict(spec: Any, lib: Any) -> Any:
         return mapping
     policy = lib.ALLOW_EXTRA if extra == "allow" else lib.REMOVE_EXTRA
     return lib.Schema(mapping, extra=policy)
+
+
+def canonical_openapi(node: Any) -> Any:
+    """Erase the dimensions to_openapi renders more correctly than voluptuous-openapi.
+
+    ``to_openapi`` diverges from the oracle in two documented ways: a closed
+    mapping emits ``additionalProperties: false`` (the oracle omits it), and a 3.0
+    exclusive bound uses the Draft 4 boolean-companion form (``minimum`` plus
+    ``exclusiveMinimum: true``) where the oracle emits the JSON Schema numeric
+    form. Dropping ``additionalProperties`` and normalizing the boolean bound to
+    the numeric form on both sides leaves the rest of the structure to compare.
+    """
+    if isinstance(node, dict):
+        result = {
+            key: canonical_openapi(value)
+            for key, value in node.items()
+            if key != "additionalProperties"
+        }
+        # The 3.0 boolean-companion exclusive bound canonicalizes to the numeric
+        # (3.1/oracle) form, so both spellings compare equal.
+        for bound in ("Minimum", "Maximum"):
+            exclusive = f"exclusive{bound}"
+            inclusive = bound.lower()
+            if result.get(exclusive) is True and inclusive in result:
+                result[exclusive] = result.pop(inclusive)
+        return result
+    if isinstance(node, list):
+        return [canonical_openapi(item) for item in node]
+    return node
