@@ -284,6 +284,16 @@ class Invalid(Error):
 
         return output
 
+    def __repr__(self) -> str:
+        """Render like an eager exception: a deferred message renders first.
+
+        Without this, ``repr`` of a not-yet-read deferred error would leak the
+        ``None`` sentinel (``ScalarInvalid(None)``); rendering first keeps the
+        repr identical to an eagerly-messaged error.
+        """
+        self._message_text()
+        return super().__repr__()
+
     def prepend(self, path: list[Any]) -> None:
         """Grow the path from the front, as the error bubbles up the schema."""
         self._path = [*path, *self._path]

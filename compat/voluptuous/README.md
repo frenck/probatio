@@ -38,7 +38,7 @@ to a foreign test file.)
 
 ## Result
 
-114 passed, 51 xfailed, 0 unexpected failures.
+116 passed, 51 xfailed, 0 unexpected failures.
 
 Getting there fixed several real bugs that Probatio's own tests had not surfaced,
 each pinned with a Probatio test:
@@ -64,9 +64,9 @@ The 51 xfails are all documented divergences, grouped in `conftest.py`:
   `path` segments and the bare message still match voluptuous.
 - **Deliberate improvements** (see the compatibility matrix): the "did you mean
   ...?" unknown-key error, lower-cased `Number` messages, the richer error wording
-  for `Contains`, `In`, `NotIn`, `Maybe`, `Coerce`, and `FqdnUrl`, set and
-  empty-container element errors that carry an index path, a non-dict `Mapping`
-  returning a plain dict, `SomeOf`'s bounds-assertion message, and `Maybe`'s own
-  `repr` (probatio's `Maybe` is a real validator, not an alias of `Any`).
+  for `Contains`, `In`, `NotIn`, `Maybe`, `Coerce`, and `FqdnUrl`, the reworded
+  `Literal` message, set and empty-container element errors that carry an index
+  path, `SomeOf`'s bounds-assertion message, and `Maybe`'s own `repr` (probatio's
+  `Maybe` is a real validator, not an alias of `Any`).
 - **Out of scope**: one test of the voluptuous internal
   `_iterate_mapping_candidates`, not part of the public contract.

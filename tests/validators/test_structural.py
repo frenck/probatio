@@ -109,21 +109,24 @@ def test_unordered_rejects_a_non_sequence() -> None:
     """A value that is not a list or tuple is rejected."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Unordered([str, int]))("ab")
-    assert "is not sequence" in caught.value.errors[0].error_message
+    assert caught.value.errors[0].error_message == "expected a sequence"
 
 
 def test_unordered_rejects_a_length_mismatch() -> None:
     """The sequence length must equal the validator count."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Unordered([str, int]))([1])
-    assert "List lengths differ" in caught.value.errors[0].error_message
+    assert caught.value.errors[0].error_message == "expected a sequence of 2 items"
 
 
 def test_unordered_reports_one_unmatched_element() -> None:
     """A single unmatched element names its index in the message."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Unordered([str, int]))([1, 2])
-    assert "Element #" in caught.value.errors[0].error_message
+    assert (
+        "item 1 (2) does not match any validator"
+        in caught.value.errors[0].error_message
+    )
 
 
 def test_unordered_reports_several_unmatched_elements() -> None:

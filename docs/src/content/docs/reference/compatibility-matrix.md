@@ -275,6 +275,17 @@ Probatio does.
   `error_type` keep their voluptuous semantics, so code that reads them (rather
   than parsing the rendered string) is unaffected. Code that string-matches
   `str(error)` should switch to `path` and `error_message`, or to `as_dict()`.
+- **Reworded default messages (ADR-015).** A handful of voluptuous default
+  messages were broken or developer-speak; Probatio words them for the person
+  reading them. `Literal` reads `expected {lit}` instead of
+  `{value} not match for {lit}`. `Unordered` reads "expected a sequence",
+  "expected a sequence of N items", and "item N (...) does not match any
+  validator" instead of "Value ... is not sequence!", "List lengths differ,
+  value:N != target:M", and "Element #N (...) is not valid against any
+  validator". The filesystem predicates lose their stray capitals ("not a
+  directory", not "Not a directory"). `Boolean` reads "expected a boolean".
+  Classes, paths, and translation keys are unaffected; only the sentence
+  changed.
 - **Recursive `Self` on cyclic or very deep data.** voluptuous crashes with
   `RecursionError`. Probatio raises a clean `Invalid` with a path, caught with the
   rest of your errors. The depth limit tracks a fraction of the interpreter's
