@@ -254,6 +254,29 @@ class _TypeCheck:
         return data
 
 
+# One shared ``_TypeCheck`` per builtin type: these are by far the most common
+# type schemas, they cannot grow a ``__probatio_validate__`` (builtins reject
+# setattr), and a ``_TypeCheck`` is immutable (slots, never written after init),
+# so every schema can hold the same instance instead of allocating its own.
+_BUILTIN_TYPE_CHECKS: dict[type, _TypeCheck] = {
+    builtin: _TypeCheck(builtin)
+    for builtin in (
+        str,
+        int,
+        float,
+        bool,
+        bytes,
+        bytearray,
+        complex,
+        list,
+        tuple,
+        dict,
+        set,
+        frozenset,
+    )
+}
+
+
 class _EnumCheck:
     """Validate against an ``Enum``, accepting a member or one of its values.
 
@@ -918,9 +941,16 @@ class Schema:
 
         # A ``Secret`` around a type or callable key is rejected inside
         # ``resolve_key`` (the general path above), so it never reaches here.
-        is_literal = not (isinstance(key_schema, type) or callable(key_schema))
+        if type(key_schema) is str:
+            # The overwhelmingly common key shape: a plain string is a literal (not
+            # a type, not callable), so skip the classification and the ``_compile``
+            # dispatch ladder it would walk to reach the same equality check.
+            is_literal = True
+            check_key = Schema._compile_literal(key_schema)
+        else:
+            is_literal = not (isinstance(key_schema, type) or callable(key_schema))
+            check_key = self._compile(key_schema)
         check_value = self._compile(value_schema)
-        check_key = self._compile(key_schema)
 
         return _Candidate(
             key_schema=key_schema,
@@ -1002,6 +1032,13 @@ class Schema:
         read to inline the ``isinstance`` into their loops and skip a call per
         value. Called directly (when not inlined) it behaves like the closure.
         """
+        # ``type(schema) is type`` excludes metaclass instances, whose custom
+        # ``__eq__``/``__hash__`` could otherwise spoof a builtin in the lookup.
+        if (
+            type(schema) is type
+            and (cached := _BUILTIN_TYPE_CHECKS.get(schema)) is not None
+        ):
+            return cached
         protocol = getattr(schema, "__probatio_validate__", None)
         if callable(protocol):
             return Schema._compile_callable(protocol)

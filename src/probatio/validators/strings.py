@@ -238,10 +238,6 @@ _EMAIL_LOCAL_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     "-!#$%&'*+/=?^_`{}|~.",
 )
-# The same set without the dot: the dot separates labels, so it is not a label
-# character. Matches voluptuous's USER_REGEX, which allows a dot only between
-# non-empty runs of these characters.
-_EMAIL_LOCAL_LABEL_CHARS = _EMAIL_LOCAL_CHARS - {"."}
 _EMAIL_LABEL_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-",
 )
@@ -253,11 +249,16 @@ def _valid_email_local(local: str) -> bool:
     The unquoted local part is dot-separated runs of allowed characters, so a
     leading, trailing, or doubled dot is rejected (``a..b``, ``.a``, ``a.``). This
     mirrors voluptuous's ``USER_REGEX`` with plain string checks rather than a
-    backtracking regular expression, so a crafted address cannot hang it.
+    backtracking regular expression, so a crafted address cannot hang it. The
+    whole-string form (one charset sweep, the dot included, plus the three dot
+    placement checks) says exactly that without splitting into labels, and runs
+    entirely in C.
     """
-    return all(
-        label and _EMAIL_LOCAL_LABEL_CHARS.issuperset(label)
-        for label in local.split(".")
+    return (
+        _EMAIL_LOCAL_CHARS.issuperset(local)
+        and local[0] != "."
+        and local[-1] != "."
+        and ".." not in local
     )
 
 
@@ -278,14 +279,17 @@ def _valid_email_domain(domain: str) -> bool:
     labels = domain.split(".")
     if len(labels) < 2 or len(labels[-1]) < 2:
         return False
-    return all(
-        label
-        and len(label) <= 63
-        and label[0] != "-"
-        and label[-1] != "-"
-        and _EMAIL_LABEL_CHARS.issuperset(label)
-        for label in labels
-    )
+    # A plain loop: the genexpr form pays a generator frame per validated address.
+    for label in labels:
+        if (
+            not label
+            or len(label) > 63
+            or label[0] == "-"
+            or label[-1] == "-"
+            or not _EMAIL_LABEL_CHARS.issuperset(label)
+        ):
+            return False
+    return True
 
 
 def Email(msg: str | None = None) -> typing.Callable[[typing.Any], str]:

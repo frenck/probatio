@@ -131,7 +131,7 @@ class _MappingValidator:
         self._literal: dict[Any, tuple[int, _Candidate]] = {}
         self._validators: list[tuple[int, _Candidate]] = []
         self._literal_fast: dict[Any, tuple[int, type | None, CompiledSchema]] = {}
-        self._key_names: list[Any] = []
+        key_names: list[str] = []
         self._finalizers: list[tuple[int, _Candidate]] = []
         exclusive: dict[str, list[int]] = defaultdict(list)
         inclusive: dict[str, list[int]] = defaultdict(list)
@@ -154,7 +154,7 @@ class _MappingValidator:
                         candidate.check_value,
                     )
                     if isinstance(key, str):
-                        self._key_names.append(key)
+                        key_names.append(key)
             else:
                 self._validators.append((index, candidate))
             if candidate.exclusive_group is not None:
@@ -173,6 +173,9 @@ class _MappingValidator:
             if candidate.alias_input_names:
                 alias_candidates.append(candidate)
 
+        # A tuple, so an error can hold it as its suggestion pool without a
+        # defensive copy per raise (the exclusion filter is applied lazily there).
+        self._key_names = tuple(key_names)
         self._secret_keys = frozenset(secret_keys) if secret_keys else _NO_SECRET_KEYS
         self._exclusive_groups = list(exclusive.items())
         self._inclusive_groups = list(inclusive.items())
@@ -488,17 +491,18 @@ class _MappingValidator:
     def _extra_key_error(self, key: Any) -> ExtraKeysInvalid:
         """Build the unmatched-key error, suggesting close schema keys when any.
 
-        The offending key is never suggested back, so a key that failed only on
-        its value (a Remove whose value did not validate) does not echo itself. The
-        suggestion match is deferred to the error, so an unknown-key error raised in
-        a discarded combinator branch never pays for difflib.
+        The offending key is never suggested back (``suggest_exclude``), so a key
+        that failed only on its value (a Remove whose value did not validate) does
+        not echo itself. Both the exclusion filter and the suggestion match are
+        deferred to the error, so an unknown-key error raised in a discarded
+        combinator branch never pays for the pool copy or difflib.
         """
-        pool = [name for name in self._key_names if name != key]
         return ExtraKeysInvalid(
             "not a valid option",
             path=[key],
             suggest_value=key,
-            suggest_pool=pool,
+            suggest_pool=self._key_names,
+            suggest_exclude=key,
         )
 
     def _finalize(
@@ -604,7 +608,12 @@ class _MappingValidator:
     ) -> None:
         """Enforce the Exclusive (at most one) and Inclusive (all or none) groups."""
         for group, members in self._exclusive_groups:
-            present = sum(seen[index] for index in members)
+            # A plain counting loop: a genexpr plus sum() would allocate a generator
+            # and a frame per group on every validation of the mapping.
+            present = 0
+            for index in members:
+                if seen[index]:
+                    present += 1
             if present > 1:
                 message = self._group_msg(members) or (
                     f"two or more values in the same group of exclusion {group!r}"
@@ -615,8 +624,13 @@ class _MappingValidator:
             elif present == 0:
                 self._empty_exclusive_group(group, members, out, errors)
         for group, members in self._inclusive_groups:
-            missing = [index for index in members if not seen[index]]
-            if missing and len(missing) != len(members):
+            # Only the count matters (the missing keys are never named), so count
+            # instead of building a list.
+            missing = 0
+            for index in members:
+                if not seen[index]:
+                    missing += 1
+            if missing and missing != len(members):
                 message = self._group_msg(members) or (
                     f"some but not all values in the same group of inclusion {group!r}"
                 )

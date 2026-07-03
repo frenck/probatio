@@ -52,19 +52,19 @@ to turn the behavior off for an unusual workload, see
 
 On the bundled benchmark scenarios, the interpreted engine runs roughly one and a
 half to three and a half times faster than the same schema in voluptuous, and the
-compiled path reaches up to about six times faster on real config and dataclass
+compiled path reaches up to about seven times faster on real config and dataclass
 shapes. The exact ratio moves with the machine, the Python version, and the shape of
 the schema, so treat these as ballparks, not promises.
 
 | Scenario                         | voluptuous | Probatio | Probatio compiled |
 | -------------------------------- | ---------- | -------- | ----------------- |
-| Flat types (`{str, int, ...}`)   | 3.5 µs     | 1.0 µs   | 0.6 µs            |
-| Config (coerce, range, in, list) | 5.7 µs     | 2.2 µs   | 0.9 µs            |
-| Nested mapping                   | 6.8 µs     | 3.1 µs   | 1.1 µs            |
+| Flat types (`{str, int, ...}`)   | 3.6 µs     | 1.0 µs   | 0.5 µs            |
+| Config (coerce, range, in, list) | 5.7 µs     | 2.1 µs   | 0.9 µs            |
+| Nested mapping                   | 6.6 µs     | 2.8 µs   | 1.0 µs            |
 
 Microseconds per validation, lower is faster, on one machine with Python 3.13.
 
-![Validation throughput vs voluptuous: probatio is 1.5 to 3.6 times faster interpreted, and 3.7 to 6.4 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
+![Validation throughput vs voluptuous: probatio is 1.6 to 3.6 times faster interpreted, and 4.6 to 6.9 times faster compiled, across the benchmark scenarios.](/benchmarks/vs-voluptuous.svg)
 
 :::caution[Read the benchmark honestly]
 `bench/bench.py` is a rough, single-machine comparison. It builds equivalent
@@ -86,15 +86,15 @@ per class. It is not a like-for-like comparison, and that is the point: mashumar
 deserializes and largely trusts the declared types, while Probatio _validates_ every
 field against its type and then constructs. mashumaro does strictly less work, so it
 is faster on already-correct input. The compiled Probatio path lands within roughly
-1.3x to 1.6x of it while still validating, and the gap narrows as the field count
-grows.
+1.3x of it on a small dataclass while still validating, and the gap all but closes
+as the field count grows (about 1.05x on a wide one).
 
 | Dataclass        | mashumaro | Probatio | Probatio compiled |
 | ---------------- | --------- | -------- | ----------------- |
-| Small (4 fields) | 0.5 µs    | 2.0 µs   | 0.8 µs            |
-| Wide (12 fields) | 1.2 µs    | 3.8 µs   | 1.5 µs            |
+| Small (4 fields) | 0.5 µs    | 1.7 µs   | 0.6 µs            |
+| Wide (12 fields) | 1.2 µs    | 2.9 µs   | 1.3 µs            |
 
-![Dataclass construction vs mashumaro: compiled probatio is within about 1.3 to 1.6 times of mashumaro while validating every field.](/benchmarks/dataclass-vs-mashumaro.svg)
+![Dataclass construction vs mashumaro: compiled probatio is within about 1.3 times of mashumaro on a small dataclass and essentially even on a wide one, while validating every field.](/benchmarks/dataclass-vs-mashumaro.svg)
 
 The two libraries pair well: validate untrusted input with Probatio, then hand
 trusted dataclasses to mashumaro to serialize. See
@@ -119,7 +119,7 @@ from trusted input without validating, the same job the deserializers do.
 
 Two honest readings. On the **validate** path, compiled Probatio lands in the
 leading group, ahead of voluptuous, pydantic v1, dacite, marshmallow, and
-dataclasses-json, and within about 2x of the Rust-cored pydantic v2, while staying
+dataclasses-json, and within about 1.8x of the Rust-cored pydantic v2, while staying
 pure Python and validating every field. On the **trust the types** path,
 `construct` is the fastest in the whole field, ahead of mashumaro and cattrs,
 because it is a purpose-built constructor generated for that one dataclass. Run it

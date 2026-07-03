@@ -12,6 +12,7 @@ crafted input cannot hang them.
 from __future__ import annotations
 
 import ipaddress
+import re
 import typing
 
 from probatio.error import HostnameInvalid, IpInvalid, RangeInvalid
@@ -36,6 +37,12 @@ def _reject_bool(value: typing.Any) -> typing.Any:
     return value
 
 
+# The string grammar ``ipaddress.IPv4Address`` accepts: four dot-separated octets,
+# each 0-255 in ASCII digits with no leading zero. Every alternative is bounded and
+# unambiguous, so the pattern cannot backtrack pathologically on hostile input.
+_IPV4_OCTET = r"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])"
+_IPV4_PATTERN = re.compile(rf"{_IPV4_OCTET}(?:\.{_IPV4_OCTET}){{3}}")
+
 # CPython's ``ipaddress`` parsers are fragile on hostile input: besides the
 # expected ValueError/TypeError, a crafted value can reach an IndexError (an empty
 # tuple) or an AttributeError (``'NoneType' object has no attribute 'isascii'`` from
@@ -58,6 +65,14 @@ class IPv4Address(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it parses as an IPv4 address, else raise IpInvalid."""
+        if type(value) is str:
+            # The common case, matched directly: constructing an
+            # ``ipaddress.IPv4Address`` costs several times the regex match.
+            if _IPV4_PATTERN.fullmatch(value) is None:
+                raise IpInvalid(self.msg or "expected an IPv4 address")
+            return value
+        # Everything else (int, packed bytes, address objects, str subclasses)
+        # keeps the parser's exact acceptance behavior.
         try:
             ipaddress.IPv4Address(_reject_bool(value))
         except _IP_PARSE_ERRORS as exc:

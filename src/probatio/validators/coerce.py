@@ -32,6 +32,10 @@ class Coerce[T](_SafeValidator):
         self.type: typing.Any = type
         self.type_name: str = getattr(type, "__name__", str(type))
         self.msg = msg
+        # Filled on the first failure, not eagerly: building the default message
+        # (and for an enum, its value pool) walks the enum members, a cost a schema
+        # that never fails should not pay at construction either.
+        self._failure_cache: tuple[str, tuple[str, ...]] | None = None
 
     def __repr__(self) -> str:
         """Render as a constructor call, matching voluptuous."""
@@ -49,7 +53,9 @@ class Coerce[T](_SafeValidator):
         through unchanged.
         """
         try:
-            return typing.cast("T", self.type(value))
+            # A typed local instead of typing.cast: cast is a real function call in
+            # CPython, and this line runs once per coerced value on the hot path.
+            coerced: T = self.type(value)
         except Invalid:
             raise
         except Exception as exc:
@@ -59,13 +65,21 @@ class Coerce[T](_SafeValidator):
                 # is idempotent: re-validating an already-coerced value does not fail.
                 return typing.cast("T", value)
             # The suggestion match is deferred to the error, so a miss inside a
-            # combinator branch that is then discarded never pays for difflib.
+            # combinator branch that is then discarded never pays for difflib. The
+            # default message and pool depend only on ``self.type``, so they are
+            # built once on the first failure; ``self.msg`` stays raise-time.
+            cached = self._failure_cache
+            if cached is None:
+                cached = (self._default_message(), tuple(self._enum_values()))
+                self._failure_cache = cached
             raise CoerceInvalid(
-                self.msg or self._default_message(),
+                self.msg or cached[0],
                 suggest_value=value,
-                suggest_pool=self._enum_values(),
+                suggest_pool=cached[1],
                 suffix=self.msg is None,
             ) from exc
+        else:
+            return coerced
 
     def _default_message(self) -> str:
         """Build the failure message, listing an enum's values (like voluptuous)."""

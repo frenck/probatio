@@ -30,6 +30,7 @@ return ``None``, and the schema stays interpreted.
 
 from __future__ import annotations
 
+from enum import Enum
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,14 @@ if TYPE_CHECKING:
     from types import CodeType
 
     from probatio._engine import _Candidate
+    from probatio.validators.coerce import Coerce
+    from probatio.validators.combinators import All
+    from probatio.validators.combinators import Any as AnyValidator
+    from probatio.validators.comparison import In, Range
+
+    _ValidatorTypes = tuple[
+        type[Coerce[Any]], type[Range], type[In], type[AnyValidator], type[All]
+    ]
 
 # A missing key, distinct from any real value (a key whose value is ``None`` is
 # present). Module-level so every generated function shares it by identity.
@@ -152,15 +161,24 @@ def _inline_coerce(target: Any) -> list[str] | None:
     return None
 
 
-def _inline_range(schema: Any) -> list[str] | None:
-    """Inline a numeric ``Range`` with numeric bounds; ``_v`` is unchanged."""
+def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | None:
+    """Inline a numeric ``Range`` with numeric bounds; ``_v`` is unchanged.
+
+    ``type_checked`` is the caller asserting ``_v`` is already known to be an
+    ``int`` or ``float`` (an inlined ``Coerce`` just guaranteed it), so the type
+    guard would be dead code and is skipped.
+    """
     low, high = schema.min, schema.max
     if (low is not None and not isinstance(low, (int, float))) or (
         high is not None and not isinstance(high, (int, float))
     ):
         return None
 
-    lines = ["        if type(_v) not in (int, float):", "            raise _Bail"]
+    lines = (
+        []
+        if type_checked
+        else ["        if type(_v) not in (int, float):", "            raise _Bail"]
+    )
     if low is not None:
         op = ">=" if schema.min_included else ">"
         lines += [f"        if not (_v {op} {low!r}):", "            raise _Bail"]
@@ -181,12 +199,13 @@ def _emit_membership(name: str) -> list[str]:
     ``In`` catches both and reports a miss, so the inline form catches both too and
     bails rather than letting either crash or leak.
     """
+    # The inner ``raise _Bail`` is not caught by the ``except`` (``_Bail`` is
+    # neither error); testing inline avoids a ``_hit`` store-and-load per check.
     return [
         "        try:",
-        f"            _hit = _v in {name}",
+        f"            if _v not in {name}:",
+        "                raise _Bail",
         "        except (TypeError, ArithmeticError):",
-        "            _hit = False",
-        "        if not _hit:",
         "            raise _Bail",
     ]
 
@@ -210,8 +229,6 @@ def _inline_in(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | 
 
 def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str] | None:
     """Inline an isinstance check for a plain (non-Enum) type; ``_v`` is unchanged."""
-    from enum import Enum  # noqa: PLC0415
-
     if issubclass(schema, Enum):
         return None
     namespace[f"_ty{tag}"] = schema
@@ -219,13 +236,30 @@ def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str]
 
 
 def _inline_all(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | None:
-    """Inline an ``All`` chain, bailing the whole chain if a branch is not inlinable."""
+    """Inline an ``All`` chain, bailing the whole chain if a branch is not inlinable.
+
+    The chain tracks when ``_v`` is pinned to a numeric type: after an inlined
+    ``Coerce(int)``/``Coerce(float)`` succeeds, a following ``Range``'s type guard
+    is provably dead and is elided (``All(Coerce(int), Range(...))`` is the
+    dominant hot-path composition). ``Range`` and ``In`` leave ``_v`` unchanged,
+    so the knowledge survives them; any other branch conservatively resets it.
+    """
+    coerce_cls, range_cls, in_cls, _, _ = _validator_types()
     chained: list[str] = []
+    numeric = False
     for position, sub in enumerate(schema.validators):
-        sub_lines = _inline_value(sub, namespace, f"{tag}_{position}")
+        if numeric and isinstance(sub, range_cls):
+            sub_lines = _inline_range(sub, type_checked=True)
+        else:
+            sub_lines = _inline_value(sub, namespace, f"{tag}_{position}")
         if sub_lines is None:
             return None
         chained.extend(sub_lines)
+        if isinstance(sub, coerce_cls):
+            # The lines were emitted, so ``_inline_coerce`` accepted the target.
+            numeric = sub.type is int or sub.type is float
+        elif not isinstance(sub, (range_cls, in_cls)):
+            numeric = False
     return chained
 
 
@@ -275,24 +309,42 @@ def _inline_any(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     return None
 
 
+# The validator classes ``_inline_validator`` dispatches on, bound on first use: a
+# module-level import would cycle (``probatio.schema`` imports this module, and the
+# validator package imports ``probatio.schema``), and a per-call import was a
+# measurable slice of generation cost. Generation first runs long after both
+# modules are initialized, so the lazy binding always succeeds.
+_VALIDATOR_TYPES: _ValidatorTypes | None = None
+
+
+def _validator_types() -> _ValidatorTypes:
+    """Return ``(Coerce, Range, In, AnyValidator, All)``, importing them once."""
+    global _VALIDATOR_TYPES  # noqa: PLW0603 - a write-once import cache
+    if _VALIDATOR_TYPES is None:
+        from probatio.validators.coerce import Coerce  # noqa: PLC0415
+        from probatio.validators.combinators import All  # noqa: PLC0415
+        from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
+        from probatio.validators.comparison import In, Range  # noqa: PLC0415
+
+        _VALIDATOR_TYPES = (Coerce, Range, In, AnyValidator, All)
+    return _VALIDATOR_TYPES
+
+
 def _inline_validator(
     schema: Any, namespace: dict[str, Any], tag: str
 ) -> list[str] | None:
     """Dispatch a non-type value schema to its inline emitter, or ``None``."""
-    from probatio.validators.coerce import Coerce  # noqa: PLC0415
-    from probatio.validators.combinators import All  # noqa: PLC0415
-    from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
-    from probatio.validators.comparison import In, Range  # noqa: PLC0415
+    coerce_cls, range_cls, in_cls, any_cls, all_cls = _validator_types()
 
-    if isinstance(schema, Coerce):
+    if isinstance(schema, coerce_cls):
         return _inline_coerce(schema.type)
-    if isinstance(schema, Range):
+    if isinstance(schema, range_cls):
         return _inline_range(schema)
-    if isinstance(schema, In):
+    if isinstance(schema, in_cls):
         return _inline_in(schema, namespace, tag)
-    if isinstance(schema, AnyValidator):
+    if isinstance(schema, any_cls):
         return _inline_any(schema, namespace, tag)
-    if isinstance(schema, All):
+    if isinstance(schema, all_cls):
         return _inline_all(schema, namespace, tag)
     return None
 
@@ -398,6 +450,20 @@ def _emit_field(
             "            raise _Bail",
         ]
 
+    if candidate.required and isinstance(candidate.default, Undefined):
+        # A required key with no default fetches by subscript: one specialized
+        # ``BINARY_SUBSCR`` instead of a bound ``dict.get`` call plus a sentinel
+        # test per field. The ``KeyError`` fires only when the key is missing,
+        # which is the failure path and bails to the interpreted engine anyway.
+        return [
+            "    try:",
+            f"        _v = data[{krepr}]",
+            "    except KeyError:",
+            "        raise _Bail",
+            "    else:",
+            *store,
+        ]
+
     lines = [f"    _v = data.get({krepr}, _MISSING)", "    if _v is _MISSING:"]
     if not isinstance(candidate.default, Undefined):
         namespace[f"_d{index}"] = candidate.default
@@ -405,8 +471,6 @@ def _emit_field(
         lines.append("        if isinstance(_v, _UNDEFINED_CLS):")
         lines.append("            raise _Bail")
         lines.extend(store)
-    elif candidate.required:
-        lines.append("        raise _Bail")
     else:
         # Optional, no default: an absent key is simply not stored.
         lines.append("        pass")
@@ -416,13 +480,18 @@ def _emit_field(
     return lines
 
 
-def _emit_extra(extra: int) -> list[str]:
-    """Emit the extra-key handling for the given policy."""
+def _emit_extra(
+    extra: int, allowed: frozenset[Any], namespace: dict[str, Any]
+) -> list[str]:
+    """Emit the extra-key handling for the given policy, binding what it needs."""
     if extra == PREVENT_EXTRA:
-        # The keys view subset-checks against the allowed set in C; an unexpected
-        # key bails so the interpreted path reports it (with its suggestion).
-        return ["    if not (data.keys() <= _allowed):", "        raise _Bail"]
+        # The keys view superset-checks against the allowed set in C; the prebound
+        # method skips a rich-comparison dispatch per call. An unexpected key bails
+        # so the interpreted path reports it (with its suggestion).
+        namespace["_issuperset"] = allowed.issuperset
+        return ["    if not _issuperset(data.keys()):", "        raise _Bail"]
     if extra == ALLOW_EXTRA:
+        namespace["_allowed"] = allowed
         return [
             "    for _k in data:",
             "        if _k not in _allowed:",
@@ -463,18 +532,33 @@ def compile_mapping(
         "_UNDEFINED_CLS": Undefined,
         "_interpreted": validator if fallback is None else fallback,
         "_Type": construct,
-        "_allowed": frozenset(candidate.key_schema for candidate in candidates),
     }
+    allowed = frozenset(candidate.key_schema for candidate in candidates)
+    if construct is None:
+        # One ``type()`` read serves both the foreign-type guard and the out-dict
+        # setup, so the exact-dict case (nearly every call) pays one identity test.
+        # A plain dict stays plain; a dict subclass is preserved (the engine does
+        # so); a foreign Mapping or wrong type keeps the interpreted path, which
+        # accepts the Mapping superset and raises the right type error.
+        prologue = [
+            "    _dt = type(data)",
+            "    if _dt is dict:",
+            "        out = {}",
+            "    elif isinstance(data, dict):",
+            "        out = _dt()",
+            "    else:",
+            "        return _interpreted(data)",
+        ]
+    else:
+        # The fused constructor path builds no out dict; just guard the type.
+        prologue = [
+            "    if type(data) is not dict and not isinstance(data, dict):",
+            "        return _interpreted(data)",
+        ]
+
     # The field and extra-key lines are emitted at the function-body indent; they go
     # inside the ``try`` here, so they are shifted one level deeper.
     body: list[str] = []
-    if construct is None:
-        # A plain dict stays plain; a dict subclass is preserved (the engine does so).
-        body += [
-            "        _dt = type(data)",
-            "        out = {} if _dt is dict else _dt()",
-        ]
-
     kwargs: list[str] = []
     for index, candidate in enumerate(candidates):
         if construct is None:
@@ -485,21 +569,21 @@ def compile_mapping(
         body += [
             "    " + line for line in _emit_field(index, candidate, namespace, target)
         ]
-    body += ["    " + line for line in _emit_extra(validator._extra)]  # noqa: SLF001
+    body += [
+        "    " + line
+        for line in _emit_extra(validator._extra, allowed, namespace)  # noqa: SLF001
+    ]
 
     if not body:
-        # A zero-field dataclass with REMOVE_EXTRA emits nothing into the ``try``
-        # (no out-dict setup, no fields, no extra-key copy), which would be a syntax
-        # error; a bare ``pass`` keeps the block valid and still bails on a non-dict.
+        # A zero-field mapping with REMOVE_EXTRA emits nothing into the ``try``
+        # (no fields, no extra-key copy), which would be a syntax error; a bare
+        # ``pass`` keeps the block valid and still bails on a non-dict.
         body.append("        pass")
 
     tail = f"    return _Type({', '.join(kwargs)})" if construct else "    return out"
     lines = [
         "def _validate(data):",
-        # A foreign Mapping or wrong type keeps the interpreted path, which accepts
-        # the Mapping superset and raises the right type error.
-        "    if type(data) is not dict and not isinstance(data, dict):",
-        "        return _interpreted(data)",
+        *prologue,
         "    try:",
         *body,
         "    except _Bail:",
