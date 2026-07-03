@@ -306,3 +306,19 @@ def test_extra_rebind_does_not_mutate_a_shared_combinator() -> None:
     # The same instance, used strictly elsewhere, still rejects the extra key.
     with pytest.raises(Invalid):
         Schema(shared, extra=PREVENT_EXTRA)({"a": 1, "x": 2})
+
+
+def test_some_of_too_many_valid_keeps_branch_errors_in_the_message() -> None:
+    """Too many matches with a failing branch still reports that branch's error."""
+    schema = Schema(SomeOf([int, int, str], min_valid=0, max_valid=1))
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(3)
+    assert "expected str" in str(caught.value)
+
+
+def test_some_of_too_many_valid_without_branch_errors_says_so() -> None:
+    """When every branch matches, the error says too many matched, not ''."""
+    schema = Schema(SomeOf([int, int], min_valid=0, max_valid=1))
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(3)
+    assert "matched 2 alternatives, expected at most 1" in str(caught.value)

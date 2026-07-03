@@ -14,6 +14,7 @@ validator instead of looping.
 
 from __future__ import annotations
 
+import datetime
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -358,6 +359,11 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     if isinstance(node, Unique):
         return {"uniqueItems": True}
 
+    # The decoder's JSON-value uniqueness check re-emits its keyword, so a
+    # decoded schema round-trips.
+    if isinstance(node, _JsonUnique):
+        return {"uniqueItems": True}
+
     if isinstance(node, Contains):
         return {"contains": _child(node.item)}
 
@@ -519,15 +525,87 @@ def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     }
 
 
+def _iso_parsable(value: str) -> str:
+    """Normalize an RFC 3339 string for ``fromisoformat``.
+
+    RFC 3339 allows a lowercase ``z`` suffix; ``fromisoformat`` accepts only the
+    uppercase form, so the suffix is normalized before parsing.
+    """
+    return value[:-1] + "Z" if value.endswith("z") else value
+
+
+class _JsonDateTime:
+    """Decode of ``format: date-time``: an RFC 3339 timestamp.
+
+    ``Datetime()`` validates one ``strptime`` format (fractional seconds and a
+    literal ``Z`` both mandatory), which rejects most valid RFC 3339 timestamps:
+    ``2024-01-01T00:00:00Z``, any numeric UTC offset. The decoded validator
+    parses with ``fromisoformat`` instead, which accepts the RFC 3339 forms
+    (``Z`` or an offset, any fraction length, lowercase markers). A timestamp
+    without an offset is accepted too: the spec requires one, but probatio's own
+    temporal validators treat naive timestamps as valid, and rejecting them
+    would surprise more than it protects.
+    """
+
+    __probatio_json_format__ = "date-time"
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return "JsonDateTime()"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if it is an RFC 3339 timestamp, else raise Invalid."""
+        # ``fromisoformat`` also accepts a bare date, which ``date-time``
+        # forbids, so the date/time separator at position 10 is checked first.
+        ok = isinstance(value, str) and len(value) > 10 and value[10] in "Tt"
+        if ok:
+            try:
+                datetime.datetime.fromisoformat(_iso_parsable(value))
+            except ValueError:
+                ok = False
+        if not ok:
+            raise Invalid(translation_key="expected_iso_datetime")
+        return value
+
+
+class _JsonTime:
+    """Decode of ``format: time``: an RFC 3339 time of day.
+
+    ``Time()`` validates ``%H:%M:%S`` only, rejecting fractional seconds and UTC
+    offsets that are valid per the spec. The decoded validator parses with
+    ``fromisoformat`` and requires at least ``HH:MM:SS`` (the spec's
+    partial-time; ``fromisoformat`` alone would accept ``14:30``). As with
+    ``date-time``, the offset stays optional.
+    """
+
+    __probatio_json_format__ = "time"
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return "JsonTime()"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if it is an RFC 3339 time, else raise Invalid."""
+        ok = isinstance(value, str) and len(value) >= 8
+        if ok:
+            try:
+                datetime.time.fromisoformat(_iso_parsable(value))
+            except ValueError:
+                ok = False
+        if not ok:
+            raise Invalid(translation_key="expected_iso_time")
+        return value
+
+
 # JSON Schema "format" values that map to a built probatio string validator.
 # Email/Url are factories (like voluptuous), so they are called once here.
 _FROM_FORMATS: dict[str, Any] = {
     "email": Email(),
     "uri": Url(),
     "url": Url(),
-    "date-time": Datetime(),
+    "date-time": _JsonDateTime(),
     "date": Date(),
-    "time": Time(),
+    "time": _JsonTime(),
     "ipv4": IPv4Address(),
     "ipv6": IPv6Address(),
     "uuid": UUID(),
@@ -797,6 +875,70 @@ class _Not:
         raise Invalid(translation_key="must_not_match_not_schema")
 
 
+def _unique_key(value: Any) -> Any:
+    """Reduce a JSON value to a hashable key with JSON equality semantics.
+
+    Lists and objects (unhashable in Python, but comparable JSON values) are
+    frozen recursively. Booleans are tagged so they stay distinct from ``1``
+    and ``0``; plain numbers keep Python's cross-type equality (``1 == 1.0``),
+    both as JSON equality demands. Anything that is not a JSON value falls
+    through unfrozen; an unhashable one is reported by the caller.
+    """
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, list):
+        return ("list", tuple(_unique_key(item) for item in value))
+    if isinstance(value, dict):
+        return (
+            "dict",
+            frozenset((key, _unique_key(item)) for key, item in value.items()),
+        )
+    return value
+
+
+class _JsonUnique:
+    """Decode of ``uniqueItems``: value-based uniqueness over JSON data.
+
+    ``Unique()`` builds a ``set`` of the items (voluptuous parity), so an array
+    of arrays or objects, all valid and comparable JSON, is rejected as
+    "unhashable" instead of compared. This validator freezes JSON containers
+    into hashable keys first, keeping the check linear. Per the spec the
+    keyword only constrains arrays, so any other value passes vacuously.
+    """
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return "JsonUnique()"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if its items are distinct JSON values, else raise."""
+        if not isinstance(value, list | tuple):
+            return value
+
+        seen: set[Any] = set()
+        duplicates: list[Any] = []
+        for item in value:
+            try:
+                key = _unique_key(item)
+                new = key not in seen
+                if new:
+                    seen.add(key)
+            except TypeError as exc:
+                raise Invalid(
+                    translation_key="contains_unhashable_elements",
+                    placeholders={"detail": str(exc)},
+                ) from exc
+            if not new:
+                duplicates.append(item)
+
+        if duplicates:
+            raise Invalid(
+                translation_key="contains_duplicate_items",
+                placeholders={"items": duplicates},
+            )
+        return value
+
+
 def _from_enum(values: Any) -> In:
     """Build an In from a JSON Schema ``enum``, rejecting a non-array."""
     if not isinstance(values, list):
@@ -1035,7 +1177,7 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
     # and contains itself, scoped to arrays; adding them standalone here too
     # would double-apply them.
     if node.get("uniqueItems") is True and not has_array:
-        constraints.append(Unique())
+        constraints.append(_JsonUnique())
     if "contains" in node and not has_array:
         constraints.append(_from_contains(node, ctx))
     if _OBJECT_KEYWORDS & node.keys():
@@ -1231,7 +1373,7 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     if bounded:
         constraints.append(Length(min=min_items, max=max_items))
     if has_unique:
-        constraints.append(Unique())
+        constraints.append(_JsonUnique())
     if has_contains:
         constraints.append(_from_contains(node, ctx))
     if constraints:
