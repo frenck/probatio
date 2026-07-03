@@ -20,8 +20,16 @@ from inspect import isroutine, signature
 from types import UnionType
 from typing import Any, TypeVar, Union, cast, get_args, get_origin, get_type_hints
 
-from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES, UNSUPPORTED
-from probatio.markers import Optional, Required, Undefined, resolve_key
+from probatio.codecs._shared import (
+    FORMAT_BY_TYPE,
+    STRING_TYPES,
+    UNSUPPORTED,
+)
+from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
+from probatio.codecs._shared import json_safe as _json_safe
+from probatio.codecs._shared import ordered_values as _ordered
+from probatio.error import SchemaError
+from probatio.markers import Optional, Required, Self, Undefined, resolve_key
 from probatio.schema import ALLOW_EXTRA, Schema
 from probatio.validators import (
     All,
@@ -96,12 +104,27 @@ def to_openapi(
     ``"3.1.0"`` (emitting ``type: null``). ``custom_serializer`` is called first
     for each node and may return a dict to override the default, or ``UNSUPPORTED``
     to defer.
+
+    A raw schema that references itself (a dict holding itself as a value) has no
+    finite rendering, so the runaway recursion is reported as a clean
+    ``SchemaError`` rather than a bare ``RecursionError``.
     """
-    return _oa(schema, custom_serializer, openapi_version)
+    try:
+        return _oa(schema, custom_serializer, openapi_version)
+    except RecursionError as exc:
+        message = (
+            "schema is too deeply nested or references itself; use the Self "
+            "marker for a recursive schema"
+        )
+        raise SchemaError(message) from exc
 
 
 def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
     """Give a value a type when it has none, the way voluptuous-openapi does."""
+    # A ``$ref`` (a recursive ``Self``) is a complete schema on its own; adding a
+    # ``type`` beside it would contradict the reference.
+    if "$ref" in value:
+        return value
     if all(key not in value for key in ("type", "anyOf", "oneOf", "allOf", "not")):
         bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
         value["type"] = "number" if any(key in value for key in bounds) else "string"
@@ -120,6 +143,11 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         result = custom(node)
         if result is not UNSUPPORTED:
             return cast("dict[str, Any]", result)
+
+    if node is Self:
+        # ``Self`` is the recursive reference to the whole enclosing schema; ``#``
+        # targets the document root, the common top-level recursive-schema case.
+        return {"$ref": "#"}
 
     if isinstance(node, dict):
         return _oa_mapping(node, custom, version, additional)
@@ -177,7 +205,12 @@ def _oa_mapping(
             marker.default,
             Undefined,
         ):
-            pval["default"] = marker.default()
+            # A non-JSON default (a ``datetime``, say) is rendered JSON-safe, or
+            # omitted when it has no representation, so the emitted document never
+            # crashes ``json.dumps``.
+            default = _json_safe(marker.default())
+            if default is not _UNREPRESENTABLE:
+                pval["default"] = default
         if facets.secret:
             pval["writeOnly"] = True
         if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
@@ -247,17 +280,19 @@ def _assemble_object(
 
 
 def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
-    """Render a sequence schema as an OpenAPI array."""
-    items = list(node)
+    """Render a sequence schema as an OpenAPI array.
+
+    A single element schema is the item schema. Several elements ([int, str])
+    mean "each item matches any of these", so they merge into an ``anyOf`` item
+    schema, not a positional ``items`` array (which would wrongly constrain by
+    position). An empty sequence accepts only the empty array.
+    """
+    items = [_ensure_default(_oa(item, custom, version)) for item in _ordered(node)]
     if len(items) == 1:
-        return {
-            "type": "array",
-            "items": _ensure_default(_oa(items[0], custom, version)),
-        }
-    return {
-        "type": "array",
-        "items": [_ensure_default(_oa(item, custom, version)) for item in items],
-    }
+        return {"type": "array", "items": items[0]}
+    if not items:
+        return {"type": "array", "maxItems": 0}
+    return {"type": "array", "items": {"anyOf": items}}
 
 
 def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
@@ -334,7 +369,12 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         # fractional-second float); the datetime is internal.
         return {"type": "number"}
     if isinstance(node, Match):
-        return {"pattern": node.pattern.pattern}
+        source = node.pattern.pattern
+        # A bytes pattern has no OpenAPI form (schema strings are text), so it
+        # renders as a plain string rather than crashing on the missing ``.pattern``.
+        if isinstance(source, bytes):
+            return {"type": "string"}
+        return {"pattern": source}
     if isinstance(node, In):
         return _oa_enum(list(node.container))
     if node in _OPENAPI_FORMATS:
@@ -394,14 +434,20 @@ def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
 
 
 def _oa_range(node: Clamp | Range) -> dict[str, Any]:
-    """Render a Range or Clamp as OpenAPI numeric bounds (Clamp is inclusive)."""
+    """Render a Range or Clamp as OpenAPI numeric bounds (Clamp is inclusive).
+
+    A non-numeric bound (a ``datetime``, say) has no OpenAPI numeric keyword and
+    would make the output non-serializable, so such a bound is omitted.
+    """
     result: dict[str, Any] = {}
     min_exclusive = isinstance(node, Range) and not node.min_included
     max_exclusive = isinstance(node, Range) and not node.max_included
-    if node.min is not None:
-        result["exclusiveMinimum" if min_exclusive else "minimum"] = node.min
-    if node.max is not None:
-        result["exclusiveMaximum" if max_exclusive else "maximum"] = node.max
+    minimum = _json_safe(node.min)
+    maximum = _json_safe(node.max)
+    if node.min is not None and isinstance(minimum, int | float):
+        result["exclusiveMinimum" if min_exclusive else "minimum"] = minimum
+    if node.max is not None and isinstance(maximum, int | float):
+        result["exclusiveMaximum" if max_exclusive else "maximum"] = maximum
     return result
 
 
@@ -423,11 +469,18 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
     """
     nullable = False
     cleaned = []
-    for value in values:
+    for value in _ordered(values):
         if value is None or value is _NONE_TYPE:
             nullable = True
-        else:
-            cleaned.append(value)
+            continue
+        # An enum member with no JSON form (a ``datetime``, an ``Enum``) is
+        # rendered JSON-safe, so the emitted enum never crashes ``json.dumps``. A
+        # member with no representation at all (``bytes``) drops the whole enum to
+        # an open schema rather than leak an unserializable value.
+        safe = _json_safe(value)
+        if safe is _UNREPRESENTABLE:
+            return {"nullable": True} if nullable else {}
+        cleaned.append(safe)
 
     enum_type = _OPENAPI_TYPES.get(type(cleaned[0]), "string") if cleaned else "string"
     result: dict[str, Any] = {"type": enum_type, "enum": cleaned}

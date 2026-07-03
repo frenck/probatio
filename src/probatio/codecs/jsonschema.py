@@ -18,12 +18,18 @@ import contextvars
 import datetime
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal
 from enum import Enum
 from typing import Any, cast
 
 from probatio.codecs._regex_safety import is_catastrophic
-from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES, UNSUPPORTED
+from probatio.codecs._shared import (
+    FORMAT_BY_TYPE,
+    STRING_TYPES,
+    UNSUPPORTED,
+)
+from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
+from probatio.codecs._shared import json_safe as _json_safe
+from probatio.codecs._shared import ordered_values as _ordered
 from probatio.error import ContainsInvalid, Invalid, SchemaError
 from probatio.markers import (
     Alias,
@@ -516,18 +522,6 @@ def _decorate_property(
     return prop
 
 
-def _ordered(values: Any) -> list[Any]:
-    """List a container's values, sorting a set so the emitted schema is stable.
-
-    A list or tuple keeps the author's order. A set or frozenset has none, so its
-    values are sorted by ``repr`` to keep ``to_json_schema`` output deterministic
-    across runs (stable snapshots, no spurious schema diffs, no cache misses).
-    """
-    if isinstance(values, set | frozenset):
-        return sorted(values, key=repr)
-    return list(values)
-
-
 def _convert_sequence(
     node: Any,
     *,
@@ -703,42 +697,6 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
         merged[max_key] = merged.pop("maxLength")
 
     return merged
-
-
-_UNREPRESENTABLE = object()
-
-
-def _json_safe(value: Any) -> Any:
-    """Convert a value to a JSON-representable form, or ``_UNREPRESENTABLE``.
-
-    ``to_json_schema`` must emit a document ``json.dumps`` accepts (an emitted
-    ``const``, ``enum``, ``default``, or numeric bound holding a raw ``datetime``,
-    ``Decimal``, ``Enum`` member, or ``bytes`` would otherwise crash the caller).
-    Datetimes render ISO, a ``Decimal`` renders a float, an ``Enum`` member
-    renders its value, and a tuple or set renders a list (JSON has no tuple, and
-    a value on the wire arrives as a list anyway). Anything with no clean JSON
-    form is reported unrepresentable so the caller can omit it.
-    """
-    if value is None or isinstance(value, bool | int | float | str):
-        return value
-    if isinstance(value, Enum):
-        return _json_safe(value.value)
-    if isinstance(value, Decimal):
-        return float(value)
-    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
-        return value.isoformat()
-    if isinstance(value, list | tuple | set | frozenset):
-        converted = [_json_safe(item) for item in _ordered(value)]
-        return _UNREPRESENTABLE if _UNREPRESENTABLE in converted else converted
-    if isinstance(value, dict):
-        items = {key: _json_safe(item) for key, item in value.items()}
-        if (
-            any(not isinstance(key, str) for key in items)
-            or _UNREPRESENTABLE in items.values()
-        ):
-            return _UNREPRESENTABLE
-        return items
-    return _UNREPRESENTABLE
 
 
 def _enum(container: Any) -> dict[str, Any]:

@@ -8,6 +8,7 @@ schemas unchanged.
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -181,15 +182,22 @@ def test_merging_hashable_enums_dedups() -> None:
 
 
 def test_multi_item_array() -> None:
-    """A fixed multi-item array lists a schema per position.
+    """A multi-element list means each item matches any of the element schemas.
 
-    voluptuous-openapi 0.3.0 crashes on this input (it calls ``.items()`` on a
-    list), so this is asserted directly rather than differentially.
+    ``Schema([int, str])`` accepts a list whose elements are each an int or a
+    string, so it renders as an ``anyOf`` item schema, not a positional ``items``
+    array (which would constrain by position and reject ``[1, 2]``).
+    voluptuous-openapi 0.3.0 crashes on this input, so it is asserted directly.
     """
     assert to_openapi(Schema([int, str])) == {
         "type": "array",
-        "items": [{"type": "integer"}, {"type": "string"}],
+        "items": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
     }
+
+
+def test_empty_array_accepts_only_empty() -> None:
+    """An empty list schema accepts only the empty array, not any array."""
+    assert to_openapi(Schema([])) == {"type": "array", "maxItems": 0}
 
 
 def test_default_version_is_3_0() -> None:
@@ -347,3 +355,79 @@ def test_new_string_validators_to_openapi() -> None:
         "type": "string",
         "contentEncoding": "base64",
     }
+
+
+def test_datetime_enum_stays_serializable() -> None:
+    """An In holding a datetime renders ISO strings, not raw datetimes."""
+    from datetime import date  # noqa: PLC0415
+
+    from probatio import In  # noqa: PLC0415
+
+    result = to_openapi(Schema(In([date(2020, 1, 1)])))
+    assert result == {"type": "string", "enum": ["2020-01-01"]}
+    json.dumps(result)
+
+
+def test_enum_members_render_their_values() -> None:
+    """An In holding Enum members renders the member values."""
+    from probatio import In  # noqa: PLC0415
+
+    assert to_openapi(Schema(In([Color.RED, Color.BLUE]))) == {
+        "type": "string",
+        "enum": ["red", "blue"],
+    }
+
+
+def test_unrepresentable_enum_member_widens_to_open() -> None:
+    """A member with no JSON form drops the enum to open, not a crash."""
+    from probatio import In  # noqa: PLC0415
+
+    assert to_openapi(Schema(In([b"raw"]))) == {}
+
+
+def test_non_json_default_is_json_safe() -> None:
+    """A datetime default renders its ISO string rather than a raw datetime."""
+    from datetime import date  # noqa: PLC0415
+
+    from probatio import Optional  # noqa: PLC0415
+
+    schema = Schema({Optional("t", default=date(2020, 1, 1)): object})
+    result = to_openapi(schema)
+    assert result["properties"]["t"]["default"] == "2020-01-01"
+    json.dumps(result)
+
+
+def test_bytes_match_renders_a_plain_string() -> None:
+    """A bytes Match pattern has no OpenAPI form, so it renders a string."""
+    import re  # noqa: PLC0415
+
+    from probatio import Match  # noqa: PLC0415
+
+    assert to_openapi(Schema(Match(re.compile(rb"\d+")))) == {"type": "string"}
+
+
+def test_self_renders_a_recursive_ref() -> None:
+    """A Self reference renders a recursive $ref, not a plain string."""
+    from probatio import Optional, Self  # noqa: PLC0415
+
+    schema = Schema({"name": str, Optional("children"): [Self]})
+    result = to_openapi(schema)
+    assert result["properties"]["children"]["items"] == {"$ref": "#"}
+
+
+def test_cyclic_raw_schema_is_a_clean_error() -> None:
+    """A raw dict that references itself is refused, not a bare RecursionError."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    node: dict[object, object] = {"v": int}
+    node["next"] = node
+    with pytest.raises(SchemaError, match="references itself"):
+        to_openapi(node)
+
+
+def test_unrepresentable_default_is_omitted() -> None:
+    """A mapping default with no JSON form is dropped rather than emitted raw."""
+    from probatio import Optional  # noqa: PLC0415
+
+    schema = Schema({Optional("t", default=b"raw"): object})
+    assert "default" not in to_openapi(schema)["properties"]["t"]
