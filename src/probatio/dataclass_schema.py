@@ -46,6 +46,7 @@ from collections.abc import (
 )
 from collections.abc import Set as AbstractSet
 from typing import (
+    TYPE_CHECKING,
     Annotated,
     Literal,
     NotRequired,
@@ -77,6 +78,7 @@ from probatio.markers import (
 )
 from probatio.schema import (
     _INHERIT_CONTEXT,
+    ALLOW_EXTRA,
     PREVENT_EXTRA,
     CompiledSchema,
     Schema,
@@ -602,18 +604,27 @@ def _field_mapping(
 class _Constructor:
     """Turn a validated dict into a dataclass instance (the final ``All`` step)."""
 
-    __slots__ = ("_init_fields", "dataclass_type")
+    __slots__ = ("_filter_keys", "_init_fields", "dataclass_type")
 
     def __init__(
-        self, dataclass_type: type, remove: frozenset[TypingAny] = frozenset()
+        self,
+        dataclass_type: type,
+        remove: frozenset[TypingAny] = frozenset(),
+        *,
+        filter_keys: bool = True,
     ) -> None:
         """Remember the type and which of its fields the constructor accepts.
 
         ``remove`` names the ``Key(remove=True)`` fields, whose value is always
         dropped, so they take their dataclass default regardless of the input (even a
         value ``ALLOW_EXTRA`` kept because it failed the field's own validation).
+
+        ``filter_keys=False`` is the caller asserting the validated dict can only
+        hold init-field keys (no ``ALLOW_EXTRA``, no ``Remove`` fields), so the
+        per-call filtering comprehension is skipped.
         """
         self.dataclass_type = dataclass_type
+        self._filter_keys = filter_keys
         self._init_fields = (
             frozenset(field.name for field in _iter_init_fields(dataclass_type))
             - remove
@@ -625,6 +636,8 @@ class _Constructor:
         Extra keys (kept by ``ALLOW_EXTRA``) and dropped ``Remove`` keys are left out
         here, since a dataclass cannot take an unexpected keyword argument.
         """
+        if not self._filter_keys:
+            return self.dataclass_type(**data)
         kwargs = {key: value for key, value in data.items() if key in self._init_fields}
         return self.dataclass_type(**kwargs)
 
@@ -675,7 +688,14 @@ def create_dataclass_schema(
         for facets in map(resolve_key, mapping)
         if isinstance(facets.marker, Remove)
     )
-    schema = Schema(All(inner, _Constructor(dataclass_type, remove)))
+    # Under PREVENT_EXTRA/REMOVE_EXTRA with no Remove fields (the default and the
+    # overwhelmingly common case), the mapping is built exclusively from the init
+    # fields, so every key surviving validation is an init-field name by
+    # construction and the constructor's filter would be a per-call no-op.
+    constructor = _Constructor(
+        dataclass_type, remove, filter_keys=extra == ALLOW_EXTRA or bool(remove)
+    )
+    schema = Schema(All(inner, constructor))
     ref.bind(schema)
 
     return schema
@@ -932,16 +952,14 @@ class DataclassSchema[DataclassT](Schema):
             self._construct_fn = cached
         return cached
 
-    def __call__(
-        self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
-    ) -> DataclassT:
-        """Validate ``data`` and return the constructed dataclass instance."""
-        # Call the base directly rather than through ``super()``: the zero-argument
-        # ``super()`` builds a proxy object on every validation, which is the bulk of
-        # this wrapper's cost. The annotated local narrows the base's ``Any`` return
-        # to the dataclass type without a runtime ``cast`` call.
-        validated: DataclassT = Schema.__call__(self, data, context=context)
-        return validated
+    if TYPE_CHECKING:
+        # Declared for the type checker only, to narrow the base's ``Any`` return
+        # to the dataclass type. At runtime the class uses ``Schema.__call__``
+        # directly, so a validation does not pay a delegating wrapper frame.
+        def __call__(
+            self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
+        ) -> DataclassT:
+            """Validate ``data`` and return the constructed dataclass instance."""
 
     def _compilable(self) -> bool:
         """Report that a dataclass compiles via its inner mapping, under the ``All``."""
@@ -1125,14 +1143,13 @@ class TypedDictSchema[TypedDictT](Schema):
         )
         raise SchemaError(message)
 
-    def __call__(
-        self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
-    ) -> TypedDictT:
-        """Validate ``data`` and return it typed as the TypedDict."""
-        # Call the base directly, not through ``super()`` (which builds a proxy each
-        # call); the annotated local narrows the base's ``Any`` return without a cast.
-        validated: TypedDictT = Schema.__call__(self, data, context=context)
-        return validated
+    if TYPE_CHECKING:
+        # Type-checker-only override, exactly like ``DataclassSchema.__call__``:
+        # narrows the return type without costing a runtime wrapper frame.
+        def __call__(
+            self, data: TypingAny, *, context: TypingAny = _INHERIT_CONTEXT
+        ) -> TypedDictT:
+            """Validate ``data`` and return it typed as the TypedDict."""
 
     def construct(self, data: TypingAny) -> TypedDictT:
         """Return **trusted** ``data`` typed as the TypedDict, skipping validation.

@@ -155,7 +155,7 @@ not need to think about this.
 
 ## Numbers
 
-On the bundled benchmarks, compiled validation runs up to roughly six times faster
+On the bundled benchmarks, compiled validation runs up to roughly seven times faster
 than the same schema in voluptuous, and the interpreted engine already runs about
 one and a half to three and a half times faster. The exact ratio moves with the
 machine, the Python version, and the schema. See [Performance](/reference/performance/)

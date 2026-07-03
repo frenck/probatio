@@ -101,9 +101,14 @@ class Invalid(Error):
         self._error_type = error_type
         self._secret = False
         self._code = code
-        self._context: dict[str, Any] = dict(context) if context else {}
+        # ``None`` until read: most errors never have their context/placeholders
+        # looked at (a miss inside a combinator branch is built and discarded), so
+        # the two dict allocations are deferred to the property getters.
+        self._context: dict[str, Any] | None = dict(context) if context else None
         self._translation_key = translation_key
-        self._placeholders: dict[str, Any] = dict(placeholders) if placeholders else {}
+        self._placeholders: dict[str, Any] | None = (
+            dict(placeholders) if placeholders else None
+        )
 
     @property
     def msg(self) -> str:
@@ -153,6 +158,8 @@ class Invalid(Error):
     @property
     def context(self) -> dict[str, Any]:
         """Structured detail about the failure (for example the expected type)."""
+        if self._context is None:
+            self._context = {}
         return self._context
 
     @property
@@ -163,6 +170,8 @@ class Invalid(Error):
     @property
     def placeholders(self) -> dict[str, Any]:
         """Values to interpolate into the translated message."""
+        if self._placeholders is None:
+            self._placeholders = {}
         return self._placeholders
 
     def __str__(self) -> str:
@@ -217,15 +226,22 @@ class _SuggestionInvalid(Invalid):
         *,
         suggest_value: Any = _NO_SUGGESTION,
         suggest_pool: tuple[str, ...] | list[str] = (),
+        suggest_exclude: Any = _NO_SUGGESTION,
         suffix: bool = True,
         code: str | None = None,
         context: dict[str, Any] | None = None,
         translation_key: str | None = None,
         placeholders: dict[str, Any] | None = None,
     ) -> None:
-        """Record what to match against; the match itself happens lazily."""
+        """Record what to match against; the match itself happens lazily.
+
+        ``suggest_exclude`` names one pool entry to leave out of the match (an
+        unknown key must not suggest itself back); it is applied lazily with the
+        match, so the raiser can pass its prebuilt pool without copying it.
+        """
         self._suggest_value = suggest_value
         self._suggest_pool = suggest_pool
+        self._suggest_exclude = suggest_exclude
         self._with_suffix = suffix
         self._candidates: list[str] | None = None
         self._suffix_cache: str | None = None
@@ -246,11 +262,14 @@ class _SuggestionInvalid(Invalid):
         """The close matches among the allowed values, computed on first read."""
         if self._candidates is None:
             value = self._suggest_value
-            self._candidates = (
-                get_close_matches(value, self._suggest_pool)
-                if isinstance(value, str)
-                else []
-            )
+            if isinstance(value, str):
+                pool: tuple[str, ...] | list[str] = self._suggest_pool
+                if self._suggest_exclude is not _NO_SUGGESTION:
+                    exclude = self._suggest_exclude
+                    pool = [name for name in pool if name != exclude]
+                self._candidates = get_close_matches(value, pool)
+            else:
+                self._candidates = []
         return self._candidates
 
     def _suffix_text(self) -> str:
@@ -276,7 +295,7 @@ class _SuggestionInvalid(Invalid):
     @property
     def context(self) -> dict[str, Any]:
         """Structured detail, including the close matches when there are any."""
-        ctx = dict(self._context)
+        ctx = dict(self._context) if self._context else {}
         if self.candidates:
             ctx.setdefault("candidates", self.candidates)
         return ctx
