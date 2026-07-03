@@ -34,11 +34,13 @@ class Sorted(_SafeValidator):
             in_order = list(value) == sorted(value)
         except Exception as exc:
             raise ValueInvalid(
-                self.msg or "value is not sorted", code="sorted"
+                self.msg, code="sorted", translation_key="value_not_sorted"
             ) from exc
 
         if not in_order:
-            raise ValueInvalid(self.msg or "value is not sorted", code="sorted")
+            raise ValueInvalid(
+                self.msg, code="sorted", translation_key="value_not_sorted"
+            )
 
         return value
 
@@ -63,8 +65,11 @@ class ExactSequence(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Validate each position, rebuilding the sequence of the same type."""
         if not isinstance(value, list | tuple) or len(value) != len(self._schemas):
-            message = self.msg or f"expected a sequence of {len(self._schemas)} items"
-            raise ExactSequenceInvalid(message)
+            raise ExactSequenceInvalid(
+                self.msg,
+                translation_key="expected_sequence_of_items",
+                placeholders={"count": len(self._schemas)},
+            )
 
         result = []
         errors: list[Invalid] = []
@@ -115,15 +120,21 @@ class Unique(_SafeValidator):
             try:
                 value = list(value)
             except Exception as exc:
-                message = self.msg or f"expected a collection: {exc}"
-                raise TypeInvalid(message) from exc
+                raise TypeInvalid(
+                    self.msg,
+                    translation_key="expected_collection",
+                    placeholders={"detail": str(exc)},
+                ) from exc
             length = len(value)
 
         try:
             unique = set(value)
         except Exception as exc:
-            message = self.msg or f"contains unhashable elements: {exc}"
-            raise TypeInvalid(message) from exc
+            raise TypeInvalid(
+                self.msg,
+                translation_key="contains_unhashable_elements",
+                placeholders={"detail": str(exc)},
+            ) from exc
 
         if len(unique) != length:
             seen: set[typing.Any] = set()
@@ -133,8 +144,11 @@ class Unique(_SafeValidator):
                     duplicates.add(item)
                 else:
                     seen.add(item)
-            message = self.msg or f"contains duplicate items: {list(duplicates)}"
-            raise Invalid(message)
+            raise Invalid(
+                self.msg,
+                translation_key="contains_duplicate_items",
+                placeholders={"items": list(duplicates)},
+            )
 
         return value
 
@@ -156,8 +170,11 @@ class Set(_SafeValidator):
         try:
             return set(value)
         except Exception as exc:
-            message = self.msg or f"cannot be converted to a set: {exc}"
-            raise TypeInvalid(message) from exc
+            raise TypeInvalid(
+                self.msg,
+                translation_key="cannot_convert_to_set",
+                placeholders={"detail": str(exc)},
+            ) from exc
 
 
 class Unordered(_SafeValidator):
@@ -187,14 +204,20 @@ class Unordered(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Match each item to an unused validator, in any order."""
         if not isinstance(value, list | tuple):
-            message = self.msg or f"Value {value} is not sequence!"
-            raise Invalid(message)
-        if len(value) != len(self._schemas):
-            message = self.msg or (
-                f"List lengths differ, value:{len(value)} "
-                f"!= target:{len(self._schemas)}"
+            raise Invalid(
+                self.msg,
+                translation_key="not_a_sequence_value",
+                placeholders={"value": value},
             )
-            raise Invalid(message)
+        if len(value) != len(self._schemas):
+            raise Invalid(
+                self.msg,
+                translation_key="list_lengths_differ",
+                placeholders={
+                    "value_length": len(value),
+                    "target_length": len(self._schemas),
+                },
+            )
 
         consumed: set[int] = set()
         missing: list[tuple[int, typing.Any]] = []
@@ -204,19 +227,18 @@ class Unordered(_SafeValidator):
 
         if len(missing) == 1:
             position, item = missing[0]
-            message = self.msg or (
-                f"Element #{position} ({item}) is not valid against any validator"
+            raise Invalid(
+                self.msg,
+                translation_key="element_not_valid",
+                placeholders={"position": position, "item": item},
             )
-            raise Invalid(message)
         if missing:
             raise MultipleInvalid(
                 [
                     Invalid(
-                        self.msg
-                        or (
-                            f"Element #{position} ({item}) is not valid "
-                            "against any validator"
-                        ),
+                        self.msg,
+                        translation_key="element_not_valid",
+                        placeholders={"position": position, "item": item},
                     )
                     for position, item in missing
                 ],

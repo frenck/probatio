@@ -144,6 +144,10 @@ export default defineConfig({
             { label: "Built-ins by role", slug: "reference/builtins-by-role" },
             { label: "Errors", slug: "reference/errors" },
             {
+              label: "Translation keys",
+              slug: "reference/translation-keys",
+            },
+            {
               label: "voluptuous compatibility",
               slug: "reference/compatibility-matrix",
             },

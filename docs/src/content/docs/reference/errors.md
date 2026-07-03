@@ -47,8 +47,11 @@ the legacy output.
   placeholder instead of the value.
 - `context`: a dict of structured detail about the failure, such as the expected
   type.
-- `translation_key`: an optional key for localizing the message (may be `None`).
-- `placeholders`: values to interpolate into a translated message.
+- `translation_key`: the stable key naming the message's sentence, filled by
+  every built-in validator (see the
+  [translation keys reference](/reference/translation-keys/)); `None` on a
+  bare `Invalid` raised without one.
+- `placeholders`: the raw values the message interpolates, like `{"min": 10}`.
 - `as_dict()`: the structured layer rendered as a serializable dict, handy for a
   JSON API.
 

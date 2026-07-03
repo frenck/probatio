@@ -68,8 +68,12 @@ class Immutable(_SafeValidator):
                     and field in value
                     and _changed(previous[field], value[field])
                 ):
-                    message = self.msg or f"{field!r} cannot be changed"
-                    raise ImmutableInvalid(message, path=[field])
+                    raise ImmutableInvalid(
+                        self.msg,
+                        path=[field],
+                        translation_key="cannot_be_changed",
+                        placeholders={"field": field},
+                    )
 
         return value
 
@@ -96,7 +100,11 @@ class WriteOnce(_SafeValidator):
             for field in self.fields:
                 old = previous.get(field)
                 if old is not None and field in value and _changed(old, value[field]):
-                    message = self.msg or f"{field!r} is write-once and already set"
-                    raise ImmutableInvalid(message, path=[field])
+                    raise ImmutableInvalid(
+                        self.msg,
+                        path=[field],
+                        translation_key="write_once_already_set",
+                        placeholders={"field": field},
+                    )
 
         return value

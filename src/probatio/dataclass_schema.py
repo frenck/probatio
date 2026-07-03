@@ -734,9 +734,13 @@ def _fuse_validate_and_construct(
 
     def _constructor_error(exc: ValueError) -> MultipleInvalid:
         """Build the tower-identical error for a constructor ``ValueError``."""
-        detail = str(exc)
-        message = f"not a valid value: {detail}" if detail else "not a valid value"
-        error = ValueInvalid(message)
+        if detail := str(exc):
+            error = ValueInvalid(
+                translation_key="not_a_valid_value_detail",
+                placeholders={"detail": detail},
+            )
+        else:
+            error = ValueInvalid(translation_key="not_a_valid_value")
         error.__cause__ = exc
         return MultipleInvalid([error])
 

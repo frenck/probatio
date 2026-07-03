@@ -69,8 +69,11 @@ class Equal(_SafeValidator):
             unequal = True
 
         if unequal:
-            message = self.msg or f"value is not equal to {self.target!r}"
-            raise Invalid(message)
+            raise Invalid(
+                self.msg,
+                translation_key="value_not_equal",
+                placeholders={"target": self.target},
+            )
         return value
 
 
@@ -93,8 +96,11 @@ class Literal(_SafeValidator):
             unequal = True
 
         if unequal:
-            message = msg or f"{value} not match for {self.lit}"
-            raise LiteralInvalid(message)
+            raise LiteralInvalid(
+                msg,
+                translation_key="value_not_match",
+                placeholders={"value": value, "lit": self.lit},
+            )
         return self.lit
 
     def __str__(self) -> str:
@@ -127,12 +133,14 @@ class Contains(_SafeValidator):
             # may raise anything: an ``ipaddress`` network checks ``other._version``
             # (AttributeError), a hostile object can raise worse. Treat any such
             # failure as "not a collection that contains the item".
-            message = self.msg or "value is not a collection"
-            raise ContainsInvalid(message) from exc
+            raise ContainsInvalid(self.msg, translation_key="not_a_collection") from exc
 
         if not present:
-            message = self.msg or f"value must contain {self.item!r}"
-            raise ContainsInvalid(message)
+            raise ContainsInvalid(
+                self.msg,
+                translation_key="value_must_contain",
+                placeholders={"item": self.item},
+            )
         return value
 
 
@@ -176,23 +184,30 @@ class Range(_SafeValidator):
                 # comparison is False, is rejected rather than slipping through.
                 in_bounds = value >= self.min if self.min_included else value > self.min
                 if not in_bounds:
-                    bound = "at least" if self.min_included else "higher than"
-                    message = self.msg or f"value must be {bound} {self.min}"
-                    raise RangeInvalid(message)
+                    key = "range_min" if self.min_included else "range_min_exclusive"
+                    raise RangeInvalid(
+                        self.msg,
+                        translation_key=key,
+                        placeholders={"min": self.min},
+                    )
 
             if self.max is not None:
                 in_bounds = value <= self.max if self.max_included else value < self.max
                 if not in_bounds:
-                    bound = "at most" if self.max_included else "lower than"
-                    message = self.msg or f"value must be {bound} {self.max}"
-                    raise RangeInvalid(message)
+                    key = "range_max" if self.max_included else "range_max_exclusive"
+                    raise RangeInvalid(
+                        self.msg,
+                        translation_key=key,
+                        placeholders={"max": self.max},
+                    )
         except Invalid:
             # An out-of-bounds RangeInvalid raised just above carries the precise
             # message; let it through rather than redescribing it below.
             raise
         except Exception as exc:
-            message = self.msg or "invalid value or type"
-            raise RangeInvalid(message) from exc
+            raise RangeInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
 
         return value
 
@@ -223,8 +238,9 @@ class Clamp(_SafeValidator):
             if self.max is not None and value > self.max:
                 return self.max
         except Exception as exc:
-            message = self.msg or "invalid value or type"
-            raise RangeInvalid(message) from exc
+            raise RangeInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
 
         return value
 
@@ -271,9 +287,11 @@ class MultipleOf(_SafeValidator):
         formatting, not modulo, and a ``bool`` is not a meaningful count, so both
         are rejected rather than mishandled.
         """
-        message = self.msg or f"value must be a multiple of {self.factor}"
+        placeholders = {"factor": self.factor}
         if not isinstance(value, int | float) or isinstance(value, bool):
-            raise MultipleOfInvalid(message)
+            raise MultipleOfInvalid(
+                self.msg, translation_key="value_multiple_of", placeholders=placeholders
+            )
 
         try:
             # ``%`` with a float factor promotes a huge int to float, which can
@@ -281,10 +299,14 @@ class MultipleOf(_SafeValidator):
             # ``__mod__`` that raises. Report either cleanly, not as a leak.
             remainder = value % self.factor
         except Exception as exc:
-            raise MultipleOfInvalid(message) from exc
+            raise MultipleOfInvalid(
+                self.msg, translation_key="value_multiple_of", placeholders=placeholders
+            ) from exc
 
         if remainder != 0:
-            raise MultipleOfInvalid(message)
+            raise MultipleOfInvalid(
+                self.msg, translation_key="value_multiple_of", placeholders=placeholders
+            )
         return value
 
 
@@ -295,7 +317,7 @@ def _percent_value(value: typing.Any, msg: str | None) -> float:
     numeric validators like ``MultipleOf``.
     """
     if isinstance(value, bool):
-        raise RangeInvalid(msg or "expected a percentage between 0 and 100")
+        raise RangeInvalid(msg, translation_key="expected_percentage")
 
     raw = value[:-1] if isinstance(value, str) and value.endswith("%") else value
     try:
@@ -308,10 +330,10 @@ def _percent_value(value: typing.Any, msg: str | None) -> float:
         # error; keep it rather than masking it as a RangeInvalid.
         raise
     except Exception as exc:
-        raise RangeInvalid(msg or "expected a percentage between 0 and 100") from exc
+        raise RangeInvalid(msg, translation_key="expected_percentage") from exc
 
     if not _MIN_PERCENT <= number <= _MAX_PERCENT:
-        raise RangeInvalid(msg or "expected a percentage between 0 and 100")
+        raise RangeInvalid(msg, translation_key="expected_percentage")
     return number
 
 
@@ -397,10 +419,10 @@ class NonEmpty(_SafeValidator):
         try:
             empty = len(value) == 0
         except Exception as exc:
-            raise LengthInvalid(self.msg or "value must not be empty") from exc
+            raise LengthInvalid(self.msg, translation_key="value_not_empty") from exc
 
         if empty:
-            raise LengthInvalid(self.msg or "value must not be empty")
+            raise LengthInvalid(self.msg, translation_key="value_not_empty")
         return value
 
 
@@ -435,15 +457,20 @@ class Length(_SafeValidator):
         try:
             length = len(value)
         except Exception as exc:
-            message = self.msg or "value has no length"
-            raise LengthInvalid(message) from exc
+            raise LengthInvalid(self.msg, translation_key="value_no_length") from exc
 
         if self.min is not None and length < self.min:
-            message = self.msg or f"length of value must be at least {self.min}"
-            raise LengthInvalid(message)
+            raise LengthInvalid(
+                self.msg,
+                translation_key="length_min",
+                placeholders={"min": self.min},
+            )
         if self.max is not None and length > self.max:
-            message = self.msg or f"length of value must be at most {self.max}"
-            raise LengthInvalid(message)
+            raise LengthInvalid(
+                self.msg,
+                translation_key="length_max",
+                placeholders={"max": self.max},
+            )
         return value
 
 
@@ -513,17 +540,15 @@ class In(_SafeValidator):
         try:
             present = candidate in self.container if fast else self._contains(candidate)
         except Exception as exc:
-            message = self.msg or "value is not allowed"
-            raise InInvalid(message) from exc
+            raise InInvalid(self.msg, translation_key="value_not_allowed") from exc
 
         if not present:
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib.
-            message = self.msg or (
-                f"value must be one of {_sorted_for_message(self.container)}"
-            )
             raise InInvalid(
-                message,
+                self.msg,
+                translation_key="value_one_of",
+                placeholders={"values": _sorted_for_message(self.container)},
                 suggest_value=value,
                 suggest_pool=self._string_members(),
                 suffix=self.msg is None,
@@ -548,13 +573,12 @@ class NotIn(_SafeValidator):
         try:
             present = value in self.container
         except Exception as exc:
-            message = self.msg or "value is not allowed"
-            raise NotInInvalid(message) from exc
+            raise NotInInvalid(self.msg, translation_key="value_not_allowed") from exc
 
         if present:
-            message = (
-                self.msg
-                or f"value must not be one of {_sorted_for_message(self.container)}"
+            raise NotInInvalid(
+                self.msg,
+                translation_key="value_not_one_of",
+                placeholders={"values": _sorted_for_message(self.container)},
             )
-            raise NotInInvalid(message)
         return value

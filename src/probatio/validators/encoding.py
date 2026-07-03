@@ -40,12 +40,15 @@ class Base64(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is valid Base64, else raise ValueInvalid."""
         if not isinstance(value, str | bytes):
-            raise ValueInvalid(self.msg or "expected a Base64 string", code="base64")
+            raise ValueInvalid(
+                self.msg, code="base64", translation_key="expected_base64_string"
+            )
         try:
             base64.b64decode(value, validate=True)
         except (binascii.Error, ValueError) as exc:
-            message = self.msg or "expected a Base64 string"
-            raise ValueInvalid(message, code="base64") from exc
+            raise ValueInvalid(
+                self.msg, code="base64", translation_key="expected_base64_string"
+            ) from exc
         return value
 
 
@@ -59,11 +62,15 @@ class Hex(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is valid hex, else raise ValueInvalid."""
         if not isinstance(value, str):
-            raise ValueInvalid(self.msg or "expected a hex string", code="hex")
+            raise ValueInvalid(
+                self.msg, code="hex", translation_key="expected_hex_string"
+            )
         try:
             bytes.fromhex(value)
         except ValueError as exc:
-            raise ValueInvalid(self.msg or "expected a hex string", code="hex") from exc
+            raise ValueInvalid(
+                self.msg, code="hex", translation_key="expected_hex_string"
+            ) from exc
         return value
 
 
@@ -86,7 +93,9 @@ class HexInt(_SafeValidator):
     def _error(self) -> CoerceInvalid:
         """Build the coercion error for a value that is not a hex integer."""
         return CoerceInvalid(
-            self.msg or "expected a hexadecimal integer", code="hex_int"
+            self.msg,
+            code="hex_int",
+            translation_key="expected_hexadecimal_integer",
         )
 
     def __call__(self, value: typing.Any) -> typing.Any:
@@ -121,12 +130,12 @@ class FromJSONString(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the decoded (and validated) value, else raise JsonInvalid."""
         if not isinstance(value, str | bytes | bytearray):
-            raise JsonInvalid(self.msg or "expected a JSON string")
+            raise JsonInvalid(self.msg, translation_key="expected_json_string")
 
         try:
             decoded = json.loads(value)
         except ValueError as exc:
-            raise JsonInvalid(self.msg or "invalid JSON") from exc
+            raise JsonInvalid(self.msg, translation_key="invalid_json") from exc
 
         return self._validate(decoded) if self._validate is not None else decoded
 
@@ -177,14 +186,14 @@ class FromYAMLString(_SafeValidator):
         from probatio.serde import load_yaml  # noqa: PLC0415
 
         if not isinstance(value, str | bytes):
-            raise YamlInvalid(self.msg or "expected a YAML string")
+            raise YamlInvalid(self.msg, translation_key="expected_yaml_string")
 
         try:
             decoded = load_yaml(value)
         except Exception as exc:
             # A YAML backend raises its own parse-error type (YAMLRocks, PyYAML);
             # normalize any of them, plus deep-nesting recursion, to YamlInvalid.
-            raise YamlInvalid(self.msg or "invalid YAML") from exc
+            raise YamlInvalid(self.msg, translation_key="invalid_yaml") from exc
 
         return self._validate(decoded) if self._validate is not None else decoded
 

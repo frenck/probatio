@@ -8,11 +8,11 @@ Every error carries two layers. The voluptuous-compatible layer is ``path`` (a
 list of segments), ``msg``, ``error_message`` (the bare message, without the
 path), and ``error_type``; downstream code reads these attributes, so they keep
 their voluptuous semantics. The structured layer is additive: a stable
-machine-readable ``code`` (defaulted per error class) and a ``context`` dict,
-both filled in by the built-in validators, plus ``translation_key`` /
-``placeholders`` slots for localization that the built-ins leave empty for a
-caller raising its own error to populate. All four are surfaced together by
-``as_dict()``.
+machine-readable ``code`` (defaulted per error class), a ``context`` dict, and
+``translation_key`` / ``placeholders``, the message's catalog key and the raw
+values it interpolates (see ``probatio._messages``). The built-in validators
+fill all four; a caller raising its own error can too. Everything is surfaced
+together by ``as_dict()``.
 
 ``str(error)`` is for humans and deliberately deviates from voluptuous
 (ADR-015): the path renders as a dotted trail (``at 'hosts[2].name'``) instead
@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any, cast
+
+from probatio._messages import render
 
 # A single rendered path segment is capped at this length, so an error string
 # cannot be blown up by a huge attacker-controlled mapping key. Far longer than
@@ -143,7 +145,7 @@ class Invalid(Error):
 
     def __init__(
         self,
-        message: str,
+        message: str | None = None,
         path: list[Any] | None = None,
         error_message: str | None = None,
         error_type: str | None = None,
@@ -153,7 +155,24 @@ class Invalid(Error):
         translation_key: str | None = None,
         placeholders: dict[str, Any] | None = None,
     ) -> None:
-        """Create an error for ``message`` at the given ``path``."""
+        """Create an error for ``message`` at the given ``path``.
+
+        With ``message`` omitted and a ``translation_key`` given, the message
+        text is rendered from the English catalog on first read (and cached),
+        so an error that is built and discarded never pays for formatting.
+        An explicit ``message`` always wins; the key still rides along for a
+        consumer rendering its own output.
+
+        The error takes ownership of ``context`` and ``placeholders``: pass a
+        fresh dict, not one you keep mutating. Error construction sits on the
+        engine's reject path, and skipping a defensive copy there is a measured
+        win; every built-in raise site passes a fresh literal.
+        """
+        # A deferred error still carries one args entry (``None``): a raise-and-
+        # discard loop with empty-args exceptions segfaults CPython 3.13 under
+        # CodSpeed's native walltime hooks (reproduced ~50% of runs on the
+        # any-miss benchmark; clean without instrumentation). ``None`` is the
+        # "render me lazily" marker that ``_message_text`` replaces.
         super().__init__(message)
 
         self._path = list(path) if path else []
@@ -162,20 +181,38 @@ class Invalid(Error):
             self._error_type = error_type
         if code is not None:
             self._code = code
-        # ``None`` until read: most errors never have their context/placeholders
-        # looked at (a miss inside a combinator branch is built and discarded), so
-        # the dict copies are deferred to the property getters.
+        # Owned, not copied (see the docstring): the built-in raise sites all
+        # pass fresh dict literals, and the reject path is hot.
         if context:
-            self._context = dict(context)
+            self._context = context
         if translation_key is not None:
             self._translation_key = translation_key
         if placeholders:
-            self._placeholders = dict(placeholders)
+            self._placeholders = placeholders
+
+    def _message_text(self) -> str:
+        """Return the message text, rendering from the catalog on first read.
+
+        An eagerly-messaged error carries its text in ``args``; a deferred one
+        (``args[0] is None``) renders its ``translation_key`` template once and
+        caches the result in ``args``, so later reads (and pickling) see a
+        plain string.
+        """
+        text = self.args[0]
+        if text is not None:
+            return cast("str", text)
+        rendered = (
+            render(self._translation_key, self._placeholders)
+            if self._translation_key is not None
+            else ""
+        )
+        self.args = (rendered,)
+        return rendered
 
     @property
     def msg(self) -> str:
         """The human-readable message."""
-        return cast("str", self.args[0])
+        return self._message_text()
 
     @property
     def path(self) -> list[Any]:
@@ -185,7 +222,9 @@ class Invalid(Error):
     @property
     def error_message(self) -> str:
         """The bare message, without the path appended."""
-        return self._error_message
+        if self._error_message is not None:
+            return self._error_message
+        return self._message_text()
 
     @property
     def error_type(self) -> str | None:
@@ -238,7 +277,7 @@ class Invalid(Error):
 
     def __str__(self) -> str:
         """Render the message with the path to the offending value appended."""
-        output = Exception.__str__(self)
+        output = self._message_text()
 
         if self._path:
             output += f" at '{render_path(self._path)}'"
@@ -278,7 +317,7 @@ class _SuggestionInvalid(Invalid):
 
     def __init__(
         self,
-        message: str,
+        message: str | None = None,
         path: list[Any] | None = None,
         error_message: str | None = None,
         error_type: str | None = None,
@@ -332,10 +371,17 @@ class _SuggestionInvalid(Invalid):
         return self._candidates
 
     def _suffix_text(self) -> str:
-        """Return the ``, did you mean ...?`` fragment for the message, cached."""
+        """Return the ``, did you mean ...?`` fragment for the message, cached.
+
+        The fragment renders from the catalog (``did_you_mean``), so it is
+        addressable by key like the base sentences.
+        """
         if self._suffix_cache is None:
             self._suffix_cache = (
-                f", did you mean {_format_candidates(self.candidates)}?"
+                render(
+                    "did_you_mean",
+                    {"candidates": _format_candidates(self.candidates)},
+                )
                 if self._with_suffix and self.candidates
                 else ""
             )
@@ -344,7 +390,12 @@ class _SuggestionInvalid(Invalid):
     @property
     def error_message(self) -> str:
         """The bare message, with the suggestion suffix when there is one."""
-        return self._error_message + self._suffix_text()
+        base = (
+            self._error_message
+            if self._error_message is not None
+            else self._message_text()
+        )
+        return base + self._suffix_text()
 
     @property
     def msg(self) -> str:

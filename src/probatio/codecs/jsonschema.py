@@ -788,8 +788,7 @@ class _Not:
         except Invalid:
             return value
 
-        message = "value must not match the 'not' schema"
-        raise Invalid(message)
+        raise Invalid(translation_key="must_not_match_not_schema")
 
 
 def _from_enum(values: Any) -> In:
@@ -1188,8 +1187,7 @@ class _ContainsCount:
         try:
             items = list(value)
         except TypeError as exc:
-            message = "value is not a collection"
-            raise ContainsInvalid(message) from exc
+            raise ContainsInvalid(translation_key="not_a_collection") from exc
 
         count = 0
         for element in items:
@@ -1200,11 +1198,15 @@ class _ContainsCount:
             count += 1
 
         if count < self._min:
-            message = f"expected at least {self._min} matching item(s)"
-            raise ContainsInvalid(message)
+            raise ContainsInvalid(
+                translation_key="min_contains",
+                placeholders={"min": self._min},
+            )
         if self._max is not None and count > self._max:
-            message = f"expected at most {self._max} matching item(s)"
-            raise ContainsInvalid(message)
+            raise ContainsInvalid(
+                translation_key="max_contains",
+                placeholders={"max": self._max},
+            )
 
         return value
 

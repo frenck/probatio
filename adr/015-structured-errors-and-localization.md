@@ -32,7 +32,7 @@ and downstream test suites assert on `str(err)`.
    through new attributes. Safest for compatibility, but it freezes bad messages
    forever and the library keeps shipping a rendering nobody would design today.
 2. Ship translations as the headline: a locale catalog for every message, bundled
-   language packs, a global language switch. Rejected as the *first* step: bundled
+   language packs, a global language switch. Rejected as the _first_ step: bundled
    translations are a maintenance treadmill, and the consumers that care most
    (Home Assistant) will never use our strings, they need the data underneath.
 3. Structured error data first, human-first English defaults, localization as a
@@ -67,29 +67,32 @@ The structured attributes (`path`, `code`, `translation_key`, `placeholders`,
 `as_dict()`) are the advertised API for programmatic consumers; `str(e)` is for
 humans and makes no stability promise beyond "readable".
 
-**Part 3: localization as a mechanism.** Default English messages become a catalog
-of templates keyed by `translation_key`, rendered lazily at `str()` time, never at
+**Part 3: one catalog, English only.** Default messages become a catalog of
+templates keyed by `translation_key`, rendered lazily on first read, never at
 raise time (the error path is a measured hot path; see the compile-versus-validate
-split). A locale hook swaps the catalog: a contextvar with a module-level default,
-so a web application can render per-request locales without cross-request bleed.
-Probatio ships the mechanism and the English catalog. Bundled translations are
-explicitly out of scope for now; community locale packages can provide them.
+split). The catalog is the single source of the English text and dumb data on
+purpose. That is where it stops: Probatio ships no locale switch and no bundled
+translations. Localization is the consumer's concern, and `translation_key` plus
+`placeholders` is the complete contract for it; a consumer renders its own words
+in its own language from the data, and never needs Probatio to speak that
+language for it.
 
 **Rationale**:
 
 - **The data layer serves everyone; our strings serve only some.** A better English
   sentence helps a CLI user. `translation_key` plus `placeholders` helps the CLI
-  user, the Home Assistant frontend, a JSON API, and a future locale catalog, all
-  from one change.
+  user, the Home Assistant frontend, and a JSON API, all from one change.
 - **Error messages are product, not protocol.** Freezing them for compatibility
   (option 1) treats prose as API. The actual API is the structured layer; that is
   where the stability promise belongs.
 - **Lazy rendering keeps the hot path honest.** Formatting at `str()` time means a
   caught-and-discarded error (the `Any`/`Or` happy path) never pays for template
   rendering.
-- **Not bundling translations keeps the promise keepable.** Shipping two languages
-  is easy; keeping twenty correct is a treadmill. A mechanism plus an English
-  catalog is a commitment probatio can honor.
+- **Not shipping translations keeps the promise keepable.** Shipping two languages
+  is easy; keeping twenty correct is a treadmill of native-speaker review Probatio
+  cannot staff. One English catalog plus a complete data contract is a commitment
+  Probatio can honor, and the consumers that localize (Home Assistant renders its
+  own frontend translations) never wanted our strings anyway.
 
 **Consequences**:
 
@@ -110,8 +113,10 @@ explicitly out of scope for now; community locale packages can provide them.
 - **Roughly fifty raise sites change.** Mechanical, but every site needs a key and
   placeholders chosen with care; that is where the review effort goes.
 
-**Revisit trigger**: Bundle translations if real demand shows up and a sustainable
-source of native-speaker review exists (community locale packages proving
-insufficient would be the signal). Revisit the dotted path rendering if consumers
-are found parsing `str(e)` for the path despite the structured layer; that would
-mean the structured API is not discoverable enough.
+**Revisit trigger**: Reconsider a locale mechanism (a catalog switch, not bundled
+languages) only if multiple consumers are found rebuilding the same catalog-swap
+machinery on top of the keys; bundled translations additionally need a sustainable
+source of native-speaker review before they are even on the table. Revisit the
+dotted path rendering if consumers are found parsing `str(e)` for the path despite
+the structured layer; that would mean the structured API is not discoverable
+enough.

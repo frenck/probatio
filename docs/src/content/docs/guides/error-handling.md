@@ -119,12 +119,13 @@ The [errors reference](/reference/errors/) lists the whole hierarchy.
 ## The structured layer
 
 On top of the voluptuous-compatible fields, every error carries a structured,
-machine-readable layer: a stable `code` and a `context` dict, both filled in by
-the built-in validators, plus `translation_key` and `placeholders` slots for
-localization. The built-ins leave those two empty; they are there for code that
-raises its own `Invalid` to carry localization data through. `as_dict()`
-serializes the whole layer, which is handy for an API that returns validation
-errors as JSON.
+machine-readable layer: a stable `code`, a `context` dict, and the pair that
+identifies the message itself: `translation_key` (a stable key naming the
+sentence, like `length_min`) and `placeholders` (the raw values the message
+interpolates, like `{"min": 10}`). The built-in validators fill all of them;
+the [translation keys reference](/reference/translation-keys/) lists every key.
+`as_dict()` serializes the whole layer, which is handy for an API that returns
+validation errors as JSON.
 
 ```python
 from probatio import Schema, Invalid

@@ -69,14 +69,14 @@ class IPv4Address(_SafeValidator):
             # The common case, matched directly: constructing an
             # ``ipaddress.IPv4Address`` costs several times the regex match.
             if _IPV4_PATTERN.fullmatch(value) is None:
-                raise IpInvalid(self.msg or "expected an IPv4 address")
+                raise IpInvalid(self.msg, translation_key="expected_ipv4")
             return value
         # Everything else (int, packed bytes, address objects, str subclasses)
         # keeps the parser's exact acceptance behavior.
         try:
             ipaddress.IPv4Address(_reject_bool(value))
         except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IPv4 address") from exc
+            raise IpInvalid(self.msg, translation_key="expected_ipv4") from exc
         return value
 
 
@@ -96,7 +96,7 @@ class IPv6Address(_SafeValidator):
         try:
             ipaddress.IPv6Address(_reject_bool(value))
         except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IPv6 address") from exc
+            raise IpInvalid(self.msg, translation_key="expected_ipv6") from exc
         return value
 
 
@@ -116,7 +116,7 @@ class IPAddress(_SafeValidator):
         try:
             ipaddress.ip_address(_reject_bool(value))
         except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected an IP address") from exc
+            raise IpInvalid(self.msg, translation_key="expected_ip") from exc
         return value
 
 
@@ -138,7 +138,7 @@ class IPNetwork(_SafeValidator):
         try:
             ipaddress.ip_network(_reject_bool(value), strict=False)
         except _IP_PARSE_ERRORS as exc:
-            raise IpInvalid(self.msg or "expected a CIDR network") from exc
+            raise IpInvalid(self.msg, translation_key="expected_cidr") from exc
         return value
 
 
@@ -170,11 +170,11 @@ class Hostname(_SafeValidator):
     def __call__(self, value: typing.Any) -> str:
         """Return the value if it is a valid hostname, else raise HostnameInvalid."""
         if not isinstance(value, str):
-            raise HostnameInvalid(self.msg or "expected a hostname")
+            raise HostnameInvalid(self.msg, translation_key="expected_hostname")
 
         host = value.removesuffix(".")
         if not host or len(host) > _MAX_HOSTNAME_LENGTH or not _check_labels(host):
-            raise HostnameInvalid(self.msg or "expected a hostname")
+            raise HostnameInvalid(self.msg, translation_key="expected_hostname")
 
         return value
 
@@ -193,7 +193,7 @@ class Fqdn(_SafeValidator):
     def __call__(self, value: typing.Any) -> str:
         """Return the value if it is a valid FQDN, else raise HostnameInvalid."""
         if not isinstance(value, str):
-            raise HostnameInvalid(self.msg or "expected a fully-qualified domain name")
+            raise HostnameInvalid(self.msg, translation_key="expected_fqdn")
 
         host = value.removesuffix(".")
         if (
@@ -202,7 +202,7 @@ class Fqdn(_SafeValidator):
             or "." not in host
             or not _check_labels(host)
         ):
-            raise HostnameInvalid(self.msg or "expected a fully-qualified domain name")
+            raise HostnameInvalid(self.msg, translation_key="expected_fqdn")
 
         return value
 
@@ -216,24 +216,22 @@ class Port(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> int:
         """Return the port as an int if in range, else raise RangeInvalid."""
-        message = self.msg or "expected a port number between 1 and 65535"
-
         # ``bool`` is an ``int`` subclass, but true and false are not port numbers.
         if isinstance(value, bool):
-            raise RangeInvalid(message)
+            raise RangeInvalid(self.msg, translation_key="expected_port")
 
         # Do not quietly turn 8080.7 into 8080.
         if isinstance(value, float) and not value.is_integer():
-            raise RangeInvalid(message)
+            raise RangeInvalid(self.msg, translation_key="expected_port")
 
         try:
             port = int(value)
         except Exception as exc:
             # ``int(float('inf'))`` raises OverflowError, and a value's ``__int__``
             # or ``__index__`` is user code that may raise anything; reject cleanly.
-            raise RangeInvalid(message) from exc
+            raise RangeInvalid(self.msg, translation_key="expected_port") from exc
 
         if not _MIN_PORT <= port <= _MAX_PORT:
-            raise RangeInvalid(message)
+            raise RangeInvalid(self.msg, translation_key="expected_port")
 
         return port

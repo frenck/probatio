@@ -33,9 +33,9 @@ class Coerce[T](_SafeValidator):
         self.type_name: str = getattr(type, "__name__", str(type))
         self.msg = msg
         # Filled on the first failure, not eagerly: building the default message
-        # (and for an enum, its value pool) walks the enum members, a cost a schema
-        # that never fails should not pay at construction either.
-        self._failure_cache: tuple[str, tuple[str, ...]] | None = None
+        # placeholders (and for an enum, its value pool) walks the enum members, a
+        # cost a schema that never fails should not pay at construction either.
+        self._failure_cache: tuple[str, dict[str, str], tuple[str, ...]] | None = None
 
     def __repr__(self) -> str:
         """Render as a constructor call, matching voluptuous."""
@@ -66,29 +66,38 @@ class Coerce[T](_SafeValidator):
                 return typing.cast("T", value)
             # The suggestion match is deferred to the error, so a miss inside a
             # combinator branch that is then discarded never pays for difflib. The
-            # default message and pool depend only on ``self.type``, so they are
-            # built once on the first failure; ``self.msg`` stays raise-time.
+            # translation key, placeholders, and pool depend only on ``self.type``,
+            # so they are built once on the first failure; ``self.msg`` stays
+            # raise-time.
             cached = self._failure_cache
             if cached is None:
-                cached = (self._default_message(), tuple(self._enum_values()))
+                key, placeholders = self._default_message_parts()
+                cached = (key, placeholders, tuple(self._enum_values()))
                 self._failure_cache = cached
             raise CoerceInvalid(
-                self.msg or cached[0],
+                self.msg,
                 suggest_value=value,
-                suggest_pool=cached[1],
+                suggest_pool=cached[2],
                 suffix=self.msg is None,
+                translation_key=cached[0],
+                placeholders=cached[1],
             ) from exc
         else:
             return coerced
 
-    def _default_message(self) -> str:
-        """Build the failure message, listing an enum's values (like voluptuous)."""
-        message = f"expected {self.type_name}"
+    def _default_message_parts(self) -> tuple[str, dict[str, str]]:
+        """Pick the failure key and placeholders, listing an enum's values.
+
+        Matches voluptuous: a plain target reads "expected int", an enum target
+        appends its value pool ("expected Color or one of 'red', 'green'").
+        """
         if isinstance(self.type, type) and issubclass(self.type, enum.Enum):
             values = ", ".join(repr(member.value) for member in self.type)
-            message = f"{message} or one of {values}"
-
-        return message
+            return (
+                "expected_type_or_one_of",
+                {"expected": self.type_name, "values": values},
+            )
+        return "expected_type", {"expected": self.type_name}
 
     def _enum_values(self) -> list[str]:
         """Return the string enum values, the pool a 'did you mean ...?' hint matches.
@@ -102,7 +111,7 @@ class Coerce[T](_SafeValidator):
         return [member.value for member in self.type if isinstance(member.value, str)]
 
 
-@message("expected boolean", cls=BooleanInvalid)
+@message("expected boolean", cls=BooleanInvalid, translation_key="expected_boolean")
 def Boolean(value: typing.Any) -> bool:
     """Read common truthy/falsy strings (and other values) as a boolean.
 
@@ -170,22 +179,28 @@ class Number(_SafeValidator):
             # ArithmeticError covers OverflowError: a 3-element sequence is read by
             # Decimal as a (sign, digits, exponent) spec, and a huge exponent
             # overflows the C long, which must not leak.
-            message = self.msg or "value must be a number enclosed in a string"
-            raise Invalid(message) from exc
+            raise Invalid(
+                self.msg, translation_key="value_must_be_number_string"
+            ) from exc
 
         exponent = number.as_tuple().exponent
         if not isinstance(exponent, int):  # NaN or infinity
-            message = self.msg or "value has no precision"
-            raise Invalid(message)
+            raise Invalid(self.msg, translation_key="value_has_no_precision")
 
         precision = len(number.as_tuple().digits)
         scale = -exponent
         if self.precision is not None and precision != self.precision:
-            message = self.msg or f"precision must be equal to {self.precision}"
-            raise Invalid(message)
+            raise Invalid(
+                self.msg,
+                translation_key="precision_must_equal",
+                placeholders={"precision": self.precision},
+            )
         if self.scale is not None and scale != self.scale:
-            message = self.msg or f"scale must be equal to {self.scale}"
-            raise Invalid(message)
+            raise Invalid(
+                self.msg,
+                translation_key="scale_must_equal",
+                placeholders={"scale": self.scale},
+            )
 
         return number if self.yield_decimal else value
 
