@@ -1310,3 +1310,46 @@ def test_counted_contains_round_trips_max_bound() -> None:
         {"type": "array", "contains": {"const": 9}, "maxContains": 3},
     )
     assert to_json_schema(once)["maxContains"] == 3
+
+
+def test_ref_resolves_rfc6901_escapes() -> None:
+    """A $ref pointer unescapes ~1 to / and ~0 to ~ per RFC 6901."""
+    schema = from_json_schema(
+        {"$ref": "#/$defs/a~1b", "$defs": {"a/b": {"type": "integer"}}},
+    )
+    assert schema(5) == 5
+    with pytest.raises(MultipleInvalid):
+        schema("x")
+
+
+def test_draft4_exclusive_minimum_false_keeps_the_inclusive_bound() -> None:
+    """Draft-4 exclusiveMinimum: false leaves minimum inclusive."""
+    schema = from_json_schema(
+        {"type": "integer", "minimum": 5, "exclusiveMinimum": False},
+    )
+    assert schema(5) == 5
+    with pytest.raises(MultipleInvalid):
+        schema(4)
+
+
+def test_min_contains_zero_makes_contains_vacuous() -> None:
+    """minContains: 0 satisfies contains with no matching element, even for []."""
+    schema = from_json_schema(
+        {"type": "array", "contains": {"const": 9}, "minContains": 0},
+    )
+    assert schema([]) == []
+    assert schema([1, 2]) == [1, 2]
+
+
+def test_property_default_is_validated_after_it_is_applied() -> None:
+    """A default that violates its own subschema fails validation (voluptuous parity).
+
+    JSON Schema treats default as annotation-only; probatio applies it and then
+    validates, a deliberate deviation, so a default that breaks its subschema is
+    rejected rather than silently emitted.
+    """
+    schema = from_json_schema(
+        {"type": "object", "properties": {"a": {"type": "integer", "default": "oops"}}},
+    )
+    with pytest.raises(MultipleInvalid):
+        schema({})
