@@ -794,3 +794,13 @@ def test_single_member_groups_add_no_vacuous_constraint() -> None:
 
     assert "allOf" not in to_json_schema(Schema({Inclusive("a", "g"): int}))
     assert "allOf" not in to_json_schema(Schema({Exclusive("a", "g"): int}))
+
+
+def test_required_alias_with_default_adds_no_constraint() -> None:
+    """A required Alias with a default fills the empty case, so it demands no name."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    schema = Schema({Alias("name", "userName", required=True, default=5): int})
+    result = to_json_schema(schema)
+    assert "allOf" not in result
+    assert result["properties"]["name"]["default"] == 5

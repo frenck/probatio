@@ -188,8 +188,13 @@ class _Groups:
         self.exclusive: dict[str, _ExclusiveGroup] = {}
 
     def add_alias(self, marker: Alias) -> None:
-        """Record a required ``Alias`` (one of its names must be present)."""
-        if marker.required:
+        """Record a required ``Alias`` (one of its names must be present).
+
+        A ``default`` fills the empty case, so a required Alias carrying one does
+        not actually demand a name (the same rule as ``Required`` with a default
+        and a required-with-default ``Exclusive`` group); it adds no constraint.
+        """
+        if marker.required and isinstance(marker.default, Undefined):
             self.alias_required.append(list(marker.input_names))
 
     def add_inclusive(self, marker: Inclusive, name: str) -> None:
