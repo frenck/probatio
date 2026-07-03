@@ -25,7 +25,10 @@ from probatio.codecs._regex_safety import is_catastrophic
 from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES
 from probatio.error import ContainsInvalid, Invalid, SchemaError
 from probatio.markers import (
+    Alias,
+    Exclusive,
     Forbidden,
+    Inclusive,
     Marker,
     Optional,
     Remove,
@@ -166,6 +169,89 @@ def _child(node: Any) -> dict[str, Any]:
     return _convert(node, required_default=False, allow_extra=False)
 
 
+@dataclass
+class _ExclusiveGroup:
+    """The members of an ``Exclusive`` group and how an empty group is judged."""
+
+    members: list[str] = field(default_factory=list)
+    required: bool = False
+    has_default: bool = False
+
+
+class _Groups:
+    """Accumulates the group-marker memberships found while walking a mapping."""
+
+    def __init__(self) -> None:
+        """Start with no groups recorded."""
+        self.alias_required: list[list[str]] = []
+        self.inclusive: dict[str, list[str]] = {}
+        self.exclusive: dict[str, _ExclusiveGroup] = {}
+
+    def add_alias(self, marker: Alias) -> None:
+        """Record a required ``Alias`` (one of its names must be present)."""
+        if marker.required:
+            self.alias_required.append(list(marker.input_names))
+
+    def add_inclusive(self, marker: Inclusive, name: str) -> None:
+        """Record an ``Inclusive`` member (all-or-none within its group)."""
+        self.inclusive.setdefault(marker.group_of_inclusion, []).append(name)
+
+    def add_exclusive(self, marker: Exclusive, name: str) -> None:
+        """Record an ``Exclusive`` member (at most one present within its group)."""
+        group = self.exclusive.setdefault(marker.group_of_exclusion, _ExclusiveGroup())
+        group.members.append(name)
+        group.required = group.required or marker.group_required
+        group.has_default = group.has_default or not isinstance(
+            marker.default, Undefined
+        )
+
+    def constraints(self) -> list[dict[str, Any]]:
+        """Build the object-level JSON Schema constraints for every recorded group."""
+        constraints: list[dict[str, Any]] = [
+            # At least one of the alias names must be present.
+            {"anyOf": [{"required": [name]} for name in names]}
+            for names in self.alias_required
+        ]
+        constraints += [
+            _inclusive_constraint(members)
+            for members in self.inclusive.values()
+            if len(members) > 1
+        ]
+        constraints += [
+            _exclusive_constraint(group) for group in self.exclusive.values()
+        ]
+        return [constraint for constraint in constraints if constraint]
+
+
+def _inclusive_constraint(members: list[str]) -> dict[str, Any]:
+    """Render an ``Inclusive`` group as all-or-none: any member pulls in every other."""
+    return {
+        "dependentRequired": {
+            member: [other for other in members if other != member]
+            for member in members
+        },
+    }
+
+
+def _exclusive_constraint(group: _ExclusiveGroup) -> dict[str, Any]:
+    """Render one ``Exclusive`` group as an at-most-one (or exactly-one) constraint.
+
+    A required group with no default demands exactly one member (``oneOf`` over
+    the per-member ``required``). Otherwise the group allows at most one: a
+    default fills the empty group, so the empty object stays valid. At most one
+    is "not any two present", the negation of every pair being present together.
+    """
+    members = group.members
+    if group.required and not group.has_default:
+        return {"oneOf": [{"required": [member]} for member in members]}
+    pairs = [
+        [members[i], members[j]]
+        for i in range(len(members))
+        for j in range(i + 1, len(members))
+    ]
+    return {"not": {"anyOf": [{"required": pair} for pair in pairs]}} if pairs else {}
+
+
 def _convert_mapping(
     node: dict[Any, Any],
     *,
@@ -176,10 +262,13 @@ def _convert_mapping(
 
     Nested dict values and variable-key values inherit the enclosing schema's
     required/extra policy, mirroring the validation engine, so a nested object
-    keeps its own ``required`` list and open/closed shape.
+    keeps its own ``required`` list and open/closed shape. The group markers
+    (``Alias``, ``Inclusive``, ``Exclusive``) add object-level constraints,
+    combined under ``allOf``.
     """
     properties: dict[Any, Any] = {}
     required: list[Any] = []
+    groups = _Groups()
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
     variable_values: list[dict[str, Any]] = []
@@ -229,17 +318,21 @@ def _convert_mapping(
             properties[name] = value_schema
             continue
 
-        properties[name] = _decorate_property(
+        decorated = _decorate_property(
             value_schema,
             marker,
             secret=facets.secret,
             description=facets.description,
         )
-        # A ``Required`` marker carrying a default does not demand presence (the
-        # default fills the key in), so it stays out of ``required``; the
-        # ``default`` keyword already conveys it.
-        if _is_required(marker, required_default=required_default):
-            required.append(name)
+        _emit_named_key(
+            name,
+            decorated,
+            marker,
+            properties,
+            required,
+            groups,
+            required_default=required_default,
+        )
 
     additional: Any = (
         False
@@ -253,8 +346,43 @@ def _convert_mapping(
     }
     if required:
         result["required"] = required
+    constraints = groups.constraints()
+    if constraints:
+        result["allOf"] = constraints
 
     return result
+
+
+def _emit_named_key(  # noqa: PLR0913
+    name: str,
+    decorated: dict[str, Any],
+    marker: Marker | None,
+    properties: dict[Any, Any],
+    required: list[Any],
+    groups: _Groups,
+    *,
+    required_default: bool,
+) -> None:
+    """Place a decorated property and record any group membership it carries."""
+    if isinstance(marker, Alias):
+        # An aliased key is accepted under any of its names, so each renders as a
+        # property; the "one name must be present" rule (for a required Alias)
+        # becomes an object-level constraint.
+        for alias_name in marker.input_names:
+            properties[alias_name] = decorated
+        groups.add_alias(marker)
+        return
+
+    properties[name] = decorated
+    if isinstance(marker, Inclusive):
+        groups.add_inclusive(marker, name)
+    elif isinstance(marker, Exclusive):
+        groups.add_exclusive(marker, name)
+    # A ``Required`` marker carrying a default does not demand presence (the
+    # default fills the key in), so it stays out of ``required``; the ``default``
+    # keyword already conveys it.
+    elif _is_required(marker, required_default=required_default):
+        required.append(name)
 
 
 def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
@@ -299,13 +427,13 @@ def _decorate_property(
     """Attach a description, default, and secret flag to a rendered value schema."""
     if description is not None:
         prop = {**prop, "description": description}
-    if isinstance(marker, Optional | Required) and not isinstance(
-        marker.default,
-        Undefined,
-    ):
+    # ``Optional``, ``Required``, ``Alias``, ``Inclusive``, and ``Exclusive`` all
+    # carry a ``default``; the others do not.
+    factory = getattr(marker, "default", None)
+    if factory is not None and not isinstance(factory, Undefined):
         # ``default`` is annotation-only, so a non-JSON default (a ``datetime``,
         # say) is omitted rather than emitted raw and crashing ``json.dumps``.
-        default = _json_safe(marker.default())
+        default = _json_safe(factory())
         if default is not _UNREPRESENTABLE:
             prop = {**prop, "default": default}
     if secret:
