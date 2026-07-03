@@ -145,7 +145,7 @@ The two are close on the dict-to-dataclass path, which is worth seeing precisely
 because they do different amounts of work. mashumaro deserializes and largely
 trusts the declared types; Probatio's `DataclassSchema` validates every field
 against its type and then constructs. On a small dataclass, mashumaro builds it in
-about 0.5 µs and a compiled Probatio schema in about 0.6 µs, so Probatio is within
+about 0.5 µs and a compiled Probatio schema in about 0.7 µs, so Probatio is within
 roughly 1.3x while actually validating, and the gap all but closes as the field
 count grows. That is the trade: mashumaro is faster because it trusts the input,
 Probatio costs a little more because it does not. If the input is wrong (a string

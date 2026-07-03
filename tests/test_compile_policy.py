@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, TypedDict
 import pytest
 
 from probatio import (
+    Any,
     CompilePolicy,
     DataclassSchema,
+    Required,
     Schema,
     TypedDictSchema,
     get_compile_policy,
@@ -99,6 +101,49 @@ def test_auto_bootstrap_is_thread_safe_on_a_cold_schema() -> None:
 
     assert not errors
     assert results == [{"a": 1}] * workers
+
+
+def test_captured_bootstrap_is_thread_safe_through_a_combinator() -> None:
+    """Threads racing a combinator's captured mapping-branch bootstrap all succeed.
+
+    A combinator branch captures the armed bootstrap at construction and keeps
+    calling through it after the schema resolves. The resolver installs the final
+    validator before dropping the interpreted one, so a racer that observes the
+    resolved state always finds a real validator, never the bootstrap itself
+    (which would recurse).
+    """
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema(Any({Required("value"): int}, str))
+
+    workers = 50
+    start = threading.Barrier(workers)
+    results: list[object] = []
+    errors: list[BaseException] = []
+    guard = threading.Lock()
+
+    def hammer() -> None:
+        start.wait()
+        try:
+            # Enough calls per thread to cross the AUTO threshold mid-race, so
+            # the counter-to-generated swap is exercised through the stale
+            # reference as well.
+            for _ in range(60):
+                out = schema({"value": 1})
+        except BaseException as exc:  # noqa: BLE001 - captured for the assertion below
+            with guard:
+                errors.append(exc)
+        else:
+            with guard:
+                results.append(out)
+
+    threads = [threading.Thread(target=hammer) for _ in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert not errors
+    assert results == [{"value": 1}] * workers
 
 
 def test_explicit_true_overrides_a_policy_of_off() -> None:

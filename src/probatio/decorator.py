@@ -228,7 +228,14 @@ def _decorate[**P, R](
     def bind(
         args: tuple[typing.Any, ...], kwargs: dict[str, typing.Any]
     ) -> inspect.BoundArguments:
-        """Bind the call, validate the named arguments, and write them back."""
+        """Bind the call, validate the named arguments, and write them back.
+
+        This is the semantic reference: ``Signature.bind`` raises the exact
+        ``TypeError`` a malformed call deserves and handles every signature
+        shape. It is also slow (microseconds of ``inspect`` machinery), so
+        regular calls take the fast binder below and land here only when the
+        signature is variadic or the call is malformed.
+        """
         bound = signature.bind(*args, **kwargs)
         named = {
             name: value
@@ -238,13 +245,15 @@ def _decorate[**P, R](
         bound.arguments.update(input_schema(named))
         return bound
 
+    rebind = _build_rebind(signature, input_schema, bind)
+
     if inspect.iscoroutinefunction(func):
 
         @wraps(func)
         async def async_wrapper(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
             """Validate the arguments, await ``func``, then validate the result."""
-            bound = bind(args, kwargs)
-            result = await func(*bound.args, **bound.kwargs)
+            call_args, call_kwargs = rebind(args, kwargs)
+            result = await func(*call_args, **call_kwargs)
             return output_schema(result)
 
         return typing.cast("typing.Callable[P, R]", async_wrapper)
@@ -252,7 +261,89 @@ def _decorate[**P, R](
     @wraps(func)
     def wrapper(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
         """Validate the arguments, call ``func``, then validate the result."""
-        bound = bind(args, kwargs)
-        return output_schema(func(*bound.args, **bound.kwargs))
+        call_args, call_kwargs = rebind(args, kwargs)
+        return output_schema(func(*call_args, **call_kwargs))
 
     return typing.cast("typing.Callable[P, R]", wrapper)
+
+
+def _build_rebind(
+    signature: inspect.Signature,
+    input_schema: typing.Callable[[typing.Any], typing.Any],
+    bind_slow: typing.Callable[
+        [tuple[typing.Any, ...], dict[str, typing.Any]], inspect.BoundArguments
+    ],
+) -> typing.Callable[
+    [tuple[typing.Any, ...], dict[str, typing.Any]],
+    tuple[tuple[typing.Any, ...], dict[str, typing.Any]],
+]:
+    """Build the per-call binder: plain dict work for a regular call.
+
+    ``Signature.bind`` walks the parameters in pure Python on every call, which
+    dwarfs the validation the decorator exists to do. For a signature without
+    variadic parameters, a well-formed call binds with a handful of dict and set
+    operations instead: leading positionals map to the leading parameter names,
+    every keyword must name a keyword-assignable parameter it does not collide
+    with, and every parameter without a default must be supplied. Those four
+    checks are exactly the cases ``Signature.bind`` rejects on such a signature,
+    so any call failing them is handed to ``bind_slow``, which raises the exact
+    ``TypeError`` (the fast path never invents its own error), and a variadic
+    signature (``*args``/``**kwargs``) always takes ``bind_slow``.
+    """
+
+    def slow(
+        args: tuple[typing.Any, ...], kwargs: dict[str, typing.Any]
+    ) -> tuple[tuple[typing.Any, ...], dict[str, typing.Any]]:
+        """Delegate to the reference binder, normalizing to (args, kwargs)."""
+        bound = bind_slow(args, kwargs)
+        return bound.args, bound.kwargs
+
+    parameters = list(signature.parameters.values())
+    if any(parameter.kind not in _VALIDATED_KINDS for parameter in parameters):
+        return slow
+
+    positional = tuple(
+        parameter.name
+        for parameter in parameters
+        if parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+    )
+    position = {name: index for index, name in enumerate(positional)}
+    keyword_ok = frozenset(
+        parameter.name
+        for parameter in parameters
+        if parameter.kind is not inspect.Parameter.POSITIONAL_ONLY
+    )
+    required = frozenset(
+        parameter.name
+        for parameter in parameters
+        if parameter.default is inspect.Parameter.empty
+    )
+    max_positional = len(positional)
+
+    def rebind(
+        args: tuple[typing.Any, ...], kwargs: dict[str, typing.Any]
+    ) -> tuple[tuple[typing.Any, ...], dict[str, typing.Any]]:
+        """Bind and validate fast when the call is regular, exactly otherwise."""
+        count = len(args)
+        if count > max_positional:
+            return slow(args, kwargs)
+        named = dict(zip(positional, args, strict=False))
+        for key in kwargs:
+            # Unknown keyword, positional-only passed by name, or a keyword
+            # colliding with a filled positional slot: all bind errors.
+            if key not in keyword_ok or position.get(key, count) < count:
+                return slow(args, kwargs)
+        if kwargs:
+            named.update(kwargs)
+        if not required <= named.keys():
+            return slow(args, kwargs)
+        validated = input_schema(named)
+        if validated is named:
+            # The identity schema (nothing to validate): forward the call as-is.
+            return args, kwargs
+        return (
+            tuple(validated[name] for name in positional[:count]),
+            {key: validated[key] for key in kwargs},
+        )
+
+    return rebind

@@ -240,6 +240,106 @@ def test_validate_nested_compiled(benchmark: Any) -> None:
     assert result["data"]["brightness"] == 200
 
 
+# A composed schema: a pre-built Schema instance reused as a mapping value, the
+# way large applications (Home Assistant among them) assemble config schemas from
+# shared pieces. The nested Schema goes through the callable-wrapping path rather
+# than compiling inline like a plain dict value does, so this tracks the cost of
+# composition itself.
+_COMPOSED_DATA = probatio.Schema(
+    {
+        probatio.Optional("brightness"): probatio.All(
+            probatio.Coerce(int),
+            probatio.Range(min=0, max=255),
+        ),
+    },
+    compile=False,
+)
+COMPOSED = probatio.Schema(
+    {
+        probatio.Required("entity_id"): str,
+        probatio.Optional("data", default=dict): _COMPOSED_DATA,
+    },
+    compile=False,
+)
+COMPOSED_PAYLOAD = {"entity_id": "light.kitchen", "data": {"brightness": "200"}}
+
+
+def test_validate_composed(benchmark: Any) -> None:
+    """Validate a mapping whose value is a nested, pre-built Schema instance."""
+    result = benchmark(COMPOSED, COMPOSED_PAYLOAD)
+    assert result["data"]["brightness"] == 200
+
+
+def _combinator_auto_schema() -> probatio.Schema:
+    """A combinator with a mapping branch, built and warmed under ``AUTO``.
+
+    Under the default ``AUTO`` policy the mapping branch arms for lazy
+    compilation, and the combinator captures the armed bootstrap at construction.
+    Warming past the compile threshold resolves the schema onto the generated
+    validator, but the combinator keeps calling through its captured (now stale)
+    reference; that steady-state delegation is exactly what real applications run
+    with, and what this benchmark tracks.
+    """
+    previous = probatio.get_compile_policy()
+    probatio.set_compile_policy(probatio.CompilePolicy.AUTO)
+    try:
+        schema = probatio.Schema(
+            probatio.Any({probatio.Required("value"): int}, str),
+        )
+        for _ in range(200):  # past the AUTO threshold, so the engine is steady
+            schema(COMBINATOR_AUTO_PAYLOAD)
+    finally:
+        probatio.set_compile_policy(previous)
+    return schema
+
+
+COMBINATOR_AUTO_PAYLOAD = {"value": 1}
+COMBINATOR_AUTO = _combinator_auto_schema()
+
+
+def test_validate_combinator_auto(benchmark: Any) -> None:
+    """Validate through a combinator's mapping branch under the AUTO policy."""
+    result = benchmark(COMBINATOR_AUTO, COMBINATOR_AUTO_PAYLOAD)
+    assert result == {"value": 1}
+
+
+@probatio.probatio
+def _decorated_scale(value: int, factor: int = 1, *, label: str = "x") -> int:
+    """A decorated function with typed annotations (the argument hot path)."""
+    del label
+    return value * factor
+
+
+@probatio.probatio
+def _decorated_forward(a, b, c=None):  # type: ignore[no-untyped-def]
+    """A decorated function with no annotations: nothing validates, only binding."""
+    return (a, b, c)
+
+
+def test_validate_decorated_call(benchmark: Any) -> None:
+    """Call a decorated function with typed, validated arguments."""
+    result = benchmark(_decorated_scale, 21, factor=2, label="y")
+    assert result == 42
+
+
+def test_validate_decorated_passthrough(benchmark: Any) -> None:
+    """Call a decorated function with nothing to validate (pure binding cost)."""
+    result = benchmark(_decorated_forward, 1, b=2)
+    assert result == (1, 2, None)
+
+
+def test_combinator_auto_measures_the_stale_bootstrap() -> None:
+    """Guard: the AUTO benchmark really runs the captured-bootstrap delegation.
+
+    The branch must still be the bound bootstrap (the capture is permanent) and
+    its schema must have resolved onto the generated validator, so the benchmark
+    measures steady-state delegation, not warmup or the interpreted engine.
+    """
+    branch = COMBINATOR_AUTO.schema._compiled[0]
+    assert getattr(branch, "__func__", None) is probatio.Schema._bootstrap
+    assert _is_compiled(branch.__self__)
+
+
 @dataclass
 class _Service:
     """A small dataclass, the clearest compiled win (validate and construct fused)."""

@@ -351,3 +351,40 @@ def test_async_return_validation() -> None:
     assert asyncio.run(f(4)) == 4
     with pytest.raises(MultipleInvalid):
         asyncio.run(f(-1))
+
+
+def test_malformed_calls_raise_the_exact_signature_bind_errors() -> None:
+    """A malformed call raises exactly what ``Signature.bind`` raises.
+
+    The fast per-call binder detects each malformed-call class (too many
+    positionals, an unknown or colliding keyword, a missing required argument)
+    and delegates to ``Signature.bind`` for the error, so the message is the
+    inspect one, never an invented variant.
+    """
+
+    @probatio
+    def clamp(value: int, low: int = 0, *, high: int = 100) -> int:
+        return min(max(value, low), high)
+
+    with pytest.raises(TypeError, match="too many positional arguments"):
+        clamp(1, 2, 3)
+    with pytest.raises(TypeError, match="got an unexpected keyword argument 'nope'"):
+        clamp(1, nope=2)
+    with pytest.raises(TypeError, match="multiple values for argument 'value'"):
+        clamp(1, value=2)
+    with pytest.raises(TypeError, match="missing a required argument: 'value'"):
+        clamp()
+
+
+def test_positional_only_parameter_by_keyword_is_a_bind_error() -> None:
+    """Passing a positional-only parameter by name raises the bind TypeError."""
+
+    @probatio
+    def head(items: list, /, count: int = 1) -> list:
+        return items[:count]
+
+    assert head([1, 2, 3], count=2) == [1, 2]
+    with pytest.raises(
+        TypeError, match="missing a required positional-only argument: 'items'"
+    ):
+        head(items=[1])

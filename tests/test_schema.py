@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from probatio import ALLOW_EXTRA, Invalid, MultipleInvalid, Required, Schema
+from probatio import (
+    ALLOW_EXTRA,
+    Invalid,
+    MultipleInvalid,
+    Optional,
+    Required,
+    Schema,
+    Self,
+)
+from probatio import Any as AnyOf
 from probatio.error import ScalarInvalid, TypeInvalid, ValueInvalid
 
 
@@ -179,3 +188,60 @@ def test_repr_mirrors_voluptuous_with_extra_and_required() -> None:
         "<Schema({'a': <class 'int'>}, extra=ALLOW_EXTRA, required=False) object at 0x"
     )
     assert rendered.endswith(">")
+
+
+def test_composed_schema_matches_the_inline_form() -> None:
+    """A nested Schema value validates and errors exactly like the inline dict.
+
+    Composition compiles to a direct delegation to the inner engine (skipping the
+    callable guard and the inner ``__call__``), so this pins that the observable
+    behavior did not move: same output, same error type, message, and path.
+    """
+    inner = Schema({Required("value"): int})
+    composed = Schema({Required("data"): inner})
+    inline = Schema({Required("data"): {Required("value"): int}})
+
+    payload = {"data": {"value": 1}}
+    assert composed(payload) == inline(payload) == payload
+
+    for bad in ({"data": {"value": "no"}}, {"data": 42}, {"data": {}}):
+        with pytest.raises(MultipleInvalid) as caught_composed:
+            composed(bad)
+        with pytest.raises(MultipleInvalid) as caught_inline:
+            inline(bad)
+        (composed_error,) = caught_composed.value.errors
+        (inline_error,) = caught_inline.value.errors
+        assert type(composed_error) is type(inline_error)
+        assert composed_error.msg == inline_error.msg
+        assert composed_error.path == inline_error.path
+
+
+def test_combinator_branch_schema_keeps_its_branch_error() -> None:
+    """An Any(Schema(int), ...) miss surfaces the branch error, like voluptuous.
+
+    Inside a combinator a Schema branch keeps the wrapper (it is not unwrapped to
+    the raw engine): the branch's own error ("expected int") is what voluptuous
+    reports on a miss, not the combined "expected int or float" label.
+    """
+    schema = Schema(AnyOf(Schema(int), float))
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema("nope")
+
+    (error,) = caught.value.errors
+    assert isinstance(error, TypeInvalid)
+    assert error.msg == "expected int"
+
+
+def test_composed_self_referential_schema_still_recurses() -> None:
+    """A Self-using Schema nested as a value keeps resolving its own recursion."""
+    inner = Schema({Required("name"): str, Optional("child"): Self})
+    outer = Schema({Required("tree"): inner})
+
+    payload = {"tree": {"name": "a", "child": {"name": "b"}}}
+    assert outer(payload) == payload
+
+    with pytest.raises(MultipleInvalid) as caught:
+        outer({"tree": {"name": "a", "child": {"name": 1}}})
+    (error,) = caught.value.errors
+    assert error.path == ["tree", "child", "name"]

@@ -38,6 +38,7 @@ import dataclasses
 import enum
 import types
 from collections.abc import (
+    Callable,
     Mapping,
     MutableMapping,
     MutableSequence,
@@ -62,7 +63,7 @@ from typing import Union as TypingUnion
 from probatio._codegen import compile_mapping
 from probatio._engine import _MappingValidator
 from probatio._type_registry import resolve_type_validator
-from probatio.error import SchemaError
+from probatio.error import Invalid, MultipleInvalid, SchemaError, ValueInvalid
 from probatio.fields import Key
 from probatio.markers import (
     UNDEFINED,
@@ -620,8 +621,9 @@ class _Constructor:
         value ``ALLOW_EXTRA`` kept because it failed the field's own validation).
 
         ``filter_keys=False`` is the caller asserting the validated dict can only
-        hold init-field keys (no ``ALLOW_EXTRA``, no ``Remove`` fields), so the
-        per-call filtering comprehension is skipped.
+        hold init-field keys (no ``ALLOW_EXTRA``, no ``Remove`` fields);
+        ``_fuse_validate_and_construct`` reads it to splat the validated dict
+        straight into the constructor, skipping both this object and its filter.
         """
         self.dataclass_type = dataclass_type
         self._filter_keys = filter_keys
@@ -634,10 +636,12 @@ class _Constructor:
         """Construct the dataclass, passing only the keys it accepts.
 
         Extra keys (kept by ``ALLOW_EXTRA``) and dropped ``Remove`` keys are left out
-        here, since a dataclass cannot take an unexpected keyword argument.
+        here, since a dataclass cannot take an unexpected keyword argument. The
+        hot paths never get here (the fused interpreted engine and the generated
+        code construct directly); this runs only through the ``All`` tower kept
+        for a ``Self``-using schema, where an always-on filter costs nothing that
+        matters.
         """
-        if not self._filter_keys:
-            return self.dataclass_type(**data)
         kwargs = {key: value for key, value in data.items() if key in self._init_fields}
         return self.dataclass_type(**kwargs)
 
@@ -696,9 +700,99 @@ def create_dataclass_schema(
         dataclass_type, remove, filter_keys=extra == ALLOW_EXTRA or bool(remove)
     )
     schema = Schema(All(inner, constructor))
+    # Fused before ``bind``, so a recursive field's captured engine is the fused
+    # one too, not the slower combinator tower.
+    _install_fused_interpreted(schema)
     ref.bind(schema)
 
     return schema
+
+
+def _fuse_validate_and_construct(
+    validate_mapping: CompiledSchema, constructor: _Constructor
+) -> CompiledSchema:
+    """Return one closure that validates the mapping and constructs the instance.
+
+    The public schema shape stays ``Schema(All(inner, _Constructor))``; this is
+    only a faster interpreted engine for it. Called generically, that ``All``
+    tower is five frames of pure delegation per validation (the callable guard,
+    ``All.__call__``, the inner ``Schema.__call__``, and the shim around the
+    constructor) around the two calls that do real work. The closure keeps just
+    those two, with the guard's ``ValueError`` normalization replicated verbatim.
+
+    Error-shape parity: the mapping engine's errors propagate untouched (a
+    ``MultipleInvalid`` passed through the tower unchanged, and its bare
+    wrong-type error reaches every consumer the same way, since
+    ``Schema.__call__`` wraps a lone ``Invalid`` itself and the enclosing engines
+    flatten a ``MultipleInvalid`` to the same leaves). A constructor failure is
+    wrapped exactly as the tower did, exception chain included: the ``ValueError``
+    normalization mirrors the callable guard, and the ``MultipleInvalid`` wrap
+    mirrors ``All``, so tracebacks keep reading identically.
+    """
+    dataclass_type = constructor.dataclass_type
+    construct: Callable[..., TypingAny] = constructor
+
+    def _constructor_error(exc: ValueError) -> MultipleInvalid:
+        """Build the tower-identical error for a constructor ``ValueError``."""
+        detail = str(exc)
+        message = f"not a valid value: {detail}" if detail else "not a valid value"
+        error = ValueInvalid(message)
+        error.__cause__ = exc
+        return MultipleInvalid([error])
+
+    if constructor._filter_keys:  # noqa: SLF001
+
+        def validate(data: TypingAny) -> TypingAny:
+            """Validate the mapping, then construct through the filter."""
+            validated = validate_mapping(data)
+            try:
+                return construct(validated)
+            except MultipleInvalid:
+                raise
+            except Invalid as exc:
+                raise MultipleInvalid([exc]) from exc
+            except ValueError as exc:
+                error = _constructor_error(exc)
+                raise error from error.errors[0]
+
+        return validate
+
+    def validate_splat(data: TypingAny) -> TypingAny:
+        """Validate the mapping, then splat it straight into the constructor."""
+        validated = validate_mapping(data)
+        try:
+            return dataclass_type(**validated)
+        except MultipleInvalid:
+            raise
+        except Invalid as exc:
+            raise MultipleInvalid([exc]) from exc
+        except ValueError as exc:
+            error = _constructor_error(exc)
+            raise error from error.errors[0]
+
+    return validate_splat
+
+
+def _install_fused_interpreted(schema: Schema) -> None:
+    """Swap ``schema``'s interpreted engine for the fused validate-and-construct.
+
+    ``schema`` wraps ``All(inner, _Constructor)``. The inner mapping schema is
+    pinned interpreted (``compile=False``), so its engine can be captured
+    directly. A ``Self``-using inner keeps the tower: its resolution runs through
+    the inner ``Schema.__call__``'s active-root bookkeeping.
+
+    The fused engine lands wherever the interpreted validator lives: in
+    ``_interpreted`` when the schema armed for lazy compilation (it then also
+    becomes the generated code's bail-out fallback), else in ``_compiled``.
+    """
+    inner, constructor = schema.schema.validators
+    if inner._uses_self:  # noqa: SLF001
+        return
+    fused = _fuse_validate_and_construct(inner._compiled, constructor)  # noqa: SLF001
+    if "_interpreted" in schema.__dict__:
+        schema._interpreted = fused  # noqa: SLF001
+    else:
+        schema._compiled = fused  # noqa: SLF001
 
 
 # Distinguishes "the fast constructor has not been built yet" from "built, and the
@@ -905,6 +999,10 @@ class DataclassSchema[DataclassT](Schema):
             extra=extra,
         )
         super().__init__(built.schema, compile=compile)
+        # ``built`` carries its own fused engine, but this instance recompiled the
+        # ``All`` from scratch in ``super().__init__``, so it fuses again for
+        # itself.
+        _install_fused_interpreted(self)
 
     def extend(self, *_args: TypingAny, **_kwargs: TypingAny) -> Schema:
         """Refuse to extend: a ``DataclassSchema`` is built from a type, not a mapping.

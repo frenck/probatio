@@ -468,9 +468,13 @@ class Schema:
         """
         self._compile_requested = True
         # Resolve now. A schema armed for lazy compilation keeps the interpreted
-        # validator in ``_interpreted``; otherwise ``_compiled`` is still it.
-        interpreted = self.__dict__.pop("_interpreted", self._compiled)
+        # validator in ``_interpreted``; otherwise ``_compiled`` is still it. The
+        # swap lands before ``_interpreted`` is dropped: a combinator holding the
+        # armed bootstrap reads "``_interpreted`` gone" as "``_compiled`` is
+        # final", so the reverse order would hand it the bootstrap itself.
+        interpreted = self.__dict__.get("_interpreted", self._compiled)
         self._compiled = self._compile_from(interpreted)
+        self.__dict__.pop("_interpreted", None)
         return self
 
     def _arm_compile(self) -> None:
@@ -503,18 +507,27 @@ class Schema:
         installs the right validator: the generated one now for the flag or the ON
         policy, an adaptive counter for AUTO, or the interpreted one if the policy
         turned off since arming. A combinator may have captured this bootstrap as a
-        branch before the swap; a later call through that stale reference finds
-        ``_interpreted`` gone and just delegates to the resolved validator.
+        branch before the swap; every later call through that stale reference lands
+        here forever, so the resolved case must stay cheap: it is a lock-free
+        membership test and a delegation, not a lock acquisition per call.
 
-        The pop and the swap run under ``_BOOTSTRAP_LOCK`` so two threads racing a
-        cold schema resolve it once: the loser finds ``_interpreted`` gone and the
-        ``_compiled`` already swapped, so it delegates instead of re-entering this
-        bootstrap against a half-installed validator. The lock covers only the swap,
-        not the validation call after it.
+        The lock-free check is sound because of the resolver's write order: the
+        final validator is stored in ``_compiled`` *before* ``_interpreted`` is
+        deleted (both under ``_BOOTSTRAP_LOCK``), so "``_interpreted`` gone" always
+        means "``_compiled`` is final". Two threads racing a cold schema still
+        resolve it once: the loser blocks on the lock, finds ``_interpreted``
+        gone, and delegates. The lock covers only the swap, not the validation
+        call after it.
         """
+        if "_interpreted" not in self.__dict__:
+            return self._compiled(data)
+
         with _BOOTSTRAP_LOCK:
-            interpreted = self.__dict__.pop("_interpreted", None)
-            if interpreted is not None:
+            interpreted = self.__dict__.get("_interpreted")
+            # ``None`` only when another thread resolved the schema between the
+            # lock-free check above and taking the lock, so the false edge is
+            # reachable only under contention (the race test hits it by chance).
+            if interpreted is not None:  # pragma: no branch
                 flag = self._compile_requested
                 if flag is None and get_compile_policy() is CompilePolicy.AUTO:
                     self._compiled = self._auto_counter(interpreted)
@@ -522,6 +535,9 @@ class Schema:
                     self._compiled = self._compile_from(interpreted)
                 else:
                     self._compiled = interpreted
+                # Deleted only after the swap above, so the lock-free check can
+                # never observe the transition half-done.
+                del self.__dict__["_interpreted"]
 
         return self._compiled(data)
 
@@ -776,6 +792,10 @@ class Schema:
             return self._compile_dict(schema)
         if isinstance(schema, list | tuple | set | frozenset):
             return self._compile_sequence(schema)
+        if isinstance(schema, Schema) and (
+            (direct := _compile_nested_schema(schema)) is not None
+        ):
+            return direct
         if callable(schema):
             # A combinator compiles its branches at construction with the strict
             # default extra. When this schema sets a different policy, rebind the
@@ -1111,3 +1131,39 @@ def compile_schema(
         return Schema(schema, required=required, extra=extra)._compiled  # noqa: SLF001
     finally:
         _COMPILING_FOR_COMBINATOR.reset(token)
+
+
+def _compile_nested_schema(schema: Schema) -> CompiledSchema | None:
+    """Compile a nested ``Schema`` node to a direct engine delegation, or ``None``.
+
+    A composed schema (a prebuilt ``Schema`` reused as a mapping value or sequence
+    element, the way large applications assemble config schemas) would otherwise
+    compile as an arbitrary callable: a ValueError guard around the full
+    ``Schema.__call__``, several frames per matched value. When the inner engine
+    is the mapping or sequence validator, the wrapping adds nothing: those engines
+    raise ``MultipleInvalid`` for value failures exactly as ``__call__`` would
+    surface it, and their bare wrong-type error aggregates identically because the
+    enclosing engine flattens a ``MultipleInvalid`` to the same leaves. So
+    composition costs one delegating frame instead. Reading ``_compiled`` live
+    (not capturing it) follows the inner schema's own bootstrap and compile swaps.
+
+    ``None`` means "keep the wrapper", in two cases. Inside a combinator, because
+    voluptuous resolves ``Any(Schema(int), float)`` on a miss to the branch's own
+    error ("expected int"), and the ``MultipleInvalid`` the wrapper raises is what
+    preserves that; unwrapping would turn it into the combined ``AnyInvalid``. And
+    for a ``Self``-using inner, whose ``__call__`` records the active root that
+    ``Self`` resolves against.
+    """
+    if _COMPILING_FOR_COMBINATOR.get() or schema._uses_self:  # noqa: SLF001
+        return None
+    # An armed schema parks its engine in ``_interpreted`` (``_compiled`` is the
+    # bootstrap); an unarmed one holds it in ``_compiled``.
+    engine = schema.__dict__.get("_interpreted", schema._compiled)  # noqa: SLF001
+    if not isinstance(engine, (_MappingValidator, _SequenceValidator)):
+        return None
+
+    def validate(data: Any) -> Any:
+        """Delegate to the nested schema's live engine."""
+        return schema._compiled(data)  # noqa: SLF001
+
+    return validate
