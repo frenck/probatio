@@ -117,7 +117,7 @@ test = [
   "tomli-w==1.2.0",
   # Hypothesis drives the property-based and differential fuzz tests (the engine
   # and the codecs are hammered with generated schemas and data). Dev-only.
-  "hypothesis==6.155.7",
+  "hypothesis==6.156.1",
 ]
 typing = ["mypy==2.1.0", "ty==0.0.56"]
 lint = ["ruff==0.15.20", "codespell==2.4.2", "zizmor==1.26.1"]
