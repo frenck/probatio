@@ -23,14 +23,14 @@ Schema({"a": int})({"a": 1})  # {'a': 1}
 
 Each kind of object means something:
 
-| You write              | It means                                                  |
-| ---------------------- | --------------------------------------------------------- |
-| a type (`int`)         | the value must be an instance of that type                |
-| a literal (`"on"`)     | the value must equal that literal                         |
-| a `dict`               | a mapping, each key and value validated by its own schema |
-| a `list`/`tuple`/`set` | a sequence, each item matching one of the element schemas |
-| a callable             | called with the value; it returns the result or raises    |
-| a nested `Schema`      | validated as its own schema                               |
+| You write              | It means                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| a type (`int`)         | the value must be an instance of that type                                                                    |
+| a literal (`"on"`)     | the value must equal that literal                                                                             |
+| a `dict`               | a mapping, each key and value validated by its own schema                                                     |
+| a `list`/`tuple`/`set` | a sequence, each item matching one of the element schemas (see [sequence schemas](/guides/sequence-schemas/)) |
+| a callable             | called with the value; it returns the result or raises                                                        |
+| a nested `Schema`      | validated as its own schema                                                                                   |
 
 Because a schema is just data, schemas compose: a dict can hold lists of nested
 dicts, and any value position can be a validator like `All` or `Coerce`.
@@ -50,7 +50,9 @@ for record in [{"name": "a"}, {"name": "b"}]:
 ```
 
 Keep schemas at module scope, or build them once in a constructor, rather than
-rebuilding inside a hot loop.
+rebuilding inside a hot loop. The numbers, and the opt-in compiled mode that
+goes further, live in the [performance reference](/reference/performance/) and
+the [compiled schemas guide](/guides/compiled-schemas/).
 
 ## Validation returns a new value
 
@@ -93,11 +95,11 @@ raises `SchemaError`, because that is a programming mistake, not bad input. See
 
 ## Order matters
 
-Within `All`, validators run left to right and each receives the previous
-result, so `All(Coerce(int), Range(min=0))` coerces before it range-checks. The
-reverse order would range-check a string. Marker defaults and group rules also
-have defined timing. Where order is significant, the guides call it out, and it
-matches voluptuous.
+Within `All`, validators form a pipeline: each receives the previous result,
+left to right. `All(Strip, Length(min=1))` trims whitespace before it measures,
+so a string of only spaces fails; swapped, the untrimmed string would slip
+through. Marker defaults and group rules also have defined timing. Where order
+is significant, the guides call it out, and it matches voluptuous.
 
 ## Where to next
 

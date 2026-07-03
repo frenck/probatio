@@ -23,9 +23,19 @@ docs/
 │       ├── index.mdx             # landing page
 │       ├── getting-started/      # install, quick start, migrating from voluptuous
 │       ├── guides/               # dict schemas, combinators, codecs, …
-│       ├── recipes/              # config files, Home Assistant, cookbook
+│       ├── recipes/              # Home Assistant, config files, APIs, LLM tools, …
 │       ├── reference/            # API reference, errors, typing, performance
 │       └── project/              # architecture, roadmap, security, credits
 ```
 
 The site is served at `https://probatio.frenck.dev` (set in `astro.config.mjs`).
+
+## Verified examples
+
+Every Python block in the pages is executed by `verify_examples.py`, and the
+output comments are checked against what the code really produces. Run it from
+the repository root when you change a page with code on it:
+
+```bash
+uv run --no-sync just examples
+```

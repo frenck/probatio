@@ -5,8 +5,9 @@ description: Install Probatio, the Python versions it supports, and the optional
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-Probatio is pure Python. There is nothing to compile, no build step, and no
-native extension to match against your platform. Install it and import it.
+Probatio is pure Python, and the core has zero runtime dependencies. There is
+nothing to compile, no build step, and no native extension to match against
+your platform. Install it and import it.
 
 ## Install
 
@@ -84,8 +85,8 @@ poetry add "probatio[yaml,toml]"
 </Tabs>
 
 :::note
-The extras are about speed and YAML writing, not features. A schema validates
-the same way with or without them.
+The extras are about speed and YAML support, not validation features. A schema
+validates the same way with or without them.
 :::
 
 ## Confirm it works

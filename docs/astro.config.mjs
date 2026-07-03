@@ -99,6 +99,7 @@ export default defineConfig({
               label: "Dict schemas and markers",
               slug: "guides/dict-schemas-and-markers",
             },
+            { label: "Sequence schemas", slug: "guides/sequence-schemas" },
             { label: "Combinators", slug: "guides/combinators" },
             { label: "Built-in validators", slug: "guides/validators" },
             { label: "Error handling", slug: "guides/error-handling" },
@@ -134,6 +135,8 @@ export default defineConfig({
           items: [
             { label: "Home Assistant", slug: "recipes/home-assistant" },
             { label: "Validating a config file", slug: "recipes/config-file" },
+            { label: "Validating API requests", slug: "recipes/web-api" },
+            { label: "LLM tool calling and MCP", slug: "recipes/llm-tools" },
             { label: "Cookbook", slug: "recipes/cookbook" },
           ],
         },

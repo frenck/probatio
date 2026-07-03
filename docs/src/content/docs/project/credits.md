@@ -21,6 +21,23 @@ cover the reasoning.
 The [license](/project/license/) page covers the MIT terms and third-party
 notices in full.
 
+## Ideas borrowed with credit
+
+Clean-room does not mean invented in a vacuum. Several ideas in Probatio are
+borrowed from [mashumaro](https://github.com/Fatal1ty/mashumaro), and the debt
+is recorded where each decision was made:
+[ADR-008](https://github.com/frenck/probatio/blob/main/adr/008-type-to-validator-registry.md)
+(the type-to-validator registry),
+[ADR-009](https://github.com/frenck/probatio/blob/main/adr/009-call-time-validation-context.md)
+(the call-time validation context),
+[ADR-012](https://github.com/frenck/probatio/blob/main/adr/012-trusted-construction-without-validation.md)
+(trusted construction without validation), and
+[ADR-013](https://github.com/frenck/probatio/blob/main/adr/013-markers-on-annotated-fields.md)
+(field metadata on `Annotated` types) all cite its prior art.
+[pydantic](https://docs.pydantic.dev) earns the same credit in ADR-013: its
+`Annotated` field spec is the precedent that settled how Probatio's field
+metadata works.
+
 ## Author
 
 Created and written by **Franck Nijhof**, better known as **Frenck**, a

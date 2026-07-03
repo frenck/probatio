@@ -62,7 +62,9 @@ schema. Pass `extra=ALLOW_EXTRA` (keyword-only) to keep unknown keys instead.
 A `TypedDict` carries its own notion of which keys are required, and the schema
 honors it. A `total=False` class makes every key optional; `Required` and
 `NotRequired` set it per key. An optional key that is absent is simply left out of
-the result, no default is invented.
+the result, no default is invented. Because requiredness comes from the
+`TypedDict` itself, there is no `required` argument to override it, unlike
+`DataclassSchema`.
 
 ```python
 from typing import TypedDict, NotRequired
@@ -144,6 +146,21 @@ schema = TypedDictSchema(Config, {"host": Length(min=2)})
 schema({"port": 8080, "host": "nas"})  # {'port': 8080, 'host': 'nas'}
 ```
 
+With `Annotated`, the rule lives on the field itself, next to the type:
+
+```python
+from typing import Annotated, TypedDict
+
+from probatio import TypedDictSchema, Range
+
+
+class Net(TypedDict):
+    port: Annotated[int, Range(min=1, max=65535)]
+
+
+TypedDictSchema(Net)({"port": 8080})  # {'port': 8080}
+```
+
 ## The functional form
 
 `create_typeddict_schema(typeddict_type, additional_constraints=None)` builds the
@@ -186,6 +203,30 @@ The one difference is the result: a dataclass schema constructs an instance, a
 TypedDict schema returns the validated dict. Because nothing is constructed, a
 `TypedDict` also accepts `Key(forbidden=True)`/`Key(remove=True)` fields with no
 default (they simply shape the validated dict), where a dataclass would need one.
+
+## Speed
+
+The [compiled engine](/guides/compiled-schemas/) applies here too:
+`TypedDictSchema` takes the same `compile=True` flag and `.compile()` method,
+and under the default policy a hot schema compiles itself. The trusted escape
+hatch also carries over: `TypedDictSchema.construct(data)` skips validation and,
+since nothing is constructed, returns the dict unchanged (see
+[trusted construction](/guides/dataclasses/#trusted-construction-without-validation)).
+
+```python
+from typing import TypedDict
+
+from probatio import TypedDictSchema
+
+
+class Point(TypedDict):
+    x: int
+    y: int
+
+
+POINT = TypedDictSchema(Point).compile()
+POINT({"x": 1, "y": 2})  # {'x': 1, 'y': 2}
+```
 
 ## Limits
 

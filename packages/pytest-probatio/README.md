@@ -33,3 +33,7 @@ pip install pytest-probatio
 
 This package lives in the probatio monorepo but ships separately, so the core
 `probatio` library stays dependency-free.
+
+The full guide, including schema reuse across tests and the `raises` helper,
+lives at
+[probatio.frenck.dev](https://probatio.frenck.dev/guides/testing-with-pytest/).

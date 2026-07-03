@@ -6,8 +6,11 @@ description: How Probatio compiles a hot schema into a specialized validator, on
 Probatio validates with one interpreted engine. On top of that, it can compile a
 schema into a specialized validator: a flat function generated for that exact
 schema, with the common per-key work unrolled and the common validators inlined.
-It is faster, and it is the same result. Compiling only changes speed, never what a
-schema accepts, rejects, or how it reports an error.
+It is faster, and it is the same result: on a representative config schema,
+compiling takes a validation from roughly 2 µs to under 1 µs, about seven times
+faster than the same schema in voluptuous (see [Numbers](#numbers)). Compiling
+only changes speed, never what a schema accepts, rejects, or how it reports an
+error.
 
 By default this happens on its own. You do not have to do anything to get it, and in
 most cases you should not have to think about it at all. This page explains what it
@@ -19,9 +22,14 @@ off.
 The process starts on the `AUTO` policy. Under `AUTO`, a schema validates
 interpreted and quietly counts how often it is called. Once it has proven hot (it
 has been validated enough times to be worth the cost), it compiles itself and runs
-through the generated validator from then on. A schema you build and call once, or a
-handful of times, never crosses that line, so it stays interpreted and never pays
-for code generation.
+through the generated validator from then on. The line is currently drawn at
+roughly 50 validations, an implementation detail that may move. A schema you build
+and call once, or a handful of times, never crosses it, so it stays interpreted
+and never pays for code generation.
+
+There is no public way to ask whether a schema has compiled; the observable
+effect is throughput, so measure that instead. [Performance](/reference/performance/)
+shows how to benchmark it yourself.
 
 So the practical rule is the same as it has always been: build a schema once, at
 module scope, and reuse it. The hot ones speed themselves up.

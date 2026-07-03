@@ -41,6 +41,13 @@ code, the same as the rest of your program.
 | Stack exhaustion from deep or cyclic data | Crafted data run through a recursive `Self` schema           | A recursion depth guard raises a clean `Invalid` instead of `RecursionError`                    |
 | Arbitrary object construction from YAML   | Tags in an untrusted YAML payload                            | YAML is always parsed with a safe loader; the unsafe loaders are never used                     |
 
+These guards cover the specific shapes in the table, and only those. What they
+do not do is bound the overall size of the input: a validator cannot know how
+much data is too much for your application, so capping the size and shape of
+what you hand to a schema stays the calling application's job. The project's
+[security policy](https://github.com/frenck/probatio/blob/main/.github/SECURITY.md)
+draws the same line in its out-of-scope list.
+
 ## Regex denial of service
 
 Python's `re` engine backtracks, so a pattern like `(a+)+$` runs in exponential
@@ -195,7 +202,12 @@ wrap it in your own carrier after validation.
 
 ## Reporting a vulnerability
 
-Found something that looks like a security issue? Please report it privately
-through the GitHub security advisories on the
-[project repository](https://github.com/frenck/probatio), not as a public issue.
-That gives a fix time to land before the details are out in the open.
+Found something that looks like a security issue? Please
+[report it privately](https://github.com/frenck/probatio/security/advisories/new)
+through GitHub's private vulnerability reporting, not as a public issue. That
+gives a fix time to land before the details are out in the open.
+
+The full policy lives in
+[`SECURITY.md`](https://github.com/frenck/probatio/blob/main/.github/SECURITY.md):
+the disclosure timeline, what to include in a report, and an email fallback if
+you cannot use GitHub's reporting flow.

@@ -107,53 +107,50 @@ Check a value and return it unchanged.
 
 ### Strings and formats
 
-| Name             | Note                                           |
-| ---------------- | ---------------------------------------------- |
-| `Email`          | An email address.                              |
-| `Url`            | A URL.                                         |
-| `FqdnUrl`        | A URL with a fully qualified domain.           |
-| `Slug`           | A URL slug.                                    |
-| `Alpha`          | Letters only.                                  |
-| `Alphanumeric`   | Letters and digits only.                       |
-| `ASCII`          | ASCII characters only.                         |
-| `PrintableASCII` | Printable ASCII only.                          |
-| `NoWhitespace`   | No whitespace characters.                      |
-| `StartsWith`     | Begins with a prefix.                          |
-| `EndsWith`       | Ends with a suffix.                            |
-| `ByteLength`     | UTF-8 byte length within bounds.               |
-| `HexColor`       | A hex color; compose `Lower`/`Upper` for case. |
-| `Hex`            | Hexadecimal; checks, does not decode.          |
-| `Base64`         | Base64; checks, does not decode.               |
-| `JSONString`     | A JSON string; value via `FromJSONString`.     |
-| `YAMLString`     | A YAML string; value via `FromYAMLString`.     |
-| `ULID`           | A ULID; compose `Upper` for canonical case.    |
-| `CreditCard`     | A card number (Luhn).                          |
-| `IBAN`           | An IBAN (mod-97).                              |
-| `DataURI`        | A `data:` URI.                                 |
-| `E164`           | An E.164 phone number.                         |
-| `Datetime`       | A datetime string; string in, string out.      |
-| `Date`           | A date string; string in, string out.          |
-| `Time`           | A time string; string in, string out.          |
-| `Duration`       | A duration string; object via `AsTimedelta`.   |
-| `TimeZone`       | A UTC offset; object via `AsTimezone`.         |
-| `TimeZoneInfo`   | An IANA name; object via `Coerce(ZoneInfo)`.   |
+| Name             | Note                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `Email`          | An email address.                                                                           |
+| `Url`            | A URL.                                                                                      |
+| `FqdnUrl`        | A URL with a fully qualified domain.                                                        |
+| `Slug`           | A URL slug.                                                                                 |
+| `Alpha`          | Letters only.                                                                               |
+| `Alphanumeric`   | Letters and digits only.                                                                    |
+| `ASCII`          | ASCII characters only.                                                                      |
+| `PrintableASCII` | Printable ASCII only.                                                                       |
+| `NoWhitespace`   | No whitespace characters.                                                                   |
+| `StartsWith`     | Begins with a prefix.                                                                       |
+| `EndsWith`       | Ends with a suffix.                                                                         |
+| `ByteLength`     | UTF-8 byte length within bounds.                                                            |
+| `HexColor`       | A hex color; compose `Lower`/`Upper` for case.                                              |
+| `Hex`            | Hexadecimal; checks, does not decode.                                                       |
+| `Base64`         | Base64; checks, does not decode.                                                            |
+| `JSONString`     | A JSON string; value via `FromJSONString`.                                                  |
+| `YAMLString`     | A YAML string; value via `FromYAMLString`.                                                  |
+| `ULID`           | A ULID; compose `Upper` for canonical case.                                                 |
+| `DataURI`        | A `data:` URI.                                                                              |
+| `Datetime`       | A datetime string; string in, string out.                                                   |
+| `Date`           | A date string; string in, string out.                                                       |
+| `Time`           | A time string; string in, string out.                                                       |
+| `Duration`       | A duration (also a timedelta, a number of seconds, or a mapping); object via `AsTimedelta`. |
+| `TimeZone`       | A UTC offset; object via `AsTimezone`.                                                      |
+| `TimeZoneInfo`   | An IANA name; object via `Coerce(ZoneInfo)`.                                                |
 
 ### Network and identifier
 
 Check the format and return the string unchanged. The parsed object is opt-in
 through `Coerce`, since each of these types constructs from its string.
 
-| Name          | Note                                                     |
-| ------------- | -------------------------------------------------------- |
-| `Hostname`    | A hostname.                                              |
-| `Fqdn`        | A fully qualified domain name.                           |
-| `Port`        | A TCP/UDP port number.                                   |
-| `MacAddress`  | A MAC address; canonical form via `NormalizeMacAddress`. |
-| `UUID`        | A UUID; object via `Coerce(uuid.UUID)`.                  |
-| `IPv4Address` | Object via `Coerce(ipaddress.IPv4Address)`.              |
-| `IPv6Address` | Object via `Coerce(ipaddress.IPv6Address)`.              |
-| `IPAddress`   | Object via `Coerce(ipaddress.ip_address)`.               |
-| `IPNetwork`   | Object via `Coerce(ipaddress.ip_network)`.               |
+| Name          | Note                                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Hostname`    | A hostname.                                                                                                 |
+| `Fqdn`        | A fully qualified domain name.                                                                              |
+| `Port`        | A TCP/UDP port number; returns an `int`.                                                                    |
+| `MacAddress`  | A MAC address; canonical form via `NormalizeMacAddress`.                                                    |
+| `UUID`        | A UUID; object via `Coerce(uuid.UUID)`.                                                                     |
+| `IPv4Address` | Object via `Coerce(ipaddress.IPv4Address)`.                                                                 |
+| `IPv6Address` | Object via `Coerce(ipaddress.IPv6Address)`.                                                                 |
+| `IPAddress`   | Object via `Coerce(ipaddress.ip_address)`.                                                                  |
+| `IPNetwork`   | Object via `Coerce(lambda v: ipaddress.ip_network(v, strict=False))`; plain `ip_network` rejects host bits. |
 
 ### Filesystem
 
@@ -183,7 +180,7 @@ Run over a whole mapping, usually after a dict schema with `All`.
 | `RequiredWith`    | Required when another key is present.     |
 | `RequiredWithout` | Required when another key is absent.      |
 | `RequiredIf`      | Required when a condition holds.          |
-| `Check`           | An arbitrary predicate over the mapping.  |
+| `Check`           | An arbitrary predicate over the value.    |
 | `AtLeastOne`      | At least one of a set of keys is present. |
 | `AtMostOne`       | At most one of a set of keys is present.  |
 | `ExactlyOne`      | Exactly one of a set of keys is present.  |
@@ -222,13 +219,19 @@ The type changes.
 
 The type stays; the value is cleaned.
 
-| Name                  | Result                           |
-| --------------------- | -------------------------------- |
-| `Lower`               | Lowercase.                       |
-| `Upper`               | Uppercase.                       |
-| `Capitalize`          | Capitalized.                     |
-| `Title`               | Title-cased.                     |
-| `Strip`               | Whitespace trimmed.              |
-| `Replace`             | Regular-expression replace.      |
-| `Clamp`               | A number pinned into a range.    |
-| `NormalizeMacAddress` | A MAC address in canonical form. |
+| Name                  | Result                                         |
+| --------------------- | ---------------------------------------------- |
+| `Lower`               | Lowercase.                                     |
+| `Upper`               | Uppercase.                                     |
+| `Capitalize`          | Capitalized.                                   |
+| `Title`               | Title-cased.                                   |
+| `Strip`               | Whitespace trimmed.                            |
+| `Replace`             | Regular-expression replace.                    |
+| `Clamp`               | A number pinned into a range.                  |
+| `NormalizeMacAddress` | A MAC address in canonical form.               |
+| `CreditCard`          | A card number (Luhn), stripped to bare digits. |
+| `IBAN`                | An IBAN (mod-97), compacted and upper-cased.   |
+| `E164`                | An E.164 phone number, grouping stripped.      |
+
+`CreditCard`, `IBAN`, and `E164` normalize by default; pass `normalize=False`
+to validate and return the value unchanged.

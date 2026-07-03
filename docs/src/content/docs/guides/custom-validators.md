@@ -32,7 +32,7 @@ To reject a value, raise `Invalid` with a message. The message is what the
 caller sees, and Probatio attaches the path to the offending value for you.
 
 ```python
-from probatio import Schema, Invalid, Required, MultipleInvalid
+from probatio import Schema, Invalid, Required
 
 def even(value):
     if value % 2 != 0:
@@ -71,7 +71,7 @@ is on purpose: a lot of standard-library and third-party functions already raise
 `ValueError` on bad input, so they drop straight in as validators.
 
 ```python
-from probatio import Schema, MultipleInvalid
+from probatio import Schema
 
 def port(value):
     number = int(value)  # raises ValueError on "nope"
@@ -110,6 +110,46 @@ carries the `not a valid value: ` prefix. Raise `Invalid` when you want full
 control of the message the caller reads, with no prefix.
 :::
 
+## Wrapping a predicate with truth
+
+Some checks already exist as predicates: a function that answers `True` or
+`False`, like `os.path.isdir` or `str.isidentifier`. A predicate is not a
+validator, because it returns the answer instead of the value. `truth` (a
+voluptuous carry-over) bridges that: it wraps the predicate into a validator
+that passes the value through unchanged when the predicate is truthy, and
+rejects it when it is falsy.
+
+```python
+from probatio import Schema, truth
+
+@truth
+def positive(value):
+    return value > 0
+
+schema = Schema(positive)
+schema(5)  # 5
+```
+
+A falsy result raises a bare `ValueError` under the hood, so the failure reads
+`not a valid value`, with no reason attached. Wrap the result in
+[`Msg`](#reshaping-the-message-with-msg) when the caller deserves a better
+message.
+
+```python
+from probatio import Schema, MultipleInvalid, truth
+
+@truth
+def positive(value):
+    return value > 0
+
+schema = Schema(positive)
+
+try:
+    schema(-1)
+except MultipleInvalid as err:
+    print(err)  # not a valid value
+```
+
 ## Transforming the value
 
 A validator does not have to return the input untouched. Returning a different
@@ -136,7 +176,7 @@ replaces its failure message. Pass `cls` to also swap the error class, so
 callers can catch your failure by type.
 
 ```python
-from probatio import Schema, Msg, Match, MultipleInvalid
+from probatio import Schema, Msg, Match
 
 schema = Schema(Msg(Match(r"^[a-z]+$"), "lowercase letters only"))
 
@@ -180,7 +220,7 @@ Custom validators are validators, so they nest like any other. Drop them into
 validator feeds the next (see [combinators](/guides/combinators/)).
 
 ```python
-from probatio import Schema, All, Strip, Lower, Invalid, Required, MultipleInvalid
+from probatio import Schema, All, Strip, Lower, Invalid, Required
 
 def not_empty(value):
     if not value:
@@ -240,7 +280,7 @@ A class with a `__call__` method works the same way and is handier when the
 validator carries several settings or wants a readable `repr`:
 
 ```python
-from probatio import Schema, Invalid, MultipleInvalid
+from probatio import Schema, Invalid
 
 class AtLeast:
     def __init__(self, minimum):
@@ -306,7 +346,9 @@ Schema(Slug)("Hello").value  # 'hello'
 This keeps the "how do I validate a raw value of myself" knowledge on the type,
 instead of wrapping every use in a `Coerce`. It is the principled way to make a
 domain type a first-class schema. For a type you do not own, reach for `Coerce` or
-a small validator function instead.
+a small validator function instead. See
+[ADR-007](https://github.com/frenck/probatio/blob/main/adr/007-self-validation-protocol.md)
+for the design.
 
 ## Validating against call-time context
 
@@ -361,17 +403,10 @@ except MultipleInvalid as err:
     print(err)  # expected int at 'width'
 ```
 
-The `raises` context manager is the companion test helper: it asserts a block
-raises a given error (optionally matching the message), which is how the examples
-here check the rejection path.
-
-```python
-from probatio import Schema, MultipleInvalid, raises
-
-schema = Schema(int)
-with raises(MultipleInvalid, "expected int"):
-    schema("nope")
-```
+The companion `raises` context manager asserts that a block raises a given
+error, optionally matching the message. It is a test helper, so it lives with
+the rest of the testing story: see
+[Testing with pytest](/guides/testing-with-pytest/).
 
 ## Where to next
 

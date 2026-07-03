@@ -83,16 +83,18 @@ is a deliberate improvement over a sharp edge:
 - Built-in validators never leak a raw exception on a wrong-typed value:
   `Replace("a", "b")(42)` raises `MatchInvalid` rather than the `TypeError` from
   `re.sub`, and `Number()` on `None`/`dict`/`set`/`bytes`/an empty sequence
-  raises `Invalid`. voluptuous fixes the same edges upstream in [PR #540](https://github.com/alecthomas/voluptuous/pull/540) and #539.
+  raises `Invalid`. voluptuous fixes the same edges upstream in [PR #540](https://github.com/alecthomas/voluptuous/pull/540) and
+  [PR #539](https://github.com/alecthomas/voluptuous/pull/539).
 - `extend` accepts another `Schema`, merging its keys and preserving its
   `required` intent (its `extra` must match the result's). voluptuous 0.16.0
   raises an `AssertionError`; it is added upstream in [PR #538](https://github.com/alecthomas/voluptuous/pull/538).
 - Validating a list reports every failing item, each with its index, where
-  voluptuous 0.16.0 stops at the first failing nested item (open request, issue
-  #171). The diagnostics are more complete; error-iterating code is unaffected.
+  voluptuous 0.16.0 stops at the first failing nested item (open request,
+  [issue #171](https://github.com/alecthomas/voluptuous/issues/171)). The
+  diagnostics are more complete; error-iterating code is unaffected.
 - A set schema (`{Coerce(int)}`) transforms its elements like a list schema does,
-  so a `Coerce` coerces. voluptuous returns the set untransformed (bug, issue
-  #400).
+  so a `Coerce` coerces. voluptuous returns the set untransformed (bug,
+  [issue #400](https://github.com/alecthomas/voluptuous/issues/400)).
 - A failing `Any` with concrete branches lists them ("expected int or str or
   None") as `AnyInvalid`, where voluptuous reports only the first branch or "not
   a valid value" ([issue #412](https://github.com/alecthomas/voluptuous/issues/412)). A validator branch keeps surfacing its own error.
@@ -101,19 +103,25 @@ Where Probatio diverges, it tells you with a normal error, not a crash.
 
 ## How compatibility is checked
 
-Two things keep Probatio honest, and neither is a claim you have to take on
-faith.
+The drop-in claim is tested, not asserted. voluptuous 0.16.0 is pinned as a
+dev-only oracle in Probatio's development dependencies (no code is copied from
+it), and three layers of evidence back the claim:
 
-First, differential tests. Probatio and voluptuous run the same schemas against
-the same inputs, and their results are compared. Voluptuous is the oracle: a
-divergence is treated as a Probatio bug unless it is one of the documented
-deviations above. The comparison is driven by generated schemas and data, so it
-covers more than a hand-written suite would.
-
-Second, a real-world proof. Home Assistant's own `config_validation` test suite
-runs against Probatio through the compatibility shim, and it passes. That suite
-exercises voluptuous hard across a large, real configuration surface, so it is a
-strong signal that the drop-in promise holds in practice.
+- **voluptuous's own test suite runs against Probatio.** Through the shim,
+  upstream `tests.py` at 0.16.0 imports Probatio instead of voluptuous. A clean
+  run is all green: every divergence is one of the documented deviations above,
+  marked as expected with a reason, so any new break shows up loudly. This is
+  voluptuous's own authors' notion of the contract, checked.
+- **Differential tests in Probatio's suite** (`tests/test_conformance.py`,
+  `tests/test_fidelity.py`, `tests/test_v0_16.py`). The same schemas and inputs
+  run through both libraries and the results are compared: the same accepted or
+  normalized value, the same error paths, and the same bare error messages
+  where downstream code string-matches them. A divergence is treated as a
+  Probatio bug unless it is one of the documented deviations above.
+- **Home Assistant's `config_validation` test suite passes** with voluptuous
+  swapped out for Probatio through the shim. That suite exercises voluptuous
+  hard across a large, real configuration surface, so it is a strong signal
+  that the drop-in promise holds in practice.
 
 ## Where to next
 

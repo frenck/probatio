@@ -12,10 +12,11 @@ Schema](/guides/json-schema/) first; this page covers what OpenAPI adds.
 ## Both directions
 
 `to_openapi(schema)` renders a schema as an OpenAPI Schema object.
-`from_openapi(dict)` is the inverse: it builds a `Schema` back. This is handy for
-LLM tool calling and MCP, which describe tool parameters as OpenAPI, so a Probatio
-schema can become a tool signature and a tool's declared parameters can become a
-validator.
+`from_openapi(dict)` is the inverse: it builds a `Schema` back. Use the pair to
+publish request and response schemas in the spec of an OpenAPI-described
+service, straight from the validators you already run, or to build a validator
+from a spec you consume. For LLM tool calling and MCP, which take JSON Schema
+rather than OpenAPI, see the [LLM tool recipe](/recipes/llm-tools/).
 
 ```python
 from probatio import Schema, Required, Optional, to_openapi
@@ -24,6 +25,11 @@ schema = Schema({Required("name"): str, Optional("port", default=8080): int})
 to_openapi(schema)
 # {'type': 'object', 'properties': {'name': {'type': 'string'}, 'port': {'type': 'integer', 'default': 8080}}, 'required': ['name']}
 ```
+
+Note the missing `additionalProperties`: where `to_json_schema` closes an object
+with an explicit `additionalProperties: False`, `to_openapi` matches
+voluptuous-openapi's output and omits the keyword on a closed object, emitting
+`additionalProperties: True` only when the schema allows extra keys.
 
 Going the other way, an OpenAPI Schema object becomes a working validator.
 `nullable` is read back too, so a nullable field accepts both `None` and a real

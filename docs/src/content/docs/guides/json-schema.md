@@ -7,6 +7,12 @@ A Probatio schema is Python data. JSON Schema is the lingua franca other tools
 speak. The two codecs translate between them, for the constructs that map
 cleanly. They are exported from the top level, so
 `from probatio import to_json_schema, from_json_schema` is all you need.
+That unlocks the places JSON Schema already lives: editor validation of config
+files, form generation in a frontend, and LLM tool definitions (worked through
+in the [LLM tool recipe](/recipes/llm-tools/)). Decoded input is treated as
+untrusted by default; the
+[guards](#untrusted-input-is-the-default-assumption) are covered at the bottom
+of this page.
 
 The same decoder backs OpenAPI (see [OpenAPI](/guides/openapi/)), and a third
 codec renders the flat shape config frontends consume (see [Field
@@ -78,25 +84,35 @@ to forbid. `to_json_schema` emits the same constructs in the other direction.
 | Values  | `enum`, `const`, `not`, `type` (including a type array like `["string", "null"]`)                                                                                                  |
 | Compose | `anyOf`, `oneOf`, `allOf`, `$ref` (resolved against `$defs`/`definitions`)                                                                                                         |
 
-`ExactSequence` exports as `prefixItems` (with `items: false` and matching
-`minItems`/`maxItems`), `Unique` as `uniqueItems`, `Contains` as `contains`,
-`Equal`/`Literal` as `const`, and `NotIn` as `not` over an `enum`. The called
-factory forms `Email()`/`Url()`/`FqdnUrl()` export their `format` (`email`/`uri`),
-the same as the bare names. `Datetime`/`Date`/`Time` export the
-`date-time`/`date`/`time` formats (a custom `strptime` format has no JSON Schema
-equivalent, so it exports as a plain string). The network and identifier
-validators export their standard `format`: `IPv4Address` to `ipv4`, `IPv6Address`
-to `ipv6`, `UUID` to `uuid`, and `Hostname`/`Fqdn` to `hostname`; `Port` exports a
-bounded integer and `MultipleOf` a `multipleOf`. A `Secret` key exports its
-property with `writeOnly: true`, and `Base64` as `contentEncoding: base64`. These
-decode back into the matching validator (a `writeOnly` property decodes to a
-`Secret` key), so they round-trip, with one known widener.
-JSON Schema has a single `hostname` format, so both `Hostname` and `Fqdn` export
-to it and decode back as `Hostname`, meaning a round-tripped `Fqdn` accepts a
-dotless host the original would reject. Pin it with a `pattern` or an explicit
-check if the distinction matters. `oneOf` decodes with its exact semantics (a
-value must match exactly one branch, so one matching two or more is rejected),
-unlike the looser `anyOf`.
+The named validators map to JSON Schema like this, and decode back into the
+matching validator (a `writeOnly` property decodes to a `Secret` key), so they
+round-trip:
+
+| Probatio construct            | JSON Schema output                                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `ExactSequence`               | `prefixItems` (with `items: false`, matching `minItems`/`maxItems`)                                                               |
+| `Unique`                      | `uniqueItems`                                                                                                                     |
+| `Contains`                    | `contains`                                                                                                                        |
+| `Equal` / `Literal`           | `const`                                                                                                                           |
+| `NotIn`                       | `not` over an `enum`                                                                                                              |
+| `Email` / `Email()`           | `format: email`                                                                                                                   |
+| `Url` / `Url()` / `FqdnUrl()` | `format: uri`                                                                                                                     |
+| `Datetime` / `Date` / `Time`  | `format: date-time` / `date` / `time` (a custom `strptime` format has no JSON Schema equivalent, so it exports as a plain string) |
+| `IPv4Address` / `IPv6Address` | `format: ipv4` / `ipv6`                                                                                                           |
+| `UUID`                        | `format: uuid`                                                                                                                    |
+| `Hostname` / `Fqdn`           | `format: hostname`                                                                                                                |
+| `Port`                        | a bounded integer                                                                                                                 |
+| `MultipleOf`                  | `multipleOf`                                                                                                                      |
+| `Secret` key                  | its property with `writeOnly: true`                                                                                               |
+| `Base64`                      | `contentEncoding: base64`                                                                                                         |
+
+The one known widener: JSON Schema has a single `hostname` format, so both
+`Hostname` and `Fqdn` export to it and decode back as `Hostname`, meaning a
+round-tripped `Fqdn` accepts a dotless host the original would reject. Pin it
+with a `pattern` or an explicit check if the distinction matters.
+
+`oneOf` decodes with its exact semantics (a value must match exactly one branch,
+so one matching two or more is rejected), unlike the looser `anyOf`.
 
 `from_openapi` adds the OpenAPI `nullable` keyword, covered in
 [OpenAPI](/guides/openapi/).

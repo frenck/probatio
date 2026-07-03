@@ -35,7 +35,12 @@ that carry a path and suggest the key you meant), and it is held to the bar you
 would want from a library that loads untrusted config. See
 [Why trust it](#why-trust-it).
 
-Probatio is pure Python: no compiler, no build step, no native extension.
+It is also fast for pure Python: roughly two to three times voluptuous's speed
+on a representative config schema, and about seven times once a schema compiles
+itself. The numbers, and how to reproduce them, are in the
+[performance reference][docs-performance].
+
+Probatio is pure Python: no native extension, nothing to build at install time.
 Install it and import it. Requires Python 3.12 or newer.
 
 ## Installation
@@ -69,18 +74,19 @@ schema({"name": "app"})
 # {'name': 'app', 'port': 8080}
 ```
 
-When a value does not match, the error carries a path to the offending value:
+When a value does not match, the error carries a path to the offending value,
+however deep it sits:
 
 ```python
 from probatio import Schema, Invalid
 
-schema = Schema({"port": int})
+schema = Schema({"server": {"port": int}})
 
 try:
-    schema({"port": "nope"})
+    schema({"server": {"port": "nope"}})
 except Invalid as err:
     print(err)
-    # expected int at 'port'
+    # expected int at 'server.port'
 ```
 
 ## Why trust it
@@ -208,6 +214,7 @@ SOFTWARE.
 [issues]: https://github.com/frenck/probatio/issues
 [security]: https://github.com/frenck/probatio/blob/main/.github/SECURITY.md
 [docs-migrating]: https://probatio.frenck.dev/getting-started/migrating-from-voluptuous/
+[docs-performance]: https://probatio.frenck.dev/reference/performance/
 [docs]: https://probatio.frenck.dev
 [frenck]: https://github.com/frenck
 [keepchangelog]: http://keepachangelog.com/en/1.0.0/

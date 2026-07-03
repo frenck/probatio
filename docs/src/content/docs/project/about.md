@@ -42,9 +42,20 @@ Reaching for validation in Python tends to mean one of a few trades:
   model and a migration, not a drop-in. It has also broken backward compatibility
   and reshaped its API substantially in the past (the v1 to v2 rewrite), which is
   not a foundation this project wants to stand on.
+- **marshmallow** validates and (de)serializes through declarative schema
+  classes with explicit field objects, built around the load and dump cycle. A
+  solid model, but a class you declare, not data you compose.
+- **cerberus** keeps the schema as data, like voluptuous, but as dicts of
+  string rule names rather than live Python objects, so composing and reusing
+  schema pieces means manipulating nested dicts.
+- **jsonschema** validates against the JSON Schema specification. The right
+  tool when the contract is a JSON Schema document, less so as a general
+  Python-side validator.
 
 There simply was not a maintained library that kept voluptuous's
-schema-is-data feel while fixing the edges and keeping pace with Python.
+schema-is-data feel while fixing the edges and keeping pace with Python. The
+[comparison page](/project/comparison/) walks through each of these in more
+depth, including when the other library is the better choice.
 
 ## What Probatio is
 
@@ -60,8 +71,9 @@ On top of the drop-in promise, Probatio fixes the rough edges (clean errors on
 deep or cyclic data, no leaked exceptions from built-ins, a richer error model),
 adds tooling voluptuous never had (JSON Schema, OpenAPI, dataclass and
 field-list codecs), and is pure Python with zero required runtime dependencies.
-It is held to a high bar for code and prose, because it is public and read
-closely.
+It is also fast: on a representative config schema, roughly two to three times
+faster than voluptuous interpreted, and more once a hot schema compiles itself.
+The [performance page](/reference/performance/) has the honest numbers.
 
 The compatibility is measured, not asserted: Home Assistant's own
 `config_validation` test suite runs against Probatio (the full suite passing), and

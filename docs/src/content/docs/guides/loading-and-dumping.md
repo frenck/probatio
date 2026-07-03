@@ -4,11 +4,12 @@ description: Parse JSON, YAML, and TOML into Python, validate it, and write it b
 ---
 
 Validation works on Python values, but data arrives as text: a JSON request
-body, a YAML config file, a TOML manifest. Probatio reads and writes all three
-through one set of functions. JSON read and write and TOML read work on the
-standard library; YAML (read and write) and TOML write need an optional extra,
-covered under [Backends](#backends) below. Every function here is exported from
-the top level.
+body, a YAML config file, a TOML manifest. This page covers the loaders that
+parse all three into Python, the dumpers that write them back out, and the best
+part, [source locations](#source-locations): load YAML with locations and a
+validation error can point at the exact line and column in the file, like
+`Got 70000 (at 2:9)`. voluptuous has none of this: no loaders, no dumpers, no
+source locations. Every function here is exported from the top level.
 
 ## Loading
 
@@ -51,6 +52,10 @@ schema = Schema({Required("port"): int})
 schema.load_json('{"port": 8080}')  # {'port': 8080}
 ```
 
+The convenience methods take no `options`; when you need to tune the backend
+(see [Backend options](#backend-options)), parse with the module function and
+validate the result yourself.
+
 `load` infers the format from a path extension. Write a file, then read it back
 without naming the format:
 
@@ -62,22 +67,19 @@ Path("config.json").write_text('{"port": 8080}')
 load(Path("config.json"))  # {'port': 8080}
 ```
 
-:::caution[YAML is parsed safely]
+:::caution[Untrusted YAML]
 `load_yaml` never uses an unsafe YAML loader. The input is untrusted by default,
 so it sticks to a safe load that builds plain Python values, not arbitrary
-objects. If you were relying on YAML constructing custom types for you, it will
-not.
-:::
-
-:::caution[Use the fast backend for untrusted YAML]
-A safe load still expands YAML aliases, so a small document full of anchors that
-reference each other (the billion-laughs pattern) can blow up to gigabytes of
-logical nodes. The backend decides whether that is contained. YAMLRocks (the
-`probatio[fast]` backend) counts the expanded nodes and refuses a document that
-blows up, so it is bomb-resistant. The PyYAML fallback is not: it shares the alias
-references, so the document parses cheaply and the cost lands later, when the
-structure is walked during validation. Prefer the fast backend for genuinely
-untrusted YAML, and bound the input size when you are on the PyYAML fallback.
+objects; if you were relying on YAML constructing custom types for you, it will
+not. A safe load still expands YAML aliases, though, so a small document full of
+anchors that reference each other (the billion-laughs pattern) can blow up to
+gigabytes of logical nodes. The backend decides whether that is contained.
+YAMLRocks (the `probatio[fast]` backend) counts the expanded nodes and refuses a
+document that blows up, so it is bomb-resistant. The PyYAML fallback is not: it
+shares the alias references, so the document parses cheaply and the cost lands
+later, when the structure is walked during validation. Prefer the fast backend
+for genuinely untrusted YAML, and bound the input size when you are on the
+PyYAML fallback.
 :::
 
 ## Dumping
@@ -97,18 +99,36 @@ load_json(text)  # {'port': 8080}
 ```
 
 Before handing a value to the backend, the dumpers normalize the few non-native
-types a validated value commonly carries: `Decimal` becomes a float, and `set`,
-`frozenset`, and `tuple` become a list. The temporal types are format-aware. TOML
-has native `datetime`, `date`, and `time`, so those pass through and round-trip as
-the same type; JSON and YAML have no temporal types, so they become ISO 8601
-strings. JSON also has no `nan` or `inf`, so a non-finite float is refused with a
-clear error rather than silently corrupted (the fast backend would turn it into
-`null`, the standard library into an invalid token). YAML and TOML keep non-finite
-floats, since both can represent them. The normalization is one-way: a `set`,
-`frozenset`, or `tuple` dumps as a list and loads back as a list, not as the
-original type. This is a convenience for round-tripping validated data, not a
-general serialization framework. Reach for a `default` hook or a dedicated
-serializer when you need more.
+types a validated value commonly carries:
+
+- `Decimal` becomes a float.
+- `set`, `frozenset`, and `tuple` become a list.
+- The temporal types are format-aware. TOML has native `datetime`, `date`, and
+  `time`, so those pass through and round-trip as the same type; JSON and YAML
+  have no temporal types, so they become ISO 8601 strings.
+- A non-finite float (`nan`, `inf`) is refused for JSON with a clear error
+  rather than silently corrupted (the fast backend would turn it into `null`,
+  the standard library into an invalid token). YAML and TOML keep non-finite
+  floats, since both can represent them.
+- The normalization is one-way: a `set`, `frozenset`, or `tuple` dumps as a
+  list and loads back as a list, not as the original type.
+
+This is a convenience for round-tripping validated data, not a general
+serialization framework. For a type the dumpers do not know, every dumper takes
+a `default` hook: a callable that receives the unhandled value and returns one
+the format can carry (the result is normalized again, so it can itself be a
+container). For more than that, reach for a dedicated serializer.
+
+```python
+from probatio import dump_json, load_json
+
+class Color:
+    def __init__(self, name):
+        self.name = name
+
+text = dump_json({"accent": Color("teal")}, default=lambda color: color.name)
+load_json(text)  # {'accent': 'teal'}
+```
 
 :::note
 The output does not depend on which backend is installed. The JSON text is the
@@ -122,7 +142,9 @@ since that is what you actually care about.
 ## Backends
 
 Probatio uses a fast backend when one is installed and falls back to the standard
-library otherwise. The backends are detected once at import time:
+library otherwise. JSON read and write and TOML read work on the standard library
+alone; YAML (read and write) and TOML write need an optional extra. The backends
+are detected once at import time:
 
 - JSON: [orjson](https://github.com/ijl/orjson) when present, otherwise the
   standard library's `json`.

@@ -6,7 +6,7 @@ description: A tour of the validators Probatio ships with, grouped by what they 
 A validator is a callable that takes a value and returns it (possibly
 normalized), or raises `Invalid`. Probatio ships a stack of them so you rarely
 have to write your own. This page walks the toolbox by category, with a short
-runnable example for each.
+runnable example for nearly all of them.
 
 These are the leaf validators. The combinators that compose them (`All`, `Any`,
 `Union`, `SomeOf`) live in the [combinators guide](/guides/combinators/), and the
@@ -219,7 +219,9 @@ want to reject non-strings, put a `str` check ahead of the transform with `All`.
 ## Format and checksum
 
 A handful of validators check a structured format or a checksum, all pure (no
-network, no extra dependency): `CreditCard` (the Luhn check), `IBAN` (the ISO 13616
+network, no extra dependency). Like the network validators below, these are
+Probatio additions with no voluptuous equivalent: `CreditCard` (the Luhn
+check), `IBAN` (the ISO 13616
 mod-97 check), `DataURI` (an RFC 2397 `data:` URI), and `E164` (a phone number in
 international format). By default `CreditCard`, `IBAN`, and `E164` canonicalize the
 input (strip grouping, upper-case the IBAN); pass `normalize=False` to validate and
@@ -260,10 +262,13 @@ mapping) and returns the value unchanged; `AsTimedelta` accepts the same forms a
 returns the parsed `datetime.timedelta`, the same `Datetime`/`AsDatetime` split. An
 ISO 8601 duration is limited to the fields a `timedelta` can represent (weeks, days,
 hours, minutes, seconds); a year or a month is rejected, since neither is a fixed
-length. `TimeZoneInfo` validates an IANA name (object via `Coerce(zoneinfo.ZoneInfo)`,
-whose constructor takes the name), and `TimeZone` validates a fixed UTC offset
-(`+01:00`, `Z`, `UTC`), with `AsTimezone` as the object-returning sibling that parses
-the offset into a `datetime.timezone`.
+length.
+
+For time zones, `TimeZoneInfo` validates an IANA name (for the `ZoneInfo`
+object itself, wrap the type: `Coerce(zoneinfo.ZoneInfo)`; its constructor
+takes the name). `TimeZone` validates a fixed UTC offset (`+01:00`, `Z`,
+`UTC`), with `AsTimezone` as the object-returning sibling that parses the
+offset into a `datetime.timezone`.
 
 ```python
 import zoneinfo
@@ -407,6 +412,16 @@ Schema(Base64())("aGVsbG8=")  # 'aGVsbG8='
 Schema(Hex())("deadbeef")     # 'deadbeef'
 ```
 
+`HexInt` is the parsing sibling of `Hex`: it reads a hexadecimal string (a
+leading `0x` is optional) and returns the `int`.
+
+```python
+from probatio import Schema, HexInt
+
+Schema(HexInt())("ff")    # 255
+Schema(HexInt())("0x1A")  # 26
+```
+
 ## Filesystem
 
 `IsDir`, `IsFile`, and `PathExists` check a path on disk, with `IsSymlink`,
@@ -485,6 +500,10 @@ schema = Schema(
 )
 schema({"start": 1, "end": 2})  # unchanged
 ```
+
+For a plain predicate on a single value, rather than a whole mapping, the
+`truth` decorator (a voluptuous-compat helper) turns it into a validator; the
+[custom validators guide](/guides/custom-validators/) covers it.
 
 `AtLeastOne`, `AtMostOne`, `ExactlyOne`, and `AllOrNone` are the key-group
 presence rules: how many of a set of keys may or must appear. `AtLeastOne("host",

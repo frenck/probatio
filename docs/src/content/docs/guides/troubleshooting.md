@@ -7,6 +7,53 @@ A short list of the things that trip people up, with the symptom first and the
 fix second. Most of them are points where Probatio matches voluptuous exactly,
 so the fix is the same one you would reach for there.
 
+## My test asserting the voluptuous error string broke
+
+The number-one migration symptom. Probatio renders errors with a dotted path
+(`expected int at 'server.port'`) where voluptuous rendered
+`expected int for dictionary value @ data['server']['port']`. That is a
+deliberate deviation, listed on the
+[compatibility matrix](/reference/compatibility-matrix/), not a bug to report.
+
+Do not assert on `str(err)`. Assert on the structured attributes, which match
+voluptuous exactly: `path`, `error_message` (the bare message without the
+path), and the exception class.
+
+```python
+from probatio import Schema, MultipleInvalid
+
+schema = Schema({"server": {"port": int}})
+
+try:
+    schema({"server": {"port": "nope"}})
+except MultipleInvalid as err:
+    print(err)                          # expected int at 'server.port'
+    print(err.errors[0].path)           # ['server', 'port']
+    print(err.errors[0].error_message)  # expected int
+```
+
+## My extra keys were rejected
+
+A key the schema does not name is rejected by default, matching voluptuous.
+The first hour with a real payload usually surfaces this. Allow extras
+schema-wide with `extra=ALLOW_EXTRA`, or per key with the `Extra` catch-all
+(`{Extra: object}`), which the
+[dict schemas guide](/guides/dict-schemas-and-markers/) covers in full.
+
+```python
+from probatio import Schema, Invalid, ALLOW_EXTRA
+
+strict = Schema({"name": str})
+
+try:
+    strict({"name": "app", "debug": True})
+except Invalid as err:
+    print(err)  # not a valid option at 'debug'
+
+relaxed = Schema({"name": str}, extra=ALLOW_EXTRA)
+relaxed({"name": "app", "debug": True})  # {'name': 'app', 'debug': True}
+```
+
 ## I caught `Invalid` but got a `MultipleInvalid`
 
 A `Schema` call always wraps its failures in `MultipleInvalid`, even when there
@@ -123,8 +170,8 @@ schema({"keep": 1, "drop": "x"})  # {'keep': 1}
 A recursive `Self` schema has a depth guard, so cyclic or pathologically deep
 data raises a clean `Invalid` instead of crashing the interpreter with a
 `RecursionError`. The limit scales with the interpreter's recursion limit. Real
-data is nowhere near it; if you knowingly need deeper, raise
-`sys.setrecursionlimit` before validating.
+data is nowhere near it; if you knowingly need deeper, raise the interpreter's
+recursion limit with `sys.setrecursionlimit()` before validating.
 
 ## A difference from voluptuous that is not documented
 

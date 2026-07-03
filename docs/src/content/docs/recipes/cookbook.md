@@ -33,6 +33,12 @@ schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
 schema({"type": "label", "text": "hi"})    # {'type': 'label', 'text': 'hi'}
 ```
 
+The discriminant sees the raw input, before any validation, so a non-dict input
+raises from `value.get` before the union gets to report anything. A production
+discriminant should guard for that; a
+`if not isinstance(value, dict): return []` up front makes the union reject a
+non-dict with its own clean `Invalid` instead.
+
 A point with a non-int coordinate fails against the point branch, not the whole
 union:
 
@@ -54,6 +60,8 @@ schema = Schema(
 
 schema({"type": "point", "x": "nope", "y": 2})
 ```
+
+Deep dive: [Combinators](/guides/combinators/).
 
 ## Coercing config and environment strings
 
@@ -91,6 +99,8 @@ message to customize the error (`Boolean("not a flag")`). The string transforms
 like `Lower` and `Strip` are plain functions instead, so use those bare.
 :::
 
+Deep dive: [Validators](/guides/validators/).
+
 ## Open mapping with typed keys and values
 
 To describe "any string key, integer value", use a type as the dict key. A type
@@ -118,6 +128,8 @@ schema({"name": "app", "debug": True, "retries": 3})
 # {'name': 'app', 'debug': True, 'retries': 3}
 ```
 
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
+
 ## Nested optional sections with defaults
 
 A whole config section can be optional, holding a nested schema with its own
@@ -144,15 +156,13 @@ schema({"logging": {"level": "debug"}})
 # {'logging': {'level': 'debug', 'file': 'app.log'}}
 ```
 
-The outer default (`dict()`, an empty dict) is validated through the nested
-schema like any other value, so it picks up the inner defaults. A missing section
-and an empty-dict section therefore come back the same, fully populated.
-
 :::note
 Use a callable default (`dict`, `list`) rather than a literal `{}` or `[]`. The
 callable runs per validation, so each result gets its own fresh container instead
 of sharing one mutable object across calls.
 :::
+
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
 
 ## Mutually exclusive and co-dependent keys
 
@@ -214,6 +224,8 @@ except Invalid as err:
     # some but not all values in the same group of inclusion 'server' at '<server>'
 ```
 
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
+
 ## At least one of a group of keys
 
 To require that _at least one_ of several keys is present, while still allowing
@@ -247,6 +259,27 @@ except Invalid as err:
     print(err)  # at least one of ['email', 'phone'] is required at '[Any('email', 'phone', msg=None)]'
 ```
 
+That default group label is honest but ugly: the path segment renders the
+`Any(...)` marker's repr, because the group has no natural key name. (The repr
+leak itself is a known library issue, tracked separately.) The production form
+is a custom `msg` on the marker, read back through `error_message`, which
+carries the message without the path:
+
+```python
+from probatio import Schema, Required, Any, Invalid
+
+schema = Schema(
+    {Required(Any("email", "phone"), msg="provide an email or a phone number"): str}
+)
+
+try:
+    schema({})
+except Invalid as err:
+    print(err.errors[0].error_message)  # provide an email or a phone number
+```
+
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
+
 ## Dropping deprecated keys
 
 `Remove` drops matching keys from the output. The value is still validated, so a
@@ -260,6 +293,8 @@ schema = Schema({"name": str, Remove("legacy_mode"): bool})
 
 schema({"name": "app", "legacy_mode": True})  # {'name': 'app'}
 ```
+
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
 
 ## Extending a base schema with a cross-field rule
 
@@ -307,6 +342,8 @@ except Invalid as err:
     print(err)  # min must be below max
 ```
 
+Deep dive: [Combinators](/guides/combinators/).
+
 ## Recursive tree
 
 `Self` references the schema being defined, which is how you validate tree-shaped
@@ -342,6 +379,8 @@ node = Schema(
 
 node({"name": "root", "children": [{"name": 42}]})
 ```
+
+Deep dive: [Recursive schemas](/guides/recursive-schemas/).
 
 ## Friendly error messages
 
@@ -389,3 +428,6 @@ try:
 except Invalid as err:
     print(err)  # use lowercase letters only
 ```
+
+Deep dive: [Error handling](/guides/error-handling/) and
+[Custom error messages](/guides/custom-error-messages/).
