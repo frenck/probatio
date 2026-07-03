@@ -46,10 +46,11 @@ def _type_error(expected: str, path: list[Any], error_type: str | None) -> TypeI
     produce, so inlining the isinstance is invisible to callers.
     """
     return TypeInvalid(
-        f"expected {expected}",
         path=path,
         error_type=error_type,
         context={"expected": expected},
+        translation_key="expected_type",
+        placeholders={"expected": expected},
     )
 
 
@@ -217,8 +218,7 @@ class _MappingValidator:
         # voluptuous accepts only dict, so this is a documented superset
         # (carry-forward of voluptuous issue #299). A non-Mapping is rejected.
         if not isinstance(data, dict) and not isinstance(data, Mapping):
-            message = "expected a mapping"
-            raise DictInvalid(message)
+            raise DictInvalid(translation_key="expected_mapping")
 
         # Preserve real dict subclasses, matching voluptuous. Other Mapping
         # implementations validate too, but rebuild as a plain dict.
@@ -418,9 +418,10 @@ class _MappingValidator:
     def _forbidden_error(key: Any, candidate: _Candidate) -> Invalid:
         """Build the error for a key that a Forbidden marker says must be absent."""
         return Invalid(
-            candidate.msg or "key not allowed",
+            candidate.msg,
             path=[key],
             code="forbidden_key",
+            translation_key="key_not_allowed",
         )
 
     def _store(
@@ -499,11 +500,11 @@ class _MappingValidator:
         combinator branch never pays for the pool copy or difflib.
         """
         return ExtraKeysInvalid(
-            "not a valid option",
             path=[key],
             suggest_value=key,
             suggest_pool=self._key_names,
             suggest_exclude=key,
+            translation_key="not_a_valid_option",
         )
 
     def _finalize(
@@ -540,12 +541,13 @@ class _MappingValidator:
             if candidate.complex_keys is not None:
                 # Required(Any("a", "b")): at least one of the listed keys must be
                 # present (voluptuous 0.16.0). A custom marker msg still wins.
-                message = (
-                    candidate.msg
-                    or f"at least one of {candidate.complex_keys} is required"
-                )
                 errors.append(
-                    RequiredFieldInvalid(message, path=[candidate.key_schema]),
+                    RequiredFieldInvalid(
+                        candidate.msg,
+                        path=[candidate.key_schema],
+                        translation_key="required_any_of",
+                        placeholders={"keys": candidate.complex_keys},
+                    ),
                 )
             else:
                 # A finalizer reaching here is required and unfilled: it had no
@@ -553,8 +555,9 @@ class _MappingValidator:
                 # own ``msg`` wins, matching voluptuous.
                 errors.append(
                     RequiredFieldInvalid(
-                        candidate.msg or "required key not provided",
+                        candidate.msg,
                         path=[candidate.key_schema],
+                        translation_key="required",
                     ),
                 )
 
@@ -589,9 +592,12 @@ class _MappingValidator:
 
         if any(self._candidates[index].exclusive_required for index in members):
             keys = [self._candidates[index].key_schema for index in members]
-            message = f"exactly one of {keys} is required"
             errors.append(
-                RequiredFieldInvalid(message, path=[VirtualPathComponent(group)]),
+                RequiredFieldInvalid(
+                    path=[VirtualPathComponent(group)],
+                    translation_key="required_one_of",
+                    placeholders={"keys": keys},
+                ),
             )
 
     def _group_msg(self, members: list[int]) -> str | None:
@@ -616,11 +622,13 @@ class _MappingValidator:
                 if seen[index]:
                     present += 1
             if present > 1:
-                message = self._group_msg(members) or (
-                    f"two or more values in the same group of exclusion {group!r}"
-                )
                 errors.append(
-                    ExclusiveInvalid(message, path=[VirtualPathComponent(group)]),
+                    ExclusiveInvalid(
+                        self._group_msg(members),
+                        path=[VirtualPathComponent(group)],
+                        translation_key="exclusive_group",
+                        placeholders={"group": group},
+                    ),
                 )
             elif present == 0:
                 self._empty_exclusive_group(group, members, out, errors)
@@ -632,11 +640,13 @@ class _MappingValidator:
                 if not seen[index]:
                     missing += 1
             if missing and missing != len(members):
-                message = self._group_msg(members) or (
-                    f"some but not all values in the same group of inclusion {group!r}"
-                )
                 errors.append(
-                    InclusiveInvalid(message, path=[VirtualPathComponent(group)]),
+                    InclusiveInvalid(
+                        self._group_msg(members),
+                        path=[VirtualPathComponent(group)],
+                        translation_key="inclusive_group",
+                        placeholders={"group": group},
+                    ),
                 )
 
 
@@ -664,8 +674,10 @@ class _ObjectValidator:
     def __call__(self, data: Any) -> Any:
         """Validate the attributes and reconstruct an object of the same type."""
         if self._cls is not UNDEFINED and not isinstance(data, self._cls):
-            message = f"expected a {self._cls!r}"
-            raise ObjectInvalid(message)
+            raise ObjectInvalid(
+                translation_key="expected_object",
+                placeholders={"cls": self._cls},
+            )
 
         # voluptuous skips attributes that are None, so they fall to their schema
         # default (or are simply absent) rather than failing a typed value check.
@@ -705,8 +717,10 @@ class _SequenceValidator:
     def __call__(self, data: Any) -> Any:  # noqa: PLR0912
         """Validate each item, rebuilding the sequence of the original type."""
         if not isinstance(data, self._base_type):
-            message = f"expected a {self._base_type.__name__}"
-            raise SequenceTypeInvalid(message)
+            raise SequenceTypeInvalid(
+                translation_key="expected_sequence",
+                placeholders={"expected": self._base_type.__name__},
+            )
 
         result: list[Any] = []
         errors: list[Invalid] = []
@@ -722,9 +736,10 @@ class _SequenceValidator:
                 else:
                     errors.append(
                         TypeInvalid(
-                            f"expected {expected}",
                             path=[index],
                             context={"expected": expected},
+                            translation_key="expected_type",
+                            placeholders={"expected": expected},
                         ),
                     )
         elif (check := self._single) is not None:
@@ -786,7 +801,7 @@ class _SequenceValidator:
 
         if last_error is None:
             # No element schemas at all: nothing can match this item.
-            errors.append(Invalid("invalid value", path=[index]))
+            errors.append(Invalid(path=[index], translation_key="invalid_value"))
             return
 
         last_error.prepend([index])

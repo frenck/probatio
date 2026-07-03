@@ -33,10 +33,6 @@ from probatio.validators._base import _SafeValidator
 # A colon duration has hours:minutes or hours:minutes:seconds.
 _DURATION_PARTS = (2, 3)
 _MAX_CLOCK_FIELD = 59  # the minute and second fields of an H:MM:SS duration
-_DURATION_MSG = (
-    "expected a duration like H:MM, H:MM:SS, an ISO 8601 duration like PT1H30M, "
-    "or a number of seconds"
-)
 
 # An ISO 8601 duration, limited to the fields a ``timedelta`` can represent: weeks
 # and days, then a time part of hours, minutes, and seconds. Each field is optional
@@ -60,17 +56,24 @@ _ISO8601_DURATION = re.compile(
 # A fixed UTC offset: a sign, two-digit hours, optional colon, two-digit minutes.
 # Matched in full, no backtracking, so a crafted string cannot make it hang.
 _UTC_OFFSET = re.compile(r"[+-]\d{2}:?\d{2}")
-_TZ_OFFSET_MSG = "expected a UTC offset like +01:00, Z, or UTC"
 
 # How many epoch sub-units make one second, per accepted ``FromEpoch`` unit.
 _EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}
 
 
-def _format_message(kind: str, fmt: str | None) -> str:
-    """Build the parse-failure message for an ``As*`` validator."""
+def _format_key(
+    iso_key: str,
+    fmt: str | None,
+) -> tuple[str, dict[str, typing.Any] | None]:
+    """Pick the parse-failure translation key for an ``As*`` validator.
+
+    Without a format, the failure is the ISO 8601 sentence for the validator's
+    kind (``iso_key``); with one, it is the shared format-mismatch sentence with
+    the format as a placeholder.
+    """
     if fmt is None:
-        return f"expected an ISO 8601 {kind}"
-    return f"value does not match expected format {fmt}"
+        return iso_key, None
+    return "value_does_not_match_format", {"format": fmt}
 
 
 def _iso_field(raw: str | None) -> float:
@@ -101,8 +104,11 @@ class Datetime(_SafeValidator):
         try:
             datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
-            message = self.msg or f"value does not match expected format {self.format}"
-            raise DatetimeInvalid(message) from exc
+            raise DatetimeInvalid(
+                self.msg,
+                translation_key="value_does_not_match_format",
+                placeholders={"format": self.format},
+            ) from exc
         return value
 
 
@@ -116,8 +122,11 @@ class Date(Datetime):
         try:
             datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
-            message = self.msg or f"value does not match expected format {self.format}"
-            raise DateInvalid(message) from exc
+            raise DateInvalid(
+                self.msg,
+                translation_key="value_does_not_match_format",
+                placeholders={"format": self.format},
+            ) from exc
         return value
 
 
@@ -135,8 +144,11 @@ class Time(Datetime):
         try:
             datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
-            message = self.msg or f"value does not match expected format {self.format}"
-            raise TimeInvalid(message) from exc
+            raise TimeInvalid(
+                self.msg,
+                translation_key="value_does_not_match_format",
+                placeholders={"format": self.format},
+            ) from exc
         return value
 
 
@@ -189,11 +201,18 @@ class AsDatetime(_SafeValidator):
                 else:
                     parsed = datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
             except (TypeError, ValueError) as exc:
-                message = self.msg or _format_message("datetime", self.format)
-                raise DatetimeInvalid(message) from exc
+                key, placeholders = _format_key("expected_iso_datetime", self.format)
+                raise DatetimeInvalid(
+                    self.msg,
+                    translation_key=key,
+                    placeholders=placeholders,
+                ) from exc
 
         if self.require_timezone and parsed.tzinfo is None:
-            raise DatetimeInvalid(self.msg or "expected a timezone-aware datetime")
+            raise DatetimeInvalid(
+                self.msg,
+                translation_key="expected_timezone_aware_datetime",
+            )
 
         return parsed
 
@@ -231,8 +250,12 @@ class AsDate(_SafeValidator):
                 return datetime.date.fromisoformat(value)
             return datetime.datetime.strptime(value, self.format).date()  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
-            message = self.msg or _format_message("date", self.format)
-            raise DateInvalid(message) from exc
+            key, placeholders = _format_key("expected_iso_date", self.format)
+            raise DateInvalid(
+                self.msg,
+                translation_key=key,
+                placeholders=placeholders,
+            ) from exc
 
 
 class AsTime(_SafeValidator):
@@ -265,8 +288,12 @@ class AsTime(_SafeValidator):
                 return datetime.time.fromisoformat(value)
             return datetime.datetime.strptime(value, self.format).time()  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
-            message = self.msg or _format_message("time", self.format)
-            raise TimeInvalid(message) from exc
+            key, placeholders = _format_key("expected_iso_time", self.format)
+            raise TimeInvalid(
+                self.msg,
+                translation_key=key,
+                placeholders=placeholders,
+            ) from exc
 
 
 class AsTimedelta(_SafeValidator):
@@ -293,14 +320,16 @@ class AsTimedelta(_SafeValidator):
 
         if isinstance(value, bool):
             # ``bool`` is an ``int`` subclass, but true and false are not durations.
-            raise DurationInvalid(self.msg or "expected a duration")
+            raise DurationInvalid(self.msg, translation_key="expected_duration")
 
         if isinstance(value, int | float):
             try:
                 return datetime.timedelta(seconds=value)
             except (OverflowError, ValueError) as exc:
                 # A huge value overflows; ``float('nan')`` raises ValueError.
-                raise DurationInvalid(self.msg or "expected a duration") from exc
+                raise DurationInvalid(
+                    self.msg, translation_key="expected_duration"
+                ) from exc
 
         if isinstance(value, str):
             return self._parse_string(value)
@@ -309,9 +338,11 @@ class AsTimedelta(_SafeValidator):
             try:
                 return datetime.timedelta(**value)
             except (TypeError, ValueError, OverflowError) as exc:
-                raise DurationInvalid(self.msg or "expected a duration") from exc
+                raise DurationInvalid(
+                    self.msg, translation_key="expected_duration"
+                ) from exc
 
-        raise DurationInvalid(self.msg or "expected a duration")
+        raise DurationInvalid(self.msg, translation_key="expected_duration")
 
     def _parse_string(self, value: str) -> datetime.timedelta:
         """Parse an ISO 8601, ``H:MM`` / ``H:MM:SS`` colon, or seconds string.
@@ -338,14 +369,18 @@ class AsTimedelta(_SafeValidator):
 
         parts = text.split(":")
         if len(parts) not in _DURATION_PARTS or not all(p.isdigit() for p in parts):
-            raise DurationInvalid(self.msg or _DURATION_MSG)
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            )
         hours, minutes, *rest = (int(part) for part in parts)
         seconds = rest[0] if rest else 0
 
         # In clock-style input, minutes and seconds stay in their usual range.
         # Hours remain unbounded because durations can be longer than a day.
         if minutes > _MAX_CLOCK_FIELD or seconds > _MAX_CLOCK_FIELD:
-            raise DurationInvalid(self.msg or _DURATION_MSG)
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            )
 
         try:
             return sign * datetime.timedelta(
@@ -354,7 +389,9 @@ class AsTimedelta(_SafeValidator):
                 seconds=seconds,
             )
         except OverflowError as exc:
-            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            ) from exc
 
     def _seconds(self, text: str) -> datetime.timedelta:
         """Read a bare number of seconds (``"90"``, ``"90.5"``) as a timedelta."""
@@ -363,7 +400,9 @@ class AsTimedelta(_SafeValidator):
         except (ValueError, OverflowError) as exc:
             # ``float("abc")`` and an empty string raise ValueError; ``"inf"`` or a
             # huge value overflows timedelta; ``"nan"`` raises ValueError there.
-            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            ) from exc
 
     def _parse_iso8601(self, body: str) -> datetime.timedelta:
         """Coerce an ISO 8601 duration body (``"P..."``) to a ``timedelta``.
@@ -374,13 +413,17 @@ class AsTimedelta(_SafeValidator):
         """
         match = _ISO8601_DURATION.fullmatch(body)
         if match is None:
-            raise DurationInvalid(self.msg or _DURATION_MSG)
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            )
 
         fields = match.groupdict()
         has_time = fields["hours"] or fields["minutes"] or fields["seconds"]
         if not any(fields.values()) or ("T" in body and not has_time):
             # ``P`` alone carries nothing; ``P1DT`` has a time separator but no field.
-            raise DurationInvalid(self.msg or _DURATION_MSG)
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            )
 
         try:
             return datetime.timedelta(
@@ -391,7 +434,9 @@ class AsTimedelta(_SafeValidator):
                 seconds=_iso_field(fields["seconds"]),
             )
         except (ValueError, OverflowError) as exc:
-            raise DurationInvalid(self.msg or _DURATION_MSG) from exc
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            ) from exc
 
 
 class Duration(_SafeValidator):
@@ -435,7 +480,9 @@ class TimeZoneInfo(_SafeValidator):
         except (KeyError, ValueError, TypeError, RuntimeError) as exc:
             # ZoneInfoNotFoundError is a KeyError; a bad path is a ValueError; a
             # non-string is a TypeError; a tuple trips the weak-cache RuntimeError.
-            raise TimeZoneInvalid(self.msg or "expected an IANA time zone") from exc
+            raise TimeZoneInvalid(
+                self.msg, translation_key="expected_iana_time_zone"
+            ) from exc
         return value
 
 
@@ -457,7 +504,7 @@ class AsTimezone(_SafeValidator):
         if isinstance(value, datetime.timezone):
             return value
         if not isinstance(value, str):
-            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG)
+            raise TimeZoneInvalid(self.msg, translation_key="expected_utc_offset")
 
         # ``Z`` and ``UTC`` name the zero offset; otherwise the value must be a signed
         # ``HH:MM``/``HHMM`` offset. Parsed by hand, not ``strptime("%z")``, whose
@@ -465,7 +512,7 @@ class AsTimezone(_SafeValidator):
         if value.upper() in ("Z", "UTC"):
             return datetime.UTC
         if not _UTC_OFFSET.fullmatch(value):
-            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG)
+            raise TimeZoneInvalid(self.msg, translation_key="expected_utc_offset")
 
         sign = -1 if value[0] == "-" else 1
         digits = value[1:].replace(":", "")
@@ -477,7 +524,9 @@ class AsTimezone(_SafeValidator):
             return datetime.timezone(offset)
         except ValueError as exc:
             # An offset of 24 hours or more is out of range for ``datetime.timezone``.
-            raise TimeZoneInvalid(self.msg or _TZ_OFFSET_MSG) from exc
+            raise TimeZoneInvalid(
+                self.msg, translation_key="expected_utc_offset"
+            ) from exc
 
 
 class TimeZone(_SafeValidator):
@@ -525,7 +574,7 @@ class FromEpoch(_SafeValidator):
     def __call__(self, value: typing.Any) -> datetime.datetime:
         """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""
         if isinstance(value, bool) or not isinstance(value, int | float):
-            raise EpochInvalid(self.msg or "expected a Unix timestamp")
+            raise EpochInvalid(self.msg, translation_key="expected_unix_timestamp")
 
         try:
             seconds = value / _EPOCH_DIVISORS[self.unit]
@@ -533,4 +582,6 @@ class FromEpoch(_SafeValidator):
         except (OverflowError, OSError, ValueError) as exc:
             # A huge value overflows (OverflowError/OSError); ``float('nan')`` and
             # ``float('inf')`` raise ValueError/OverflowError out of fromtimestamp.
-            raise EpochInvalid(self.msg or "expected a Unix timestamp") from exc
+            raise EpochInvalid(
+                self.msg, translation_key="expected_unix_timestamp"
+            ) from exc

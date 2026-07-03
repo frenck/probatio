@@ -59,7 +59,9 @@ class CreditCard(_SafeValidator):
         """Return the card number (bare digits when normalizing), else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(
-                self.msg or "expected a credit card number", code="credit_card"
+                self.msg,
+                code="credit_card",
+                translation_key="expected_credit_card_number",
             )
 
         digits = value.replace(" ", "").replace("-", "")
@@ -69,7 +71,9 @@ class CreditCard(_SafeValidator):
             or not _luhn_ok(digits)
         ):
             raise ValueInvalid(
-                self.msg or "invalid credit card number", code="credit_card"
+                self.msg,
+                code="credit_card",
+                translation_key="invalid_credit_card_number",
             )
         return digits if self.normalize else value
 
@@ -112,11 +116,11 @@ class IBAN(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the IBAN (compact and upper-cased when normalizing), else raise."""
         if not isinstance(value, str):
-            raise ValueInvalid(self.msg or "expected an IBAN", code="iban")
+            raise ValueInvalid(self.msg, code="iban", translation_key="expected_iban")
 
         compact = value.replace(" ", "").upper()
         if not _valid_iban(compact):
-            raise ValueInvalid(self.msg or "invalid IBAN", code="iban")
+            raise ValueInvalid(self.msg, code="iban", translation_key="invalid_iban")
         return compact if self.normalize else value
 
 
@@ -135,23 +139,29 @@ class DataURI(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is a well-formed data URI, else raise."""
         if not isinstance(value, str):
-            raise ValueInvalid(self.msg or "expected a data URI", code="data_uri")
+            raise ValueInvalid(
+                self.msg, code="data_uri", translation_key="expected_data_uri"
+            )
 
         header, separator, data = value.partition(",")
         if not header.startswith("data:") or not separator:
-            raise ValueInvalid(self.msg or "invalid data URI", code="data_uri")
+            raise ValueInvalid(
+                self.msg, code="data_uri", translation_key="invalid_data_uri"
+            )
 
         params = header[len("data:") :].split(";")
         media_type = params[0]
         if media_type and "/" not in media_type:
-            raise ValueInvalid(self.msg or "invalid data URI", code="data_uri")
+            raise ValueInvalid(
+                self.msg, code="data_uri", translation_key="invalid_data_uri"
+            )
 
         if "base64" in params[1:]:
             try:
                 base64.b64decode(data, validate=True)
             except ValueError as exc:
                 raise ValueInvalid(
-                    self.msg or "invalid data URI", code="data_uri"
+                    self.msg, code="data_uri", translation_key="invalid_data_uri"
                 ) from exc
 
         return value
@@ -176,7 +186,9 @@ class E164(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the E.164 number (compact when normalizing), else raise."""
         if not isinstance(value, str):
-            raise ValueInvalid(self.msg or "expected a phone number", code="e164")
+            raise ValueInvalid(
+                self.msg, code="e164", translation_key="expected_phone_number"
+            )
 
         candidate = value.translate(_E164_SEPARATORS) if self.normalize else value
         digits = candidate[1:]
@@ -186,6 +198,8 @@ class E164(_SafeValidator):
             or digits[0] not in _NONZERO
             or not _DIGITS.issuperset(digits)
         ):
-            raise ValueInvalid(self.msg or "invalid phone number", code="e164")
+            raise ValueInvalid(
+                self.msg, code="e164", translation_key="invalid_phone_number"
+            )
 
         return candidate

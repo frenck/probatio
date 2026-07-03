@@ -119,11 +119,15 @@ class RequiredWith(_SafeValidator):
             if _fires(flags, self.mode):
                 for key in self.required:
                     if key not in value:
-                        message = self.msg or (
-                            f"{key!r} is required when "
-                            f"{_join(self.triggers, self.mode)} is present"
+                        raise RequiredFieldInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="required_when_present",
+                            placeholders={
+                                "key": key,
+                                "triggers": _join(self.triggers, self.mode),
+                            },
                         )
-                        raise RequiredFieldInvalid(message, path=[key])
         return value
 
 
@@ -156,11 +160,15 @@ class RequiredWithout(_SafeValidator):
             if _fires(flags, self.mode):
                 for key in self.required:
                     if key not in value:
-                        message = self.msg or (
-                            f"{key!r} is required when "
-                            f"{_join(self.triggers, self.mode)} is absent"
+                        raise RequiredFieldInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="required_when_absent",
+                            placeholders={
+                                "key": key,
+                                "triggers": _join(self.triggers, self.mode),
+                            },
                         )
-                        raise RequiredFieldInvalid(message, path=[key])
         return value
 
 
@@ -214,10 +222,15 @@ class RequiredIf(_SafeValidator):
             if _fires(flags, self.mode):
                 for key in self.required:
                     if key not in value:
-                        message = self.msg or (
-                            f"{key!r} is required when {self._describe()}"
+                        raise RequiredFieldInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="required_when_value",
+                            placeholders={
+                                "key": key,
+                                "conditions": self._describe(),
+                            },
                         )
-                        raise RequiredFieldInvalid(message, path=[key])
         return value
 
     def _describe(self) -> str:
@@ -294,8 +307,7 @@ class _KeyGroup(_SafeValidator):
         if isinstance(value, Mapping):
             return value
         if self.require_mapping:
-            message = "expected a mapping"
-            raise DictInvalid(message)
+            raise DictInvalid(translation_key="expected_mapping")
         return None
 
 
@@ -312,8 +324,11 @@ class AtLeastOne(_KeyGroup):
         """Return the mapping, raising if none of the keys are present."""
         mapping = self._mapping(value)
         if mapping is not None and not _present(mapping, self.keys):
-            message = self.msg or f"at least one of {_key_list(self.keys)} is required"
-            raise RequiredFieldInvalid(message)
+            raise RequiredFieldInvalid(
+                self.msg,
+                translation_key="required_any_of",
+                placeholders={"keys": _key_list(self.keys)},
+            )
         return value
 
 
@@ -333,11 +348,17 @@ class AtMostOne(_KeyGroup):
         if mapping is not None:
             present = _present(mapping, self.keys)
             if len(present) > 1:
-                message = (
-                    self.msg or f"at most one of {_key_list(self.keys)} is allowed"
-                )
+                placeholders = {"keys": _key_list(self.keys)}
                 raise MultipleInvalid(
-                    [ExclusiveInvalid(message, path=[key]) for key in present]
+                    [
+                        ExclusiveInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="allowed_at_most_one_of",
+                            placeholders=placeholders,
+                        )
+                        for key in present
+                    ]
                 )
         return value
 
@@ -358,16 +379,23 @@ class ExactlyOne(_KeyGroup):
         if mapping is not None:
             present = _present(mapping, self.keys)
             if not present:
-                message = (
-                    self.msg or f"exactly one of {_key_list(self.keys)} is required"
+                raise RequiredFieldInvalid(
+                    self.msg,
+                    translation_key="required_one_of",
+                    placeholders={"keys": _key_list(self.keys)},
                 )
-                raise RequiredFieldInvalid(message)
             if len(present) > 1:
-                message = (
-                    self.msg or f"exactly one of {_key_list(self.keys)} is allowed"
-                )
+                placeholders = {"keys": _key_list(self.keys)}
                 raise MultipleInvalid(
-                    [ExclusiveInvalid(message, path=[key]) for key in present]
+                    [
+                        ExclusiveInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="allowed_one_of",
+                            placeholders=placeholders,
+                        )
+                        for key in present
+                    ]
                 )
         return value
 
@@ -389,11 +417,16 @@ class AllOrNone(_KeyGroup):
             present = _present(mapping, self.keys)
             if present and len(present) != len(self.keys):
                 missing = [key for key in self.keys if key not in mapping]
-                message = (
-                    self.msg
-                    or f"either none or all of {_key_list(self.keys)} are required"
-                )
+                placeholders = {"keys": _key_list(self.keys)}
                 raise MultipleInvalid(
-                    [InclusiveInvalid(message, path=[key]) for key in missing]
+                    [
+                        InclusiveInvalid(
+                            self.msg,
+                            path=[key],
+                            translation_key="required_none_or_all_of",
+                            placeholders=placeholders,
+                        )
+                        for key in missing
+                    ]
                 )
         return value

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import probatio
+from probatio import _messages
 from probatio.error import (
     Error,
     Invalid,
@@ -281,3 +282,59 @@ def test_normal_path_segment_is_not_truncated() -> None:
     """An ordinary key renders in full, with no truncation."""
     err = Invalid("bad", path=["port"])
     assert str(err) == "bad at 'port'"
+
+
+def test_deferred_message_renders_from_the_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no message and a translation_key, the text renders from the catalog."""
+    monkeypatch.setitem(_messages.CATALOG, "test_min", "value must be at least {min}")
+    err = Invalid(translation_key="test_min", placeholders={"min": 10}, path=["n"])
+    assert err.msg == "value must be at least 10"
+    assert err.error_message == "value must be at least 10"
+    assert str(err) == "value must be at least 10 at 'n'"
+    assert err.translation_key == "test_min"
+    assert err.placeholders == {"min": 10}
+
+
+def test_deferred_message_is_rendered_once_and_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first read renders and caches; later catalog changes do not show."""
+    monkeypatch.setitem(_messages.CATALOG, "test_key", "first")
+    err = Invalid(translation_key="test_key")
+    assert err.msg == "first"
+    monkeypatch.setitem(_messages.CATALOG, "test_key", "second")
+    assert err.msg == "first"
+    assert err.args == ("first",)
+
+
+def test_deferred_message_without_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A template with no placeholders renders as-is."""
+    monkeypatch.setitem(_messages.CATALOG, "test_plain", "value is not allowed")
+    err = Invalid(translation_key="test_plain")
+    assert err.error_message == "value is not allowed"
+
+
+def test_explicit_message_wins_over_the_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom message keeps its text; the key still rides along."""
+    monkeypatch.setitem(_messages.CATALOG, "test_min", "value must be at least {min}")
+    err = Invalid(
+        "own words",
+        translation_key="test_min",
+        placeholders={"min": 10},
+    )
+    assert err.msg == "own words"
+    assert err.error_message == "own words"
+    assert err.translation_key == "test_min"
+
+
+def test_invalid_without_message_or_key_is_empty() -> None:
+    """Neither a message nor a key renders as an empty message."""
+    err = Invalid()
+    assert err.msg == ""
+    assert str(err) == ""

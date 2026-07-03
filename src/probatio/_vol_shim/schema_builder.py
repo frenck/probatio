@@ -28,8 +28,11 @@ def _compile_scalar(schema: Any) -> Any:
             """Require the data to be an instance of the schema type."""
             if isinstance(data, schema):
                 return data
-            message = f"expected {schema.__name__}"
-            raise _error.TypeInvalid(message, path)
+            raise _error.TypeInvalid(
+                path=path,
+                translation_key="expected_type",
+                placeholders={"expected": schema.__name__},
+            )
 
         return validate_instance
 
@@ -40,8 +43,10 @@ def _compile_scalar(schema: Any) -> Any:
             try:
                 return schema(data)
             except ValueError as exc:
-                message = "not a valid value"
-                raise _error.ValueInvalid(message, path) from exc
+                raise _error.ValueInvalid(
+                    path=path,
+                    translation_key="not_a_valid_value",
+                ) from exc
             except _error.Invalid as exc:
                 exc.prepend(path)
                 raise
@@ -51,8 +56,10 @@ def _compile_scalar(schema: Any) -> Any:
     def validate_value(path: Any, data: Any) -> Any:
         """Require the data to equal the schema value."""
         if data != schema:
-            message = "not a valid value"
-            raise _error.ScalarInvalid(message, path)
+            raise _error.ScalarInvalid(
+                path=path,
+                translation_key="not_a_valid_value",
+            )
         return data
 
     return validate_value

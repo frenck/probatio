@@ -46,14 +46,14 @@ class ULID(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is a valid ULID, else raise ValueInvalid."""
         if not isinstance(value, str):
-            raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
+            raise ValueInvalid(self.msg, code="ulid", translation_key="expected_ulid")
 
         # Check the length of the upper-cased form, not the input: ``str.upper`` can
         # change length for some Unicode (``"ß".upper() == "SS"``), so measuring the
         # input would let a 26-code-point string expand past 26 valid characters.
         candidate = value.upper()
         if len(candidate) != _ULID_LENGTH or not _ULID_CHARS.issuperset(candidate):
-            raise ValueInvalid(self.msg or "expected a ULID", code="ulid")
+            raise ValueInvalid(self.msg, code="ulid", translation_key="expected_ulid")
 
         return value
 
@@ -81,11 +81,14 @@ class UUID(_SafeValidator):
                 else uuid_module.UUID(str(value))
             )
         except (ValueError, TypeError) as exc:
-            raise UuidInvalid(self.msg or "expected a UUID") from exc
+            raise UuidInvalid(self.msg, translation_key="expected_uuid") from exc
 
         if self.version is not None and parsed.version != self.version:
-            message = self.msg or f"expected a version {self.version} UUID"
-            raise UuidInvalid(message)
+            raise UuidInvalid(
+                self.msg,
+                translation_key="expected_uuid_version",
+                placeholders={"version": self.version},
+            )
 
         return value
 
@@ -97,7 +100,7 @@ def _clean_mac(value: typing.Any, msg: str | None) -> str:
     a wrong grouping (``aabbc.cddee.ff``) is rejected, not silently stripped.
     """
     if not isinstance(value, str) or _MAC_RE.fullmatch(value) is None:
-        raise MacAddressInvalid(msg or "expected a MAC address")
+        raise MacAddressInvalid(msg, translation_key="expected_mac_address")
 
     return value.replace(":", "").replace("-", "").replace(".", "").lower()
 

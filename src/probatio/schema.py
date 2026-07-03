@@ -158,8 +158,7 @@ class recursion_guard:  # noqa: N801 - a context manager, named like contextlib'
         """Charge one level, raising ``Invalid`` if the budget is exceeded."""
         depth = _SELF_DEPTH.get() + self._cost
         if depth > sys.getrecursionlimit() // _SELF_DEPTH_DIVISOR:
-            message = "data is nested too deeply for this recursive schema"
-            raise Invalid(message)
+            raise Invalid(translation_key="recursion_too_deep")
         self._token = _SELF_DEPTH.set(depth)
 
     def __exit__(self, *exc: object) -> None:
@@ -249,8 +248,11 @@ class _TypeCheck:
     def __call__(self, data: Any) -> Any:
         """Require the value to be an instance of the expected type."""
         if not isinstance(data, self.checked_type):
-            message = f"expected {self._expected}"
-            raise TypeInvalid(message, context={"expected": self._expected})
+            raise TypeInvalid(
+                context={"expected": self._expected},
+                translation_key="expected_type",
+                placeholders={"expected": self._expected},
+            )
         return data
 
 
@@ -306,10 +308,10 @@ class _EnumCheck:
             # ValueError: no member has this value. TypeError: the value is
             # unhashable, so the value-to-member lookup cannot even be tried.
             values = [member.value for member in self._enum]
-            message = f"value must be one of {values}"
             raise EnumInvalid(
-                message,
                 context={"expected": self._expected, "values": values},
+                translation_key="value_one_of",
+                placeholders={"values": values},
             ) from exc
 
 
@@ -1084,11 +1086,12 @@ class Schema:
             except Invalid:
                 raise
             except ValueError as exc:
-                detail = str(exc)
-                message = (
-                    f"not a valid value: {detail}" if detail else "not a valid value"
-                )
-                raise ValueInvalid(message) from exc
+                if detail := str(exc):
+                    raise ValueInvalid(
+                        translation_key="not_a_valid_value_detail",
+                        placeholders={"detail": detail},
+                    ) from exc
+                raise ValueInvalid(translation_key="not_a_valid_value") from exc
 
         return validate
 
@@ -1099,8 +1102,7 @@ class Schema:
         def validate(data: Any) -> Any:
             """Require the value to equal the literal."""
             if data != schema:
-                message = "not a valid value"
-                raise ScalarInvalid(message)
+                raise ScalarInvalid(translation_key="not_a_valid_value")
             return data
 
         return validate

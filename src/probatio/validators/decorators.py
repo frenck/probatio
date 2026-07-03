@@ -24,6 +24,8 @@ _R = typing.TypeVar("_R")
 def message(
     default: str | None = None,
     cls: type[Invalid] | None = None,
+    *,
+    translation_key: str | None = None,
 ) -> typing.Callable[
     [typing.Callable[_P, _R]],
     typing.Callable[..., typing.Callable[_P, _R]],
@@ -42,11 +44,28 @@ def message(
         Schema(isint())            # raises IntegerInvalid("not an integer")
         Schema(isint("bad value")) # raises IntegerInvalid("bad value")
 
-    Matches voluptuous, so ``Boolean`` and friends are factories here too.
+    Matches voluptuous, so ``Boolean`` and friends are factories here too. The
+    built-in factories also pass ``translation_key``, the catalog key whose
+    template matches ``default``, so their errors render lazily and stay
+    translatable; a per-use message override keeps its own text with the key
+    riding along.
     """
     if cls is not None and not issubclass(cls, Invalid):
         problem = "message can only use subclasses of Invalid as a custom class"
         raise SchemaError(problem)
+
+    # Resolve the fallback once. With a key, the text renders lazily from the
+    # catalog; a keyless ``default`` is eager text (its author gave no key); with
+    # neither, the shared "invalid value" catalog entry is the fallback.
+    if translation_key is not None:
+        fallback = None
+        key: str | None = translation_key
+    elif default is not None:
+        fallback = default
+        key = None
+    else:
+        fallback = None
+        key = "invalid_value"
 
     def decorator(
         func: typing.Callable[_P, _R],
@@ -67,7 +86,7 @@ def message(
                     return func(*args, **kwargs)
                 except ValueError:
                     raise (clsoverride or cls or ValueInvalid)(
-                        msg or default or "invalid value"
+                        msg or fallback, translation_key=key
                     ) from None
 
             # The wrapper forwards ``*args, **kwargs`` to ``func``, so it carries the

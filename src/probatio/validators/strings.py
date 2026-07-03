@@ -53,6 +53,9 @@ class _CharacterClass(_SafeValidator):
 
     check: typing.Callable[[str], bool]
     message: str
+    # The catalog key matching ``message``; underscored so it does not shadow the
+    # error's ``translation_key`` property in readers' minds.
+    _translation_key: str
 
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
@@ -62,7 +65,7 @@ class _CharacterClass(_SafeValidator):
         """Return the value if it is a string of the right class, else MatchInvalid."""
         if isinstance(value, str) and type(self).check(value):
             return value
-        raise MatchInvalid(self.msg or self.message)
+        raise MatchInvalid(self.msg, translation_key=self._translation_key)
 
 
 class Alpha(_CharacterClass):
@@ -70,6 +73,7 @@ class Alpha(_CharacterClass):
 
     check = staticmethod(_is_ascii_alpha)
     message = "expected only ASCII letters"
+    _translation_key = "expected_alpha"
 
 
 class Alphanumeric(_CharacterClass):
@@ -77,6 +81,7 @@ class Alphanumeric(_CharacterClass):
 
     check = staticmethod(_is_ascii_alnum)
     message = "expected only ASCII letters and digits"
+    _translation_key = "expected_alphanumeric"
 
 
 class ASCII(_CharacterClass):
@@ -84,6 +89,7 @@ class ASCII(_CharacterClass):
 
     check = staticmethod(str.isascii)
     message = "expected only ASCII characters"
+    _translation_key = "expected_ascii"
 
 
 class PrintableASCII(_CharacterClass):
@@ -91,6 +97,7 @@ class PrintableASCII(_CharacterClass):
 
     check = staticmethod(_is_printable_ascii)
     message = "expected only printable ASCII characters"
+    _translation_key = "expected_printable_ascii"
 
 
 class NoWhitespace(_CharacterClass):
@@ -98,6 +105,7 @@ class NoWhitespace(_CharacterClass):
 
     check = staticmethod(_has_no_whitespace)
     message = "expected no whitespace"
+    _translation_key = "expected_no_whitespace"
 
 
 class StartsWith(_SafeValidator):
@@ -112,7 +120,11 @@ class StartsWith(_SafeValidator):
         """Return the value if it starts with the prefix, else MatchInvalid."""
         if isinstance(value, str) and value.startswith(self.prefix):
             return value
-        raise MatchInvalid(self.msg or f"value must start with {self.prefix!r}")
+        raise MatchInvalid(
+            self.msg,
+            translation_key="value_must_start_with",
+            placeholders={"prefix": self.prefix},
+        )
 
 
 class EndsWith(_SafeValidator):
@@ -127,7 +139,11 @@ class EndsWith(_SafeValidator):
         """Return the value if it ends with the suffix, else MatchInvalid."""
         if isinstance(value, str) and value.endswith(self.suffix):
             return value
-        raise MatchInvalid(self.msg or f"value must end with {self.suffix!r}")
+        raise MatchInvalid(
+            self.msg,
+            translation_key="value_must_end_with",
+            placeholders={"suffix": self.suffix},
+        )
 
 
 class ByteLength(_SafeValidator):
@@ -151,7 +167,7 @@ class ByteLength(_SafeValidator):
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if its UTF-8 byte length is in bounds, else raise."""
         if not isinstance(value, str):
-            raise LengthInvalid(self.msg or "expected a string")
+            raise LengthInvalid(self.msg, translation_key="expected_string")
 
         # ``surrogatepass`` so a lone surrogate (``'\ud800'``) is measured rather
         # than leaking a UnicodeEncodeError.
@@ -159,7 +175,7 @@ class ByteLength(_SafeValidator):
         if (self.min is not None and size < self.min) or (
             self.max is not None and size > self.max
         ):
-            raise LengthInvalid(self.msg or "byte length out of bounds")
+            raise LengthInvalid(self.msg, translation_key="byte_length_out_of_bounds")
 
         return value
 
@@ -179,7 +195,7 @@ class HexColor(_SafeValidator):
         """Return the value if it is a valid hex color, else raise MatchInvalid."""
         if isinstance(value, str) and _HEX_COLOR.match(value):
             return value
-        raise MatchInvalid(self.msg or "expected a hex color like #rrggbb")
+        raise MatchInvalid(self.msg, translation_key="expected_hex_color")
 
 
 class Match(_SafeValidator):
@@ -199,12 +215,10 @@ class Match(_SafeValidator):
         try:
             matched = self.pattern.match(value)
         except TypeError as exc:
-            message = self.msg or "expected a string"
-            raise MatchInvalid(message) from exc
+            raise MatchInvalid(self.msg, translation_key="expected_string") from exc
 
         if not matched:
-            message = self.msg or "does not match the expected pattern"
-            raise MatchInvalid(message)
+            raise MatchInvalid(self.msg, translation_key="does_not_match_pattern")
 
         return value
 
@@ -306,7 +320,7 @@ def Email(msg: str | None = None) -> typing.Callable[[typing.Any], str]:
     def validate(value: typing.Any) -> str:
         """Validate a basic email address with simple string checks."""
         if not isinstance(value, str) or value.count("@") != 1:
-            raise EmailInvalid(msg or "expected an email address")
+            raise EmailInvalid(msg, translation_key="expected_email_address")
 
         local, _, domain = value.partition("@")
         if (
@@ -314,7 +328,7 @@ def Email(msg: str | None = None) -> typing.Callable[[typing.Any], str]:
             or not _valid_email_local(local)
             or not _valid_email_domain(domain)
         ):
-            raise EmailInvalid(msg or "expected an email address")
+            raise EmailInvalid(msg, translation_key="expected_email_address")
 
         return value
 
@@ -329,15 +343,15 @@ def _validate_url(value: typing.Any, msg: str | None) -> typing.Any:
     # Only a string or bytes can be a URL; anything else makes ``urlparse`` leak
     # an AttributeError (it reaches for ``.decode``), so reject it up front.
     if not isinstance(value, str | bytes):
-        raise UrlInvalid(msg or "expected a URL")
+        raise UrlInvalid(msg, translation_key="expected_url")
 
     try:
         parsed = urlparse(value)
     except (ValueError, TypeError) as exc:
-        raise UrlInvalid(msg or "expected a URL") from exc
+        raise UrlInvalid(msg, translation_key="expected_url") from exc
 
     if not parsed.scheme or not parsed.netloc:
-        raise UrlInvalid(msg or "expected a URL")
+        raise UrlInvalid(msg, translation_key="expected_url")
 
     return value
 
@@ -372,7 +386,7 @@ def FqdnUrl(msg: str | None = None) -> typing.Callable[[typing.Any], str | bytes
         host = urlparse(value).hostname
         dot = b"." if isinstance(value, bytes) else "."
         if host is None or dot not in host:
-            raise UrlInvalid(msg or "expected a URL with a fully-qualified domain name")
+            raise UrlInvalid(msg, translation_key="expected_url_with_fqdn")
 
         return typing.cast("str | bytes", value)
 
@@ -397,8 +411,9 @@ class IsRegex(_SafeValidator):
         try:
             re.compile(value)
         except (re.error, TypeError) as exc:
-            message = self.msg or "expected a valid regular expression"
-            raise MatchInvalid(message) from exc
+            raise MatchInvalid(
+                self.msg, translation_key="expected_valid_regex"
+            ) from exc
         return value
 
 
@@ -425,7 +440,7 @@ class Slug(_SafeValidator):
             or value[-1] in "-_"
             or not _SLUG_CHARS.issuperset(value)
         ):
-            raise SlugInvalid(self.msg or "expected a slug")
+            raise SlugInvalid(self.msg, translation_key="expected_slug")
         return value
 
 
@@ -452,5 +467,4 @@ class Replace(_SafeValidator):
         try:
             return self.pattern.sub(self.substitution, value)
         except TypeError as exc:
-            message = self.msg or "expected a string"
-            raise MatchInvalid(message) from exc
+            raise MatchInvalid(self.msg, translation_key="expected_string") from exc

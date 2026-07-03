@@ -141,6 +141,21 @@ def test_message_builds_a_validator_with_a_default_message() -> None:
     assert str(caught.value.errors[0]) == "not an integer"
 
 
+def test_message_without_a_default_falls_back_to_invalid_value() -> None:
+    """A message factory with no default reads 'invalid value', from the catalog."""
+
+    @message()
+    def isint(value: object) -> int:
+        return int(value)  # type: ignore[call-overload]
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(isint())("nope")
+
+    error = caught.value.errors[0]
+    assert str(error) == "invalid value"
+    assert error.translation_key == "invalid_value"
+
+
 def test_message_allows_per_use_overrides() -> None:
     """The message and the error class can be overridden when the factory is called."""
 

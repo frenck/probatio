@@ -134,28 +134,32 @@ except MultipleInvalid as err:
     body = json.dumps(err.as_dict())
     print(body)
     # {"errors": [{"code": "type", "message": "expected int", "path": ["port"],
-    #   "secret": false, "context": {"expected": "int"}, "translation_key": null,
-    #   "placeholders": {}}]}
+    #   "secret": false, "context": {"expected": "int"},
+    #   "translation_key": "expected_type",
+    #   "placeholders": {"expected": "int"}}]}
 ```
 
-For translations, branch on `code`. Every built-in error carries one (the
-[errors reference](/reference/errors/) lists them per class), so a lookup
-table maps failures to your own language, with `context` filling the holes and
-the original message as the fallback for codes you have not translated:
+For translations, branch on `translation_key`. Every built-in error carries
+one, naming the exact sentence, together with `placeholders`, the raw values
+that sentence interpolates (the
+[translation keys reference](/reference/translation-keys/) lists every key and
+its English template). A lookup table maps sentences to your own language,
+with the original message as the fallback for keys you have not translated:
 
 ```python
 from probatio import Schema, MultipleInvalid
 
 DUTCH = {
-    "type": "verwacht een waarde van type {expected}",
+    "expected_type": "verwacht een waarde van type {expected}",
     "required": "deze optie is verplicht",
+    "length_min": "lengte moet minimaal {min} zijn",
 }
 
 def render_dutch(error):
-    template = DUTCH.get(error.code)
+    template = DUTCH.get(error.translation_key)
     if template is None:
         return error.error_message
-    return template.format(**error.context)
+    return template.format(**error.placeholders)
 
 schema = Schema({"port": int, "host": str})
 
@@ -165,12 +169,52 @@ except MultipleInvalid as err:
     print(render_dutch(err.errors[0]))  # verwacht een waarde van type int
 ```
 
-Two honest notes on the current state. The built-ins fill `context` where
-there is an obvious payload (a type error carries `expected`), but not yet
-everywhere; a template that needs a value the context does not carry has to
-fall back to the original message. And `translation_key` / `placeholders` are
-populated only by errors you raise yourself; the built-ins leave them empty
-for now, so `code` is the key to branch on today.
+One sentence, one key: where two validators produce the same wording (the dict
+engine and the key groups both say "expected a mapping"), they share the key,
+so one translation covers both. `code` still identifies the _kind_ of failure
+and is the better branch point for behavior; `translation_key` identifies the
+_sentence_ and is the branch point for wording.
+
+### Suggestions compose on top
+
+Some errors carry a "did you mean ...?" suggestion (an unknown key close to a
+known one, for example; the [errors reference](/reference/errors/) marks which
+classes). The suggestion is _not_ part of the base sentence: the key names the
+sentence without it, and the close matches live on `context["candidates"]` as
+a raw list. Probatio's own English output appends the fragment (its template
+is the `did_you_mean` key), and `error_message` always includes it, so the
+fallback path keeps suggestions for free. A renderer working from keys has to
+compose the fragment itself, or the suggestion is silently dropped:
+
+```python
+from probatio import Schema, MultipleInvalid
+
+DUTCH = {
+    "not_a_valid_option": "geen geldige optie",
+    "did_you_mean": ", bedoelde je {candidates}?",
+}
+
+def render_dutch(error):
+    text = DUTCH.get(error.translation_key)
+    if text is None:
+        return error.error_message
+    text = text.format(**error.placeholders)
+    candidates = error.context.get("candidates")
+    if candidates:
+        joined = " of ".join(repr(name) for name in candidates)
+        text += DUTCH["did_you_mean"].format(candidates=joined)
+    return text
+
+schema = Schema({"name": str, "email": str})
+
+try:
+    schema({"nmae": "app"})
+except MultipleInvalid as err:
+    print(render_dutch(err.errors[0]))  # geen geldige optie, bedoelde je 'name'?
+```
+
+The list joining (the "of"/"or" between candidates) is deliberately yours: it
+is language, and the raw list gives you full control over it.
 
 ## Where to next
 
@@ -180,3 +224,5 @@ for now, so `code` is the key to branch on today.
   catching specific kinds.
 - [Errors reference](/reference/errors/): every error class, its `code`, and
   the fields on `Invalid`.
+- [Translation keys](/reference/translation-keys/): every key the built-ins
+  emit, with its English template.

@@ -129,7 +129,7 @@ def _run_any(
     candidates: list[typing.Any],
     value: typing.Any,
     msg: str | None,
-    miss_message: str | None,
+    miss_label: str | None,
 ) -> typing.Any:
     """Return the first candidate that accepts the value, else raise.
 
@@ -152,11 +152,13 @@ def _run_any(
 
     if msg is not None:
         raise AnyInvalid(msg)
-    if miss_message is not None:
-        raise AnyInvalid(miss_message)
+    if miss_label is not None:
+        raise AnyInvalid(
+            translation_key="expected_type",
+            placeholders={"expected": miss_label},
+        )
     if best is None:
-        message = "no valid value found"
-        raise AnyInvalid(message)
+        raise AnyInvalid(translation_key="no_valid_value")
     if isinstance(best, MultipleInvalid):
         raise best
     raise MultipleInvalid([best])
@@ -270,13 +272,13 @@ def _run_typed_any(
     allow_none: bool,
     value: typing.Any,
     msg: str | None,
-    miss_message: str | None,
+    miss_label: str | None,
 ) -> typing.Any:
     """Resolve an all-type (or None) ``Any``/``Union`` without per-branch exceptions.
 
     One ``isinstance``, plus a ``value is None`` check when a ``None`` branch is
     present, accepts on the hot path. On a miss a single ``AnyInvalid`` is raised
-    with the message precomputed at branch-compile time (every branch is a type,
+    with the label precomputed at branch-compile time (every branch is a type,
     so it always labels), without running any branch, so both the match and the
     miss skip the try/except churn.
     """
@@ -284,9 +286,14 @@ def _run_typed_any(
         return value
     if msg is not None:
         raise AnyInvalid(msg)
-    # The typed path always labels (every branch is a type), so the fallback
-    # string is unreachable; it keeps the type checker honest without a cast.
-    raise AnyInvalid(miss_message or "no valid value found")
+    if miss_label is not None:
+        raise AnyInvalid(
+            translation_key="expected_type",
+            placeholders={"expected": miss_label},
+        )
+    # The typed path always labels (every branch is a type), so this fallback
+    # is unreachable; it keeps the type checker honest without a cast.
+    raise AnyInvalid(translation_key="no_valid_value")  # pragma: no cover
 
 
 class Any(_Combinator):
@@ -323,19 +330,17 @@ class Any(_Combinator):
             for validator in self.validators
         ]
         self._types = _type_tuple(self.validators, self._compiled)
+        # Prebuilt so a miss does not re-derive a label that only depends on the
+        # branch labels, which are fixed here; the sentence itself renders lazily
+        # from the "expected_type" catalog template.
         self._expected = _expected_label(self.validators)
-        # Prebuilt so a miss does not re-interpolate a message that only depends
-        # on the branch labels, which are fixed here.
-        self._miss_message = (
-            None if self._expected is None else f"expected {self._expected}"
-        )
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Try each validator, returning the first that accepts the value."""
         # All-type (or None) branches resolve by one isinstance, on match and miss.
         if self._types is not None:
-            return _run_typed_any(*self._types, value, self.msg, self._miss_message)
-        return _run_any(self._compiled, value, self.msg, self._miss_message)
+            return _run_typed_any(*self._types, value, self.msg, self._expected)
+        return _run_any(self._compiled, value, self.msg, self._expected)
 
     def __repr__(self) -> str:
         """Render as ``Any(v, ..., msg=...)``."""
@@ -390,18 +395,15 @@ class Union(_Combinator):
             if self.discriminant is None
             else None
         )
-        self._expected = _expected_label(self.validators)
         # Prebuilt for the same reason as in ``Any._compile_branches``.
-        self._miss_message = (
-            None if self._expected is None else f"expected {self._expected}"
-        )
+        self._expected = _expected_label(self.validators)
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Try the (possibly narrowed) candidates, returning the first match."""
         if self.discriminant is None:
             if self._types is not None:
-                return _run_typed_any(*self._types, value, self.msg, self._miss_message)
-            return _run_any(self._compiled, value, self.msg, self._miss_message)
+                return _run_typed_any(*self._types, value, self.msg, self._expected)
+            return _run_any(self._compiled, value, self.msg, self._expected)
         # A discriminant returns a subset of the raw validators; resolve each to
         # its compiled form, compiling any object it returns that was not among
         # the originals (matching voluptuous, which recompiles the chosen set).

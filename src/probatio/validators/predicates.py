@@ -49,14 +49,13 @@ class IsTrue(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is truthy, else raise TrueInvalid."""
-        message = self.msg or "value was not true"
         try:
             truthy = bool(value)
         except Exception as exc:
-            raise TrueInvalid(message) from exc
+            raise TrueInvalid(self.msg, translation_key="value_was_not_true") from exc
 
         if not truthy:
-            raise TrueInvalid(message)
+            raise TrueInvalid(self.msg, translation_key="value_was_not_true")
         return value
 
 
@@ -69,14 +68,13 @@ class IsFalse(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is falsy, else raise FalseInvalid."""
-        message = self.msg or "value was not false"
         try:
             truthy = bool(value)
         except Exception as exc:
-            raise FalseInvalid(message) from exc
+            raise FalseInvalid(self.msg, translation_key="value_was_not_false") from exc
 
         if truthy:
-            raise FalseInvalid(message)
+            raise FalseInvalid(self.msg, translation_key="value_was_not_false")
         return value
 
 
@@ -87,13 +85,16 @@ class _FilesystemCheck(_SafeValidator):
     messages voluptuous uses: ``default_msg`` for a value that fails the test
     (and which a custom message overrides), and ``empty_msg`` for a falsy or
     un-stringable value (which a custom message does not override, matching
-    voluptuous).
+    voluptuous). ``default_key``/``empty_key`` are the matching translation
+    keys in the message catalog.
     """
 
     test: typing.Callable[[str], bool]
     error: type[Invalid]
     default_msg: str
     empty_msg: str
+    default_key: str
+    empty_key: str
 
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message for the failing-test case."""
@@ -103,7 +104,7 @@ class _FilesystemCheck(_SafeValidator):
         """Return the value if the path test passes, else raise its error."""
         try:
             if not value:
-                raise self.error(self.empty_msg)
+                raise self.error(translation_key=self.empty_key)
             if type(self).test(str(value)):
                 return value
         except Invalid:
@@ -113,10 +114,9 @@ class _FilesystemCheck(_SafeValidator):
         except Exception as exc:
             # ValueError covers a path with an embedded NUL byte (os.stat raises);
             # the value's ``__bool__``/``__str__`` are user code and may raise anything.
-            raise self.error(self.empty_msg) from exc
+            raise self.error(translation_key=self.empty_key) from exc
 
-        message = self.msg or self.default_msg
-        raise self.error(message)
+        raise self.error(self.msg, translation_key=self.default_key)
 
 
 class IsDir(_FilesystemCheck):
@@ -126,6 +126,8 @@ class IsDir(_FilesystemCheck):
     error = DirInvalid
     default_msg = "Not a directory"
     empty_msg = "Not a directory"
+    default_key = "not_a_directory"
+    empty_key = "not_a_directory"
 
 
 class IsFile(_FilesystemCheck):
@@ -135,6 +137,8 @@ class IsFile(_FilesystemCheck):
     error = FileInvalid
     default_msg = "Not a file"
     empty_msg = "Not a file"
+    default_key = "not_a_file"
+    empty_key = "not_a_file"
 
 
 class PathExists(_FilesystemCheck):
@@ -144,6 +148,8 @@ class PathExists(_FilesystemCheck):
     error = PathInvalid
     default_msg = "path does not exist"
     empty_msg = "Not a Path"
+    default_key = "path_does_not_exist"
+    empty_key = "not_a_path"
 
 
 class IsSymlink(_FilesystemCheck):
@@ -153,6 +159,8 @@ class IsSymlink(_FilesystemCheck):
     error = SymlinkInvalid
     default_msg = "Not a symlink"
     empty_msg = "Not a symlink"
+    default_key = "not_a_symlink"
+    empty_key = "not_a_symlink"
 
 
 class IsSocket(_FilesystemCheck):
@@ -162,6 +170,8 @@ class IsSocket(_FilesystemCheck):
     error = SocketInvalid
     default_msg = "Not a socket"
     empty_msg = "Not a socket"
+    default_key = "not_a_socket"
+    empty_key = "not_a_socket"
 
 
 class IsFifo(_FilesystemCheck):
@@ -171,6 +181,8 @@ class IsFifo(_FilesystemCheck):
     error = FifoInvalid
     default_msg = "Not a FIFO"
     empty_msg = "Not a FIFO"
+    default_key = "not_a_fifo"
+    empty_key = "not_a_fifo"
 
 
 class IsBlockDevice(_FilesystemCheck):
@@ -180,3 +192,5 @@ class IsBlockDevice(_FilesystemCheck):
     error = BlockDeviceInvalid
     default_msg = "Not a block device"
     empty_msg = "Not a block device"
+    default_key = "not_a_block_device"
+    empty_key = "not_a_block_device"

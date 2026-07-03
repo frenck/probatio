@@ -1358,6 +1358,29 @@ def test_post_init_valueerror_becomes_value_invalid(extra: int | None) -> None:
     assert schema({"weight": 1.0}).weight == 1.0
 
 
+@dataclass
+class _SilentGuard:
+    """A dataclass whose __post_init__ raises a bare, message-less ValueError."""
+
+    weight: float
+
+    def __post_init__(self) -> None:
+        if self.weight < 0:
+            raise ValueError
+
+
+def test_post_init_bare_valueerror_reports_generic_message() -> None:
+    """A message-less ValueError from __post_init__ reads 'not a valid value'."""
+    schema = DataclassSchema(_SilentGuard)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"weight": -1.0})
+
+    (error,) = caught.value.errors
+    assert error.msg == "not a valid value"
+    assert error.translation_key == "not_a_valid_value"
+
+
 @pytest.mark.parametrize("extra", [None, ALLOW_EXTRA])
 def test_post_init_invalid_is_wrapped_not_normalized(extra: int | None) -> None:
     """An Invalid raised by __post_init__ surfaces as itself, wrapped once."""
