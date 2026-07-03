@@ -19,11 +19,21 @@ from probatio import All, Any, In, MultipleInvalid, Required, Schema, Union
 
 
 def _detail(lib: Typ, build: Typ, data: Typ) -> Typ:
-    """Run ``build(lib)(data)``, returning the result or each error's class/string."""
+    """Run ``build(lib)(data)``, returning the result or each error's detail.
+
+    Errors compare by class, bare message, and path; ``str(error)`` is left out
+    because probatio deliberately renders the path differently (ADR-015).
+    """
     try:
         return ("ok", build(lib)(data))
     except lib.MultipleInvalid as exc:
-        return ("err", sorted((type(e).__name__, str(e)) for e in exc.errors))
+        return (
+            "err",
+            sorted(
+                (type(e).__name__, e.error_message, [str(s) for s in e.path])
+                for e in exc.errors
+            ),
+        )
 
 
 # --- #523: In accepts a generator -------------------------------------------

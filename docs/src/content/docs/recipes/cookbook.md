@@ -192,7 +192,7 @@ try:
     schema({"token": "abc", "password": "hunter2"})
 except Invalid as err:
     print(err)
-    # two or more values in the same group of exclusion 'auth' @ data[<auth>]
+    # two or more values in the same group of exclusion 'auth' at '<auth>'
 ```
 
 Half of an inclusive group is also an error:
@@ -211,7 +211,7 @@ try:
     schema({"host": "localhost"})
 except Invalid as err:
     print(err)
-    # some but not all values in the same group of inclusion 'server' @ data[<server>]
+    # some but not all values in the same group of inclusion 'server' at '<server>'
 ```
 
 ## At least one of a group of keys
@@ -244,7 +244,7 @@ schema = Schema({Required(Any("email", "phone")): str})
 try:
     schema({})
 except Invalid as err:
-    print(err)  # at least one of ['email', 'phone'] is required @ data[Any('email', 'phone', msg=None)]
+    print(err)  # at least one of ['email', 'phone'] is required at '[Any('email', 'phone', msg=None)]'
 ```
 
 ## Dropping deprecated keys
@@ -360,7 +360,7 @@ try:
     schema(bad)
 except Invalid as err:
     print(humanize_error(bad, err))
-    # value must be at most 65535 for dictionary value @ data['port']. Got '70000'
+    # value must be at most 65535 at 'port'. Got '70000'
 ```
 
 `validate_with_humanized_errors` does the same in one call: it validates and, on

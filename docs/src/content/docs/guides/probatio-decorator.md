@@ -42,7 +42,7 @@ def area(width: int, height: int) -> int:
     return width * height
 
 
-area("wide", 4)  # expected int for dictionary value @ data['width']
+area("wide", 4)  # expected int at 'width'
 ```
 
 An unannotated parameter is left alone, so `self` and `cls` need no special

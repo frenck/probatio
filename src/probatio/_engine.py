@@ -217,7 +217,7 @@ class _MappingValidator:
         # voluptuous accepts only dict, so this is a documented superset
         # (carry-forward of voluptuous issue #299). A non-Mapping is rejected.
         if not isinstance(data, dict) and not isinstance(data, Mapping):
-            message = "expected a dictionary"
+            message = "expected a mapping"
             raise DictInvalid(message)
 
         # Preserve real dict subclasses, matching voluptuous. Other Mapping
@@ -444,9 +444,10 @@ class _MappingValidator:
         leaf = exc.errors if isinstance(exc, MultipleInvalid) else [exc]
         for error in leaf:
             # voluptuous tags a *leaf* value error "dictionary value" (or "object
-            # value" for an Object), so str() reads "... for dictionary value @
-            # ...". A leaf is recognized by its still-empty path; an error that
-            # already descended into a nested structure keeps its own type.
+            # value" for an Object) via ``error_type``. The attribute is kept for
+            # compatibility even though str() no longer renders it (ADR-015). A
+            # leaf is recognized by its still-empty path; an error that already
+            # descended into a nested structure keeps its own type.
             if not error.path and error.error_type is None:
                 error.error_type = self._invalid_msg
             error.prepend([key])

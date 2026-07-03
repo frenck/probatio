@@ -339,14 +339,14 @@ def test_remove_invalid_value_passes_through_with_allow_extra() -> None:
     assert schema({"note": "text"}) == {}
 
 
-def test_dict_value_error_reads_for_dictionary_value() -> None:
-    """A failed mapping value reads "... for dictionary value @ ...", as voluptuous."""
+def test_dict_value_error_keeps_error_type_out_of_rendering() -> None:
+    """A failed mapping value carries error_type but does not render it (ADR-015)."""
     schema = Schema({"data": int})
     with pytest.raises(MultipleInvalid) as caught:
         schema({"data": "x"})
     error = caught.value.errors[0]
     assert error.error_type == "dictionary value"
-    assert str(error) == "expected int for dictionary value @ data['data']"
+    assert str(error) == "expected int at 'data'"
 
 
 def test_dict_value_error_type_is_not_overwritten() -> None:

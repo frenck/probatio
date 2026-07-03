@@ -50,6 +50,13 @@ your application entry point, not from a library, and call it before the first
 Compatibility is the target. A few behaviors still differ on purpose, and each
 is a deliberate improvement over a sharp edge:
 
+- `str(error)` renders a dotted path and drops the error-type clause (ADR-015).
+  voluptuous's `expected int for dictionary value @ data['server']['port']`
+  reads `expected int at 'server.port'` in Probatio, with sequence indices as
+  `[n]`. A non-mapping is rejected as "expected a mapping" rather than
+  "expected a dictionary". The attributes (`path`, `msg`, `error_message`,
+  `error_type`) are unchanged, so only code that string-matches `str(error)`
+  notices.
 - Recursive `Self` on cyclic or very deep data raises a clean `Invalid` instead
   of letting Python crash with a `RecursionError`. You get a validation error
   with a path, not a stack overflow.
@@ -59,7 +66,7 @@ is a deliberate improvement over a sharp edge:
 - A missing complex required key (`Required(Any("a", "b"))`, "at least one of
   these keys") raises one clear error. voluptuous 0.16.0 additionally emits a
   redundant `required key not provided` for the same key; Probatio reports it
-  once. The first, meaningful error is identical.
+  once. The first, meaningful error matches voluptuous.
 - Any `Mapping` is accepted, not only `dict`. A `MappingProxyType`, a multidict,
   or any custom mapping validates and returns a plain `dict`, where voluptuous
   rejects it. A genuine `dict` subclass is preserved as its own class, matching

@@ -56,7 +56,7 @@ schema = Schema({"port": int})
 try:
     schema({"port": "nope"})
 except Invalid as err:
-    print(err)  # expected int for dictionary value @ data['port']
+    print(err)  # expected int at 'port'
 ```
 
 Catching `Invalid` catches every validation error, because everything Probatio

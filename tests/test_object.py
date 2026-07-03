@@ -41,7 +41,7 @@ def test_object_reports_a_bad_attribute_as_object_value() -> None:
         Schema(Object({"x": int, "y": int}))(Point(1, "nope"))
     error = caught.value.errors[0]
     assert error.path == ["y"]
-    assert "for object value" in str(error)
+    assert error.error_type == "object value"
 
 
 def test_object_enforces_the_class() -> None:

@@ -179,7 +179,7 @@ try:
     schema(data)
 except MultipleInvalid as err:
     print(humanize_error(data, err))
-    # expected str for dictionary value @ data['api_token']. Got <redacted>
+    # expected str at 'api_token'. Got <redacted>
 ```
 
 The redaction is targeted: only the secret key's value is hidden, a sibling

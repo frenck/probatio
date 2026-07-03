@@ -53,7 +53,7 @@ class User:
     age: int = 18
 
 
-DataclassSchema(User)({})  # required key not provided @ data['name']
+DataclassSchema(User)({})  # required key not provided at 'name'
 ```
 
 ## Annotations drive the validators

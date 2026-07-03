@@ -38,7 +38,7 @@ class VirtualPathComponent(str):
     Inclusive and Exclusive group failures do not belong to any single key, so
     voluptuous points the error at a virtual path component named after the
     group. It compares equal to the bare group name but renders in angle
-    brackets, so ``str(error)`` reads ``... @ data[<group>]``.
+    brackets, so ``str(error)`` reads ``... at '<group>'``.
     """
 
     __slots__ = ()

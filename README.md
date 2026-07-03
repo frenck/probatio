@@ -80,7 +80,7 @@ try:
     schema({"port": "nope"})
 except Invalid as err:
     print(err)
-    # expected int for dictionary value @ data['port']
+    # expected int at 'port'
 ```
 
 ## Why trust it

@@ -21,6 +21,7 @@ from __future__ import annotations
 import typing
 
 from probatio import ALLOW_EXTRA, PREVENT_EXTRA, Invalid, MultipleInvalid, Schema
+from probatio.error import render_path
 
 
 def _compile(schema: typing.Any, extra: int) -> Schema:
@@ -116,10 +117,10 @@ class Partial(_Matcher):
 
 
 def _format_path(path: list[typing.Any]) -> str:
-    """Render an error path as ``data['a'][0]``, or ``<root>`` when empty."""
+    """Render an error path as ``a[0].b`` (probatio's own trail), or ``<root>``."""
     if not path:
         return "<root>"
-    return "data" + "".join(f"[{segment!r}]" for segment in path)
+    return render_path(path)
 
 
 def pytest_assertrepr_compare(

@@ -54,7 +54,7 @@ its path through the data, using probatio's errors:
 
 ```text
 data does not match the probatio schema (==):
-  data['port']: expected a port number between 1 and 65535
+  port: expected a port number between 1 and 65535
 ```
 
 So a failing `assert response == Exact(...)` points at the exact offending value
@@ -119,7 +119,7 @@ wrong, the failure names the exact field, even inside the composed list:
 
 ```text
 data does not match the probatio schema (==):
-  data['users'][0]['email']: expected an email address
+  users[0].email: expected an email address
 ```
 
 ## Why a separate package

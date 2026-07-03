@@ -239,7 +239,7 @@ try:
     schema(data)
 except MultipleInvalid as err:
     print(humanize_error(data, err, locator=locator))
-# value must be at most 65535 for dictionary value @ data['server']['port']. Got 70000 (at 2:9)
+# value must be at most 65535 at 'server.port'. Got 70000 (at 2:9)
 ```
 
 The locator returns a `Location` (with `line`, `column`, and `file`) that programs

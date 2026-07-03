@@ -265,6 +265,16 @@ improvement over a sharp edge, not a regression.
 Each entry reads the same way: the behavior, then what voluptuous does, then what
 Probatio does.
 
+- **The rendered error string, `str(error)` (ADR-015).** voluptuous renders
+  `expected int for dictionary value @ data['server']['port']`. Probatio renders
+  the same error as `expected int at 'server.port'`: the path is a dotted trail
+  (sequence indices as `[n]`, so `at 'hosts[2].name'`), and the error-type clause
+  is not rendered. A non-mapping is rejected as "expected a mapping" instead of
+  "expected a dictionary" (the engine accepts any `Mapping`, and the message now
+  says so). The attributes are unchanged: `path`, `msg`, `error_message`, and
+  `error_type` keep their voluptuous semantics, so code that reads them (rather
+  than parsing the rendered string) is unaffected. Code that string-matches
+  `str(error)` should switch to `path` and `error_message`, or to `as_dict()`.
 - **Recursive `Self` on cyclic or very deep data.** voluptuous crashes with
   `RecursionError`. Probatio raises a clean `Invalid` with a path, caught with the
   rest of your errors. The depth limit tracks a fraction of the interpreter's
@@ -361,7 +371,7 @@ Probatio does.
   `Union` (alias `Switch`), not on `All`/`Any`; passing it to `All`/`Any` has no
   effect. Use `Union` for a discriminated union.
 - **An `ExactSequence` element error carries the element's index in the path**
-  (`@ data[1]`), where voluptuous reports the bare parent path. Probatio's path is
+  (`at '[1]'`), where voluptuous reports the bare parent path. Probatio's path is
   more precise; existing path-walking code sees a deeper path.
 - **The order of multiple missing-required-key errors** is the schema's definition
   order in Probatio, and hash (set) order in voluptuous. The first error still

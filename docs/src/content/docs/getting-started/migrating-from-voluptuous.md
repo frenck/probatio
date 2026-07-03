@@ -65,6 +65,15 @@ Imports that reach into voluptuous submodules keep working too: `voluptuous`,
 Probatio targets behavioral compatibility, so the list is short and every entry
 is a deliberate improvement, not a regression:
 
+- **The rendered error string differs (ADR-015).** voluptuous renders
+  `expected int for dictionary value @ data['server']['port']`; Probatio renders
+  the same error as `expected int at 'server.port'`. The path is a dotted trail
+  (sequence indices as `[n]`), the error-type clause is not rendered, and a
+  non-mapping is rejected as "expected a mapping" instead of "expected a
+  dictionary". The attributes (`path`, `msg`, `error_message`, `error_type`)
+  keep their voluptuous semantics, so only code that string-matches
+  `str(error)` notices; switch that code to `path` and `error_message`, or to
+  `as_dict()`.
 - **Recursive `Self` schemas fail cleanly.** Cyclic or pathologically deep data
   raises a normal `Invalid` (caught with the rest of your validation errors)
   instead of crashing with `RecursionError`, as voluptuous does. The depth limit
@@ -78,7 +87,7 @@ is a deliberate improvement, not a regression:
   `Required(Any("a", "b"))` ("at least one of these keys"), voluptuous 0.16.0
   emits both the "at least one of [...] is required" error and a redundant
   "required key not provided" for the same key. Probatio reports the single,
-  meaningful error; the first error matches voluptuous exactly.
+  meaningful error; the first error matches voluptuous.
 - **Any `Mapping` is accepted, not only `dict`.** A `MappingProxyType`, a
   multidict, or any custom type implementing the `Mapping` protocol validates
   and returns a plain `dict`, where voluptuous rejects it with "expected a

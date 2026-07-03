@@ -1,34 +1,34 @@
 # serializer version: 1
 # name: test_humanize_error_snapshot[exclusive_group]
-  "two or more values in the same group of exclusion 'g' @ data[<g>]. Got None"
+  "two or more values in the same group of exclusion 'g' at '<g>'. Got None"
 # ---
 # name: test_humanize_error_snapshot[extra_key]
-  "not a valid option @ data['y']. Got 2"
+  "not a valid option at 'y'. Got 2"
 # ---
 # name: test_humanize_error_snapshot[inclusive_group]
-  "some but not all values in the same group of inclusion 'g' @ data[<g>]. Got None"
+  "some but not all values in the same group of inclusion 'g' at '<g>'. Got None"
 # ---
 # name: test_humanize_error_snapshot[list_index_path]
-  "expected int @ data['ports'][1]. Got 'x'"
+  "expected int at 'ports[1]'. Got 'x'"
 # ---
 # name: test_humanize_error_snapshot[missing_required]
-  "required key not provided @ data['name']. Got None"
+  "required key not provided at 'name'. Got None"
 # ---
 # name: test_humanize_error_snapshot[multiple]
   '''
-  expected int for dictionary value @ data['a']. Got 'x'
-  expected int for dictionary value @ data['b']. Got 'y'
+  expected int at 'a'. Got 'x'
+  expected int at 'b'. Got 'y'
   '''
 # ---
 # name: test_humanize_error_snapshot[nested_path]
-  "expected int for dictionary value @ data['a']['b']. Got 'x'"
+  "expected int at 'a.b'. Got 'x'"
 # ---
 # name: test_humanize_error_snapshot[not_in]
-  "value must be one of ['auto', 'manual'] for dictionary value @ data['mode']. Got 'off'"
+  "value must be one of ['auto', 'manual'] at 'mode'. Got 'off'"
 # ---
 # name: test_humanize_error_snapshot[out_of_range]
-  "value must be at most 10 for dictionary value @ data['n']. Got 99"
+  "value must be at most 10 at 'n'. Got 99"
 # ---
 # name: test_humanize_error_snapshot[wrong_type]
-  "expected int for dictionary value @ data['port']. Got 'nope'"
+  "expected int at 'port'. Got 'nope'"
 # ---

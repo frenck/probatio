@@ -35,7 +35,7 @@ def test_argument_failure_raises_multiple_invalid() -> None:
     def add(a: int, b: int) -> int:
         return a + b
 
-    with pytest.raises(MultipleInvalid, match=r"data\['a'\]"):
+    with pytest.raises(MultipleInvalid, match=r"at 'a'"):
         add("nope", 3)
 
 

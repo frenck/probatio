@@ -103,6 +103,10 @@ export default defineConfig({
             { label: "Built-in validators", slug: "guides/validators" },
             { label: "Error handling", slug: "guides/error-handling" },
             {
+              label: "Custom error messages",
+              slug: "guides/custom-error-messages",
+            },
+            {
               label: "Loading and dumping",
               slug: "guides/loading-and-dumping",
             },

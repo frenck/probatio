@@ -60,7 +60,7 @@ schema = Schema({Required("count"): even})
 try:
     schema({"count": 3})
 except MultipleInvalid as err:
-    print(err)  # must be even for dictionary value @ data['count']
+    print(err)  # must be even at 'count'
 ```
 
 ## A plain ValueError works too
@@ -208,7 +208,7 @@ schema = Schema({Required("name"): All(Strip, Lower, not_empty)})
 try:
     schema({"name": "   "})
 except MultipleInvalid as err:
-    print(err)  # must not be empty for dictionary value @ data['name']
+    print(err)  # must not be empty at 'name'
 ```
 
 ## Parameterizing a validator
@@ -358,7 +358,7 @@ area(3, 4)  # 12
 try:
     area("wide", 4)
 except MultipleInvalid as err:
-    print(err)  # expected int for dictionary value @ data['width']
+    print(err)  # expected int at 'width'
 ```
 
 The `raises` context manager is the companion test helper: it asserts a block
@@ -375,6 +375,9 @@ with raises(MultipleInvalid, "expected int"):
 
 ## Where to next
 
+- [Custom error messages](/guides/custom-error-messages/): carrying structured
+  data (`code`, `context`, localization slots) on the errors you raise, and
+  rendering errors your way as a consumer.
 - [The validation model](/guides/validation-model/): why a returned value can
   differ from the input.
 - [Combinators](/guides/combinators/): `All`, `Any`, and friends.

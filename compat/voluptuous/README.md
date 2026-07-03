@@ -38,7 +38,7 @@ to a foreign test file.)
 
 ## Result
 
-140 passed, 27 xfailed, 0 unexpected failures.
+114 passed, 51 xfailed, 0 unexpected failures.
 
 Getting there fixed several real bugs that Probatio's own tests had not surfaced,
 each pinned with a Probatio test:
@@ -55,8 +55,13 @@ each pinned with a Probatio test:
 - Markers were not orderable; `sorted([Required("b"), Required("a")])` and
   `Optional("a") < "b"` now work (compare by the underlying key).
 
-The 27 xfails are all documented divergences, grouped in `conftest.py`:
+The 51 xfails are all documented divergences, grouped in `conftest.py`:
 
+- **The error rendering deviation (ADR-015)**: `str(error)` renders the path as
+  a dotted trail (`at 'a.b'`) instead of `@ data['a']['b']`, drops the
+  `for dictionary value` clause, and rejects a non-mapping as "expected a
+  mapping". Every test that string-matches the rendered error diverges; the
+  `path` segments and the bare message still match voluptuous.
 - **Deliberate improvements** (see the compatibility matrix): the "did you mean
   ...?" unknown-key error, lower-cased `Number` messages, the richer error wording
   for `Contains`, `In`, `NotIn`, `Maybe`, `Coerce`, and `FqdnUrl`, set and
