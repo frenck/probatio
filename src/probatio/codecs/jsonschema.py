@@ -765,8 +765,34 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     return _convert_named(node)
 
 
+def _convert_contains_count(node: _ContainsCount) -> dict[str, Any]:
+    """Render a decoded counted-contains back to ``contains`` with its count bounds.
+
+    ``minContains`` is emitted only when it differs from the spec default of 1,
+    and ``maxContains`` only when a bound was set, so a plain ``contains`` round
+    trips as a plain ``contains``.
+    """
+    result: dict[str, Any] = {"contains": _child(node.item)}
+    if node.minimum != 1:
+        result["minContains"] = node.minimum
+    if node.maximum is not None:
+        result["maxContains"] = node.maximum
+    return result
+
+
 def _convert_misc(node: Any) -> dict[str, Any] | None:
-    """Render the small single-keyword validators (duration, non-empty, default)."""
+    """Render the small single-keyword validators, or None if not one.
+
+    Includes the decoder's ``not`` and counted-``contains`` wrappers, which
+    re-emit their keyword so a schema decoded from ``{"not": ...}`` or
+    ``{"contains": ...}`` round-trips instead of collapsing to an open schema.
+    """
+    if isinstance(node, _Not):
+        return {"not": _child(node.subschema)}
+
+    if isinstance(node, _ContainsCount):
+        return _convert_contains_count(node)
+
     if isinstance(node, Duration | AsTimedelta):
         # ``duration`` is the standard JSON Schema format for an ISO 8601 duration
         # (draft 2019-09 onward), the string these validators accept.
@@ -1415,6 +1441,8 @@ class _Not:
 
     def __init__(self, subschema: Any) -> None:
         """Compile the subschema the value must NOT match."""
+        # Kept raw (unwrapped) so the encoder can re-emit ``{"not": ...}``.
+        self.subschema = subschema
         self._schema = Schema(subschema)
 
     def __repr__(self) -> str:
@@ -1965,13 +1993,15 @@ class _ContainsCount:
 
     def __init__(self, item_schema: Any, minimum: int, maximum: int | None) -> None:
         """Compile the item schema and store the count bounds."""
+        # ``item`` kept raw so the encoder can re-emit ``{"contains": ...}``.
+        self.item = item_schema
         self._schema = Schema(item_schema)
-        self._min = minimum
-        self._max = maximum
+        self.minimum = minimum
+        self.maximum = maximum
 
     def __repr__(self) -> str:
         """Render readably for error paths."""
-        return f"ContainsCount(min={self._min}, max={self._max})"
+        return f"ContainsCount(min={self.minimum}, max={self.maximum})"
 
     def __call__(self, value: Any) -> Any:
         """Return the value if the matching-item count is in range, else raise."""
@@ -1988,15 +2018,15 @@ class _ContainsCount:
                 continue
             count += 1
 
-        if count < self._min:
+        if count < self.minimum:
             raise ContainsInvalid(
                 translation_key="min_contains",
-                placeholders={"min": self._min},
+                placeholders={"min": self.minimum},
             )
-        if self._max is not None and count > self._max:
+        if self.maximum is not None and count > self.maximum:
             raise ContainsInvalid(
                 translation_key="max_contains",
-                placeholders={"max": self._max},
+                placeholders={"max": self.maximum},
             )
 
         return value

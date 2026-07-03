@@ -1273,3 +1273,40 @@ def test_type_null_accepts_only_none() -> None:
     for bad in ([], 0, "x", False):
         with pytest.raises(MultipleInvalid):
             schema(bad)
+
+
+def test_not_round_trips_through_the_encoder() -> None:
+    """A decoded 'not' re-encodes to 'not' instead of collapsing to an open schema."""
+    once = from_json_schema({"not": {"enum": [0]}})
+    assert to_json_schema(once) == {"not": {"enum": [0]}}
+    twice = from_json_schema(to_json_schema(once))
+    assert twice(5) == 5
+    with pytest.raises(MultipleInvalid):
+        twice(0)
+
+
+def test_counted_contains_round_trips_through_the_encoder() -> None:
+    """A decoded counted contains re-encodes with its count bounds."""
+    once = from_json_schema(
+        {"type": "array", "contains": {"const": 9}, "minContains": 2},
+    )
+    encoded = to_json_schema(once)
+    assert encoded["contains"] == {"const": 9}
+    assert encoded["minContains"] == 2
+    assert "maxContains" not in encoded
+
+
+def test_plain_contains_round_trips_without_count_keywords() -> None:
+    """A plain contains re-encodes without min/maxContains (the spec default)."""
+    once = from_json_schema({"type": "array", "contains": {"const": 9}})
+    encoded = to_json_schema(once)
+    assert "minContains" not in encoded
+    assert "maxContains" not in encoded
+
+
+def test_counted_contains_round_trips_max_bound() -> None:
+    """A decoded maxContains bound re-encodes too."""
+    once = from_json_schema(
+        {"type": "array", "contains": {"const": 9}, "maxContains": 3},
+    )
+    assert to_json_schema(once)["maxContains"] == 3
