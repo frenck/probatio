@@ -14,15 +14,16 @@ validator instead of looping.
 
 from __future__ import annotations
 
+import contextvars
 import datetime
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from probatio.codecs._regex_safety import is_catastrophic
-from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES
+from probatio.codecs._shared import FORMAT_BY_TYPE, STRING_TYPES, UNSUPPORTED
 from probatio.error import ContainsInvalid, Invalid, SchemaError
 from probatio.markers import (
     Alias,
@@ -118,14 +119,51 @@ _BOOLEAN_FUNC = getattr(Boolean, "__wrapped__")  # noqa: B009
 _MAX_SCHEMA_DEPTH = 100
 
 
-def to_json_schema(schema: Any) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _Options:
+    """The per-call ``to_json_schema`` options, read at every node."""
+
+    strict: bool = False
+    custom: Any = None
+
+
+# The active options during one ``to_json_schema`` call. A ``ContextVar`` carries
+# them to every node without threading two more arguments through the whole
+# recursive encoder; ``to_json_schema`` sets it on entry and resets it on exit.
+# The default is ``None`` (not a shared instance) so nothing mutable is shared.
+_OPTIONS: contextvars.ContextVar[_Options | None] = contextvars.ContextVar(
+    "_OPTIONS",
+    default=None,
+)
+
+
+def _options() -> _Options:
+    """Return the active options, or the plain defaults outside a conversion."""
+    return _OPTIONS.get() or _Options()
+
+
+def to_json_schema(
+    schema: Any,
+    *,
+    strict: bool = False,
+    custom_serializer: Any = None,
+) -> dict[str, Any]:
     """Convert a schema (or ``Schema``) into a JSON Schema dictionary.
+
+    By default a construct with no JSON Schema form widens to an open schema
+    (``{}``). With ``strict=True`` such a construct raises ``SchemaError`` instead,
+    so a lossy conversion is caught rather than silently accepted.
+
+    ``custom_serializer`` is called first for each node and may return a dict to
+    override the default rendering, or the ``UNSUPPORTED`` sentinel to defer, the
+    same hook ``to_openapi`` takes.
 
     A raw schema that references itself (a dict holding itself as a value, rather
     than the supported ``Self`` marker) has no finite rendering, so the runaway
     recursion is caught and reported as a clean ``SchemaError`` instead of a bare
     ``RecursionError``.
     """
+    token = _OPTIONS.set(_Options(strict=strict, custom=custom_serializer))
     try:
         return _convert(schema, required_default=False, allow_extra=False)
     except RecursionError as exc:
@@ -134,6 +172,24 @@ def to_json_schema(schema: Any) -> dict[str, Any]:
             "marker for a recursive schema"
         )
         raise SchemaError(message) from exc
+    finally:
+        _OPTIONS.reset(token)
+
+
+def _open(reason: str) -> dict[str, Any]:
+    """Render an open schema for a construct with no JSON Schema form.
+
+    In strict mode the silent widening is an error (the construct's constraint
+    would be dropped); otherwise it widens to accept-anything, the default
+    best-effort behavior.
+    """
+    if _options().strict:
+        message = (
+            f"to_json_schema cannot represent {reason}; it would widen to an "
+            "open schema (pass strict=False to allow it)"
+        )
+        raise SchemaError(message)
+    return {}
 
 
 def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[str, Any]:
@@ -147,6 +203,12 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
             required_default=node.required,
             allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
         )
+
+    custom = _options().custom
+    if custom is not None:
+        result = custom(node)
+        if result is not UNSUPPORTED:
+            return cast("dict[str, Any]", result)
 
     if isinstance(node, dict):
         return _convert_mapping(
@@ -522,7 +584,7 @@ def _convert_leaf(node: Any) -> dict[str, Any]:
         return {"const": node}
 
     validator = _convert_validator(node)
-    return validator if validator is not None else {}
+    return validator if validator is not None else _open(f"the validator {node!r}")
 
 
 def _convert_type(node: type) -> dict[str, Any]:
@@ -537,18 +599,25 @@ def _convert_type(node: type) -> dict[str, Any]:
     if node is list:
         return {"type": "array"}
 
+    if node is object:
+        # ``object`` accepts any value, so an open schema is faithful, not a loss.
+        return {}
+
     if isinstance(node, type) and issubclass(node, Enum):
         # An Enum class accepts its member values on the wire (``Color`` accepts
         # ``"red"``), so it renders as an enum of those values.
         return _enum([member.value for member in node])
 
-    return {}
+    return _open(f"the type {node.__name__!r}")
 
 
 def _convert_validator(node: Any) -> dict[str, Any] | None:
     """Render a combinator, or delegate to the constraint validators."""
     if isinstance(node, Coerce):
-        return _convert_type(node.type) if isinstance(node.type, type) else {}
+        target = node.type
+        if isinstance(target, type):
+            return _convert_type(target)
+        return _open("a Coerce with a non-type target")
 
     if isinstance(node, Msg):
         # ``Msg`` only swaps the error message; the shape is the wrapped validator.
@@ -585,7 +654,7 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
         return {"anyOf": branches}
     if node.min_valid == node.max_valid == count:
         return {"allOf": branches}
-    return {}
+    return _open("a SomeOf with a min/max count JSON Schema cannot express")
 
 
 def _convert_all(node: All) -> dict[str, Any]:
@@ -681,13 +750,17 @@ def _enum(container: Any) -> dict[str, Any]:
     is not available.
     """
     values = _json_safe(list(_ordered(container)))
-    return {} if values is _UNREPRESENTABLE else {"enum": values}
+    if values is _UNREPRESENTABLE:
+        return _open("an enum member with no JSON form")
+    return {"enum": values}
 
 
 def _const(value: Any) -> dict[str, Any]:
     """Render an equality target as a ``const``, or open when unrepresentable."""
     converted = _json_safe(value)
-    return {} if converted is _UNREPRESENTABLE else {"const": converted}
+    if converted is _UNREPRESENTABLE:
+        return _open("a const value with no JSON form")
+    return {"const": converted}
 
 
 def _convert_equality(node: Any) -> dict[str, Any] | None:
@@ -697,7 +770,9 @@ def _convert_equality(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, NotIn):
         enum = _enum(node.container)
-        return {"not": enum} if enum else {}
+        # An unrepresentable ``NotIn`` container already widened (or raised in
+        # strict mode) inside ``_enum``, so a truthy ``enum`` is the only case here.
+        return {"not": enum} if enum else enum
 
     if isinstance(node, Equal):
         return _const(node.target)
