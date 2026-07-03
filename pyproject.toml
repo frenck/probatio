@@ -105,6 +105,10 @@ test = [
   # voluptuous-openapi is a dev-only oracle: probatio.to_openapi is compared
   # against its convert() on equivalent schemas. Never a runtime dependency.
   "voluptuous-openapi==0.4.1",
+  # jsonschema is a dev-only oracle: to_json_schema output is validated against
+  # it (both that the schema is valid and that it never rejects input probatio
+  # accepts). Never a runtime dependency.
+  "jsonschema==4.26.0",
   # mashumaro is a benchmark-only comparison for the dataclass path (its codegen
   # from_dict against DataclassSchema). It is not an oracle: it deserializes rather
   # than validates, so it is never compared for correctness. Never a runtime dep.

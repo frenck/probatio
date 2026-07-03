@@ -25,6 +25,17 @@ _literals = st.one_of(
     st.none(),
 )
 
+# The differential oracle (to_json_schema against the reference validator) needs
+# literals free of the Python/JSON impedances: a bool is an ``int`` in Python but
+# not a JSON number, so ``Schema(int)`` accepts ``True`` while ``{"type":
+# "integer"}`` rejects it, which reads as a spurious narrowing. Dropping booleans
+# keeps the no-narrowing check meaningful.
+_json_literals = st.one_of(
+    st.integers(min_value=-10, max_value=10),
+    st.text(max_size=3),
+    st.none(),
+)
+
 
 # Remove is exercised by curated conformance cases, not fuzzed: its interaction
 # with an Extra catch-all and with bool-vs-int values exposes voluptuous quirks
@@ -33,28 +44,42 @@ _KEY_KINDS = ("required", "optional")
 _EXTRA_MODES = (None, "allow", "remove")
 
 
-def specs() -> st.SearchStrategy[Any]:
-    """A recursive strategy yielding library-agnostic schema specs."""
-    leaves = st.one_of(
-        st.sampled_from([int, str, bool, float]).map(lambda t: ("type", t)),
-        _literals.map(lambda v: ("literal", v)),
-        _literals.map(lambda v: ("equal", v)),
-        st.lists(_literals, min_size=1, max_size=4).map(lambda xs: ("in", xs)),
-        st.lists(_literals, min_size=1, max_size=4).map(lambda xs: ("not_in", xs)),
+def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
+    """A recursive strategy yielding library-agnostic schema specs.
+
+    With ``no_narrowing=True`` the strategy drops the constructs whose JSON Schema
+    rendering is a documented lossy narrowing (``Coerce`` cannot express its input
+    coercion; ``Clamp`` accepts out-of-range values it then clamps) and drops
+    boolean literals (the bool-is-int impedance). The remainder is the subset over
+    which the emitted schema must never reject an input probatio accepts, so the
+    differential oracle can assert exactly that.
+    """
+    literals = _json_literals if no_narrowing else _literals
+    types = [int, str, float] if no_narrowing else [int, str, bool, float]
+    leaf_options = [
+        st.sampled_from(types).map(lambda t: ("type", t)),
+        literals.map(lambda v: ("literal", v)),
+        literals.map(lambda v: ("equal", v)),
+        st.lists(literals, min_size=1, max_size=4).map(lambda xs: ("in", xs)),
+        st.lists(literals, min_size=1, max_size=4).map(lambda xs: ("not_in", xs)),
         st.tuples(
             st.integers(min_value=-10, max_value=0),
             st.integers(min_value=0, max_value=10),
         ).map(lambda mm: ("range", mm[0], mm[1])),
         st.tuples(
-            st.integers(min_value=-10, max_value=0),
-            st.integers(min_value=0, max_value=10),
-        ).map(lambda mm: ("clamp", mm[0], mm[1])),
-        st.tuples(
             st.integers(min_value=0, max_value=2),
             st.integers(min_value=2, max_value=5),
         ).map(lambda mm: ("length", mm[0], mm[1])),
-        st.sampled_from([int, str, float]).map(lambda t: ("coerce", t)),
-    )
+    ]
+    if not no_narrowing:
+        leaf_options += [
+            st.tuples(
+                st.integers(min_value=-10, max_value=0),
+                st.integers(min_value=0, max_value=10),
+            ).map(lambda mm: ("clamp", mm[0], mm[1])),
+            st.sampled_from([int, str, float]).map(lambda t: ("coerce", t)),
+        ]
+    leaves = st.one_of(*leaf_options)
     return st.recursive(
         leaves,
         lambda children: st.one_of(
@@ -77,14 +102,22 @@ def specs() -> st.SearchStrategy[Any]:
     )
 
 
-def data() -> st.SearchStrategy[Any]:
-    """JSON-shaped values: scalars, lists, and string-keyed dicts (no NaN/inf)."""
-    return st.recursive(
+def data(*, booleans: bool = True) -> st.SearchStrategy[Any]:
+    """JSON-shaped values: scalars, lists, and string-keyed dicts (no NaN/inf).
+
+    ``booleans=False`` drops bare booleans, for the differential oracle where the
+    bool-is-int impedance would otherwise read as a spurious narrowing.
+    """
+    scalars = (
         st.none()
-        | st.booleans()
         | st.integers(min_value=-12, max_value=12)
         | st.floats(allow_nan=False, allow_infinity=False)
-        | st.text(max_size=3),
+        | st.text(max_size=3)
+    )
+    if booleans:
+        scalars |= st.booleans()
+    return st.recursive(
+        scalars,
         lambda c: (
             st.lists(c, max_size=3)
             | st.dictionaries(st.text(min_size=1, max_size=3), c, max_size=3)
