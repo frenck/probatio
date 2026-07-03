@@ -326,6 +326,14 @@ def _convert_equality(node: Any) -> dict[str, Any] | None:
     if isinstance(node, Literal):
         return {"const": node.lit}
 
+    # The decoder's JSON-strict enum/const (numbers and booleans kept distinct)
+    # re-emit their keyword, so a decoded schema round-trips.
+    if isinstance(node, _JsonEnum):
+        return {"enum": list(node.values)}
+
+    if isinstance(node, _JsonConst):
+        return {"const": node.value}
+
     return None
 
 
@@ -397,6 +405,11 @@ def _convert_typed(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, Base64):
         return {"type": "string", "contentEncoding": "base64"}
+
+    # The decoder's JSON-strict numeric types re-emit their keyword, so a
+    # decoded schema round-trips.
+    if isinstance(node, _JsonNumberType):
+        return {"type": "integer" if node.integer else "number"}
 
     return None
 
@@ -613,6 +626,40 @@ _FROM_FORMATS: dict[str, Any] = {
 }
 # JSON Schema scalar types that map to a fixed probatio fragment.
 _SIMPLE_TYPES: dict[str, Any] = {"boolean": bool, "null": None}
+
+
+class _JsonNumberType:
+    """Decode of ``type: integer``/``number`` under the JSON data model.
+
+    Python's ``bool`` subclasses ``int``, so a plain type check accepts ``True``
+    as an integer and rejects ``1.0``, both against the spec: JSON has no
+    boolean-as-number, and Draft 2020-12 defines ``integer`` as any number with
+    a zero fractional part.
+    """
+
+    def __init__(self, *, integer: bool) -> None:
+        """Remember whether the fractional part must be zero (read as ``.integer``)."""
+        self.integer = integer
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return "JsonInteger()" if self.integer else "JsonNumber()"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if it is a JSON number (an integer when required)."""
+        bad = isinstance(value, bool) or not isinstance(value, int | float)
+        if not bad and self.integer and isinstance(value, float):
+            bad = not value.is_integer()
+        if bad:
+            raise Invalid(
+                translation_key="expected_type",
+                placeholders={"expected": "integer" if self.integer else "number"},
+            )
+        return value
+
+
+_JSON_INTEGER = _JsonNumberType(integer=True)
+_JSON_NUMBER = _JsonNumberType(integer=False)
 
 
 class _DeferredRef:
@@ -842,13 +889,101 @@ def _reject_unsupported(node: dict[str, Any]) -> None:
         raise SchemaError(message)
 
 
+def _json_equal(a: Any, b: Any) -> bool:
+    """Equality under JSON's type model: a boolean is never equal to a number.
+
+    Python's ``==`` conflates them (``1 == True``), so a decoded ``enum`` or
+    ``const`` would accept booleans for numbers and the reverse, against the
+    JSON data model. Numbers still compare across int/float (``1 == 1.0``),
+    which matches the spec. Containers compare element-wise so a nested boolean
+    stays distinct too.
+    """
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    # The value side can be a hostile subclass whose __len__, __iter__,
+    # __getitem__, or key equality raises, so the container walks are guarded
+    # just like the plain equality: any failure is a mismatch, never a leak.
+    try:
+        if isinstance(a, list) and isinstance(b, list):
+            return len(a) == len(b) and all(map(_json_equal, a, b))
+        if isinstance(a, dict) and isinstance(b, dict):
+            return a.keys() == b.keys() and all(
+                _json_equal(item, b[key]) for key, item in a.items()
+            )
+        return bool(a == b)
+    except Exception:  # noqa: BLE001 - the value's dunders are user code; never leak
+        return False
+
+
+def _needs_json_equality(value: Any) -> bool:
+    """Whether Python ``==`` could conflate the value with a boolean or number.
+
+    Only booleans and numbers (anywhere in the value) are ambiguous; strings,
+    null, and containers of them compare identically under both models, so those
+    keep the plain validators and their round-trip shape.
+    """
+    if isinstance(value, bool | int | float):
+        return True
+    if isinstance(value, list):
+        return any(_needs_json_equality(item) for item in value)
+    if isinstance(value, dict):
+        return any(_needs_json_equality(item) for item in value.values())
+    return False
+
+
+class _JsonConst:
+    """Decode of ``const`` holding a number or boolean: JSON-strict equality."""
+
+    def __init__(self, value: Any) -> None:
+        """Store the value the input must equal (read as ``.value``)."""
+        self.value = value
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return f"JsonConst({self.value!r})"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if it JSON-equals the const, else raise Invalid."""
+        if not _json_equal(value, self.value):
+            raise Invalid(
+                translation_key="value_not_equal",
+                placeholders={"target": self.value},
+            )
+        return value
+
+
+class _JsonEnum:
+    """Decode of ``enum`` holding numbers or booleans: JSON-strict membership."""
+
+    def __init__(self, values: list[Any]) -> None:
+        """Store the allowed members (read as ``.values``)."""
+        self.values = values
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return f"JsonEnum({self.values!r})"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if a member JSON-equals it, else raise Invalid."""
+        if not any(_json_equal(value, member) for member in self.values):
+            raise Invalid(
+                translation_key="value_one_of",
+                placeholders={"values": self.values},
+            )
+        return value
+
+
 def _from_const(value: Any) -> Any:
     """Build a const equality check.
 
     A scalar is returned as a literal (a ``Schema`` validates a literal by
     equality). A list or dict literal would instead be read as a structural
     sub-schema, so it is wrapped in ``Equal`` to keep const's equality semantics.
+    A value carrying a number or boolean anywhere gets the JSON-strict check,
+    since Python equality would conflate ``1`` with ``True``.
     """
+    if _needs_json_equality(value):
+        return _JsonConst(value)
     if isinstance(value, list | dict):
         return Equal(value)
     return value
@@ -939,11 +1074,18 @@ class _JsonUnique:
         return value
 
 
-def _from_enum(values: Any) -> In:
-    """Build an In from a JSON Schema ``enum``, rejecting a non-array."""
+def _from_enum(values: Any) -> Any:
+    """Build a membership check from a JSON Schema ``enum``, rejecting a non-array.
+
+    An enum carrying a number or boolean anywhere gets the JSON-strict check
+    (``In`` uses Python ``==``, which would conflate ``1`` with ``True``); a
+    purely string/null enum keeps ``In`` and its friendlier miss suggestions.
+    """
     if not isinstance(values, list):
         message = f"JSON Schema 'enum' must be an array, got {type(values).__name__}"
         raise SchemaError(message)
+    if any(_needs_json_equality(value) for value in values):
+        return _JsonEnum(list(values))
     return In(list(values))
 
 
@@ -1058,7 +1200,7 @@ def _from_typed(node: dict[str, Any], ctx: _Decode) -> Any:
         return _from_string(node)
 
     if json_type in ("integer", "number"):
-        base = int if json_type == "integer" else AnyValidator(int, float)
+        base = _JSON_INTEGER if json_type == "integer" else _JSON_NUMBER
         return _from_number(node, base=base)
 
     # A non-empty ``type`` that is none of the seven JSON Schema types is malformed.
