@@ -85,7 +85,10 @@ def render_path(path: list[Any]) -> str:
     with dots, integer segments (list indices, integer keys) render as ``[n]``,
     and anything else (a key with spaces, a marker object) falls back to its
     bracketed ``repr``. Group segments keep their ``<group>`` rendering (see
-    ``VirtualPathComponent``). An empty path renders as an empty string.
+    ``VirtualPathComponent``), for identifier-like group names only: path
+    segments can be attacker-controlled mapping keys, and ``repr`` in the
+    fallback is what keeps control characters out of the rendered string. An
+    empty path renders as an empty string.
     """
     parts: list[str] = []
     for segment in path:
@@ -94,7 +97,11 @@ def render_path(path: list[Any]) -> str:
             text = str(segment)
             if len(text) <= _MAX_PATH_SEGMENT_LENGTH and (
                 _BARE_KEY.fullmatch(text)
-                or (text.startswith("<") and text.endswith(">"))
+                or (
+                    text.startswith("<")
+                    and text.endswith(">")
+                    and _BARE_KEY.fullmatch(text[1:-1])
+                )
             ):
                 parts.append(f".{text}" if parts else text)
                 continue

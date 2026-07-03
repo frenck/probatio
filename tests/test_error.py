@@ -59,6 +59,19 @@ def test_invalid_renders_awkward_key_bracketed() -> None:
     assert str(err) == "expected int at 'server['my key']'"
 
 
+def test_invalid_renders_angle_bracket_key_with_control_chars_bracketed() -> None:
+    """An attacker-shaped <...> key falls back to repr; no raw control characters."""
+    err = Invalid("bad", path=["<bad\nkey>"])
+    assert str(err) == "bad at '['<bad\\nkey>']'"
+    assert "\n" not in str(err)
+
+
+def test_invalid_renders_group_segment_bare() -> None:
+    """An identifier-like <group> segment renders bare, keeping its brackets."""
+    err = Invalid("bad", path=["server", "<auth>"])
+    assert str(err) == "bad at 'server.<auth>'"
+
+
 def test_invalid_renders_bool_key_bracketed() -> None:
     """A boolean key renders as its repr, not as a sequence index."""
     err = Invalid("expected int", path=[True])
