@@ -45,6 +45,7 @@ from probatio.validators import (
     AsDate,
     AsDatetime,
     AsTime,
+    AsTimedelta,
     Base64,
     Boolean,
     Capitalize,
@@ -52,6 +53,8 @@ from probatio.validators import (
     Contains,
     Date,
     Datetime,
+    DefaultTo,
+    Duration,
     Email,
     Equal,
     ExactSequence,
@@ -67,7 +70,9 @@ from probatio.validators import (
     Lower,
     Match,
     Maybe,
+    Msg,
     MultipleOf,
+    NonEmpty,
     NotIn,
     Percentage,
     Port,
@@ -76,6 +81,7 @@ from probatio.validators import (
     Strip,
     Time,
     Title,
+    Union,
     Unique,
     Upper,
     Url,
@@ -531,6 +537,11 @@ def _convert_type(node: type) -> dict[str, Any]:
     if node is list:
         return {"type": "array"}
 
+    if isinstance(node, type) and issubclass(node, Enum):
+        # An Enum class accepts its member values on the wire (``Color`` accepts
+        # ``"red"``), so it renders as an enum of those values.
+        return _enum([member.value for member in node])
+
     return {}
 
 
@@ -539,13 +550,42 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
     if isinstance(node, Coerce):
         return _convert_type(node.type) if isinstance(node.type, type) else {}
 
-    if isinstance(node, AnyValidator):
+    if isinstance(node, Msg):
+        # ``Msg`` only swaps the error message; the shape is the wrapped validator.
+        return _child(node.validator)
+
+    # ``Union``/``Switch`` accept any branch (the discriminant is an
+    # optimization), so they render as ``anyOf`` like ``Any``. Checked with
+    # ``Any`` since both wrap ``.validators``.
+    if isinstance(node, AnyValidator | Union):
         return {"anyOf": [_child(validator) for validator in node.validators]}
+
+    if isinstance(node, SomeOf):
+        return _convert_some_of(node)
 
     if isinstance(node, All):
         return _convert_all(node)
 
     return _convert_constraint(node)
+
+
+def _convert_some_of(node: SomeOf) -> dict[str, Any]:
+    """Render a SomeOf for the counts JSON Schema can express, else an open schema.
+
+    Exactly one branch (``min == max == 1``) is ``oneOf``; at least one
+    (``min == 1``, ``max`` the branch count) is ``anyOf``; every branch
+    (``min == max == count``) is ``allOf``. Any other count has no clean JSON
+    Schema form, so it widens to an open schema.
+    """
+    branches = [_child(validator) for validator in node.validators]
+    count = len(branches)
+    if node.min_valid == node.max_valid == 1:
+        return {"oneOf": branches}
+    if node.min_valid == 1 and node.max_valid == count:
+        return {"anyOf": branches}
+    if node.min_valid == node.max_valid == count:
+        return {"allOf": branches}
+    return {}
 
 
 def _convert_all(node: All) -> dict[str, Any]:
@@ -703,12 +743,9 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     if isinstance(node, FromEpoch):
         return {"type": "number"}
 
-    if isinstance(node, Unique):
-        return {"uniqueItems": True}
-
-    # The decoder's JSON-value uniqueness check re-emits its keyword, so a
-    # decoded schema round-trips.
-    if isinstance(node, _JsonUnique):
+    # ``Unique`` and the decoder's JSON-value uniqueness check (which re-emits its
+    # keyword so a decoded schema round-trips) both render as ``uniqueItems``.
+    if isinstance(node, Unique | _JsonUnique):
         return {"uniqueItems": True}
 
     if isinstance(node, Contains):
@@ -717,11 +754,36 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     if isinstance(node, ExactSequence):
         return _convert_exact_sequence(node)
 
+    misc = _convert_misc(node)
+    if misc is not None:
+        return misc
+
     typed = _convert_typed(node)
     if typed is not None:
         return typed
 
     return _convert_named(node)
+
+
+def _convert_misc(node: Any) -> dict[str, Any] | None:
+    """Render the small single-keyword validators (duration, non-empty, default)."""
+    if isinstance(node, Duration | AsTimedelta):
+        # ``duration`` is the standard JSON Schema format for an ISO 8601 duration
+        # (draft 2019-09 onward), the string these validators accept.
+        return {"type": "string", "format": "duration"}
+
+    if isinstance(node, NonEmpty):
+        # ``NonEmpty`` requires a non-empty value; ``minLength`` carries that for a
+        # string (the common case), and is ignored for a non-string per the spec.
+        return {"minLength": 1}
+
+    if isinstance(node, DefaultTo):
+        # ``DefaultTo`` accepts any value and substitutes its default for a missing
+        # one, so the only JSON Schema it carries is the ``default`` annotation.
+        default = _json_safe(node.default)
+        return {} if default is _UNREPRESENTABLE else {"default": default}
+
+    return None
 
 
 def _convert_typed(node: Any) -> dict[str, Any] | None:
