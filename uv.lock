@@ -322,28 +322,10 @@ wheels = [
 
 [[package]]
 name = "hypothesis"
-version = "6.155.0"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.15'",
-]
-dependencies = [
-    { name = "sortedcontainers", marker = "python_full_version >= '3.15'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/86/7d/9569717766867495510712eba388f7ca0633549f9ff4d3c34398b919e5b4/hypothesis-6.155.0.tar.gz", hash = "sha256:cf09ac913b60b49750585a53152704468de666f35c9c29f8e61d82a01f64bbb5", size = 476704, upload-time = "2026-05-28T15:43:24.193Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/f8/31a6a6646c5b76b9746454318989340cea0290ba34e0f3ccd0668ce67868/hypothesis-6.155.0-py3-none-any.whl", hash = "sha256:d6ffa3062afabaf908491be707c60843f6671f7c3e9f2ed249d5827207ebbf33", size = 543120, upload-time = "2026-05-28T15:43:21.855Z" },
-]
-
-[[package]]
-name = "hypothesis"
 version = "6.156.1"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.15'",
-]
 dependencies = [
-    { name = "sortedcontainers", marker = "python_full_version < '3.15'" },
+    { name = "sortedcontainers" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/3d/1a0e54652f1b3cad354949ba83f6ab211048ff3a6cfb24edcddc748a8be1/hypothesis-6.156.1-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:0409dea0c0b48705cad8413468282af9c5e7d3a017b6c2b94ef80e7ba4b64862", size = 749005, upload-time = "2026-07-03T14:30:26.045Z" },
@@ -907,8 +889,7 @@ bench-world = [
     { name = "covdefaults" },
     { name = "dacite" },
     { name = "dataclasses-json" },
-    { name = "hypothesis", version = "6.155.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "hypothesis", version = "6.156.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
+    { name = "hypothesis" },
     { name = "marshmallow" },
     { name = "mashumaro" },
     { name = "matplotlib" },
@@ -926,8 +907,7 @@ bench-world = [
 ]
 codspeed = [
     { name = "covdefaults" },
-    { name = "hypothesis", version = "6.155.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "hypothesis", version = "6.156.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
+    { name = "hypothesis" },
     { name = "mashumaro" },
     { name = "orjson" },
     { name = "pytest" },
@@ -944,8 +924,7 @@ codspeed = [
 dev = [
     { name = "codespell" },
     { name = "covdefaults" },
-    { name = "hypothesis", version = "6.155.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "hypothesis", version = "6.156.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
+    { name = "hypothesis" },
     { name = "mashumaro" },
     { name = "mypy" },
     { name = "orjson" },
@@ -970,8 +949,7 @@ lint = [
 ]
 test = [
     { name = "covdefaults" },
-    { name = "hypothesis", version = "6.155.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.15'" },
-    { name = "hypothesis", version = "6.156.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.15'" },
+    { name = "hypothesis" },
     { name = "mashumaro" },
     { name = "orjson" },
     { name = "pytest" },
@@ -1005,7 +983,7 @@ bench-world = [
     { name = "dacite", specifier = "==1.9.2" },
     { name = "dataclasses-json", specifier = "==0.6.7" },
     { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.1" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.155.0" },
+    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.1" },
     { name = "marshmallow", specifier = "==3.26.2" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "matplotlib", specifier = "==3.11.0" },
@@ -1024,7 +1002,7 @@ bench-world = [
 codspeed = [
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.1" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.155.0" },
+    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.1" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -1042,7 +1020,7 @@ dev = [
     { name = "codespell", specifier = "==2.4.2" },
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.1" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.155.0" },
+    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.1" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "mypy", specifier = "==2.1.0" },
     { name = "orjson", specifier = "==3.11.9" },
@@ -1068,7 +1046,7 @@ lint = [
 test = [
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.1" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.155.0" },
+    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.1" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "orjson", specifier = "==3.11.9" },
     { name = "pytest", specifier = "==9.1.1" },
