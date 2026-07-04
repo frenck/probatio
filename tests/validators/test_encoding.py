@@ -1,4 +1,4 @@
-"""Tests for the encoding validators (JSONString, YAMLString)."""
+"""Tests for the encoding validators (Base64, Hex, HexInt, JSONString)."""
 
 from __future__ import annotations
 
@@ -7,17 +7,13 @@ import pytest
 from probatio import (
     Base64,
     FromJSONString,
-    FromYAMLString,
     Hex,
     HexInt,
     JSONString,
     MultipleInvalid,
     Schema,
-    SchemaError,
-    YAMLString,
 )
-from probatio.error import CoerceInvalid, JsonInvalid, ValueInvalid, YamlInvalid
-from probatio.serde import _optional
+from probatio.error import CoerceInvalid, JsonInvalid, ValueInvalid
 
 
 def test_json_string_validates_and_returns_the_string() -> None:
@@ -52,47 +48,6 @@ def test_json_rejects_invalid(validator: type, value: object) -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(validator())(value)
     assert isinstance(caught.value.errors[0], JsonInvalid)
-
-
-def test_yaml_string_validates_and_returns_the_string() -> None:
-    """YAMLString validates the YAML and returns the string unchanged."""
-    assert Schema(YAMLString())("a: 1\nb: 2") == "a: 1\nb: 2"
-
-
-def test_from_yaml_string_decodes() -> None:
-    """FromYAMLString parses a YAML string into the decoded value."""
-    assert Schema(FromYAMLString())("a: 1\nb: 2") == {"a": 1, "b": 2}
-
-
-def test_yaml_string_inner_schema_validates_but_keeps_the_string() -> None:
-    """An inner schema validates the decoded value; YAMLString returns the string."""
-    assert Schema(YAMLString({"a": int}))("a: 1") == "a: 1"
-
-
-def test_from_yaml_string_inner_schema_returns_the_decoded_value() -> None:
-    """FromYAMLString validates the decoded value against an inner schema, returning it."""
-    assert Schema(FromYAMLString({"a": int}))("a: 1") == {"a": 1}
-
-
-@pytest.mark.parametrize("value", ["{unbalanced", "a: b: c", 5])
-@pytest.mark.parametrize("validator", [YAMLString, FromYAMLString])
-def test_yaml_rejects_invalid(validator: type, value: object) -> None:
-    """A non-string or malformed YAML raises YamlInvalid, validating or decoding."""
-    with pytest.raises(MultipleInvalid) as caught:
-        Schema(validator())(value)
-    assert isinstance(caught.value.errors[0], YamlInvalid)
-
-
-@pytest.mark.parametrize("validator", [YAMLString, FromYAMLString])
-def test_yaml_without_a_backend_is_a_schema_error(
-    validator: type,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Building a YAML validator with no YAML backend installed is a schema error."""
-    monkeypatch.setattr(_optional, "yamlrocks", None)
-    monkeypatch.setattr(_optional, "pyyaml", None)
-    with pytest.raises(SchemaError):
-        validator()
 
 
 def test_base64_accepts_and_rejects() -> None:

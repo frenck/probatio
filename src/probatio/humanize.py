@@ -46,8 +46,9 @@ def humanize_error(
 
     ``locator`` is an optional callable that maps an error's ``path`` to a
     ``Location`` (or ``None``); when given, each error line gains the source
-    location it points at. Pair it with ``load_yaml_with_locations`` to turn a
-    validation failure into a ``file:line:column`` a user can jump to.
+    location it points at. Supply one that tracks where each value came from (a
+    location-aware loader, for example) to turn a validation failure into a
+    ``file:line:column`` a user can jump to.
     """
     if isinstance(validation_error, MultipleInvalid):
         return "\n".join(

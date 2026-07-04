@@ -211,10 +211,9 @@ carries forward an upstream request.
   by nesting (`Optional(Secret("password"))`). Voluptuous has no equivalent.
 - `NonEmpty`, `Byte`, `SmallFloat`, `IsRegex`: a non-empty check, 0 to 255 and 0
   to 1 bounded numbers, and a "value is a compilable regex" check.
-- `JSONString`, `YAMLString`, `FromJSONString`, `FromYAMLString`: validate a JSON or
-  YAML string (and optionally the decoded value against an inner schema); the
-  `JSONString`/`YAMLString` pair returns the string unchanged, while the `From*`
-  siblings return the decoded value. YAML uses the safe loader.
+- `JSONString`, `FromJSONString`: validate a JSON string (and optionally the decoded
+  value against an inner schema); `JSONString` returns the string unchanged, while
+  `FromJSONString` returns the decoded value.
 - `IsSymlink`, `IsSocket`, `IsFifo`, `IsBlockDevice`: filesystem predicates for the
   special file types, alongside `IsDir`/`IsFile`.
 - `Alpha`, `Alphanumeric`, `ASCII`, `PrintableASCII`, `NoWhitespace`,

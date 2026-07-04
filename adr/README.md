@@ -18,3 +18,4 @@ Each record captures what was chosen, the alternatives considered, and why.
 | [ADR-013](013-markers-on-annotated-fields.md)               | A field-metadata spec for Annotated dataclass/TypedDict fields |
 | [ADR-014](014-annotation-driven-argument-decorator.md)      | An annotation-driven argument-validation decorator             |
 | [ADR-015](015-structured-errors-and-localization.md)        | Structured errors, human-first messages, and localization      |
+| [ADR-016](016-remove-serde-loaders-and-dumpers.md)          | Remove the serde loaders and dumpers                           |

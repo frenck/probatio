@@ -49,17 +49,6 @@ Repository = "https://github.com/frenck/probatio"
 Issues = "https://github.com/frenck/probatio/issues"
 Changelog = "https://github.com/frenck/probatio/releases"
 
-# Optional acceleration/format backends. The core stays dependency-free; these
-# enable the faster JSON/YAML path, portable YAML, and TOML writing (TOML reading
-# uses the standard library's tomllib, so it needs no extra).
-[project.optional-dependencies]
-# The backends the loaders/dumpers reach for first: orjson for JSON, YAMLRocks
-# for YAML.
-fast = ["orjson", "yamlrocks>=0.5.0"]
-# The portable YAML fallback, for environments without YAMLRocks.
-yaml = ["PyYAML"]
-toml = ["tomli-w"]
-
 # The repository is a uv workspace: the core `probatio` package at the root, plus
 # separately published companion packages under `packages/`. They share one repo,
 # CI, and issue tracker, but each ships as its own distribution, so the core stays
@@ -97,8 +86,6 @@ test = [
   # voluptuous run the same schemas and inputs and their results are compared.
   # It is never a runtime dependency and no code is copied from it.
   "voluptuous==0.16.0",
-  # PyYAML exercises the load_yaml fallback path in tests. Optional at runtime.
-  "pyyaml==6.0.3",
   # voluptuous-serialize is a dev-only oracle: probatio.serialize is compared
   # against it on equivalent schemas. Never a runtime dependency.
   "voluptuous-serialize==2.7.0",
@@ -117,12 +104,6 @@ test = [
   # from_dict against DataclassSchema). It is not an oracle: it deserializes rather
   # than validates, so it is never compared for correctness. Never a runtime dep.
   "mashumaro==3.22",
-  # The optional I/O backends, installed for tests so the real accelerators are
-  # exercised (the pure-Python fallbacks are covered by patching these to None).
-  # These are the probatio[fast] / probatio[yaml] / probatio[toml] extras.
-  "orjson==3.11.9",
-  "yamlrocks==0.5.0",
-  "tomli-w==1.2.0",
   # Hypothesis drives the property-based and differential fuzz tests (the engine
   # and the codecs are hammered with generated schemas and data). Dev-only.
   # From 6.156 hypothesis ships only per-version compiled wheels (no sdist), and

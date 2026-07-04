@@ -161,7 +161,6 @@ Each entry shows the class, its meaning, and its `default_code` in parentheses.
 - `SlugInvalid` (`slug`): the value is not a valid slug.
 - `MultipleOfInvalid` (`multiple_of`): the value is not a multiple of the factor.
 - `JsonInvalid` (`json`): the value is not valid JSON.
-- `YamlInvalid` (`yaml`): the value is not valid YAML.
 - `ImmutableInvalid` (`immutable`): a field that may not change (`Immutable` or
   `WriteOnce`) was changed.
 - `NotEnoughValid` (`not_enough_valid`): too few of a `SomeOf` group's validators

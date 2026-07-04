@@ -34,12 +34,12 @@ code, the same as the rest of your program.
 
 ## Threats and mitigations
 
-| Threat                                    | Vector                                                       | Mitigation                                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Catastrophic backtracking (ReDoS)         | A `pattern` in an untrusted JSON Schema, compiled to a regex | `from_json_schema` refuses a nested unbounded quantifier with `SchemaError`, before it compiles |
-| Stack exhaustion from a deep document     | A pathologically nested untrusted JSON Schema                | The decoder caps nesting depth and raises `SchemaError` instead of overflowing the stack        |
-| Stack exhaustion from deep or cyclic data | Crafted data run through a recursive `Self` schema           | A recursion depth guard raises a clean `Invalid` instead of `RecursionError`                    |
-| Arbitrary object construction from YAML   | Tags in an untrusted YAML payload                            | YAML is always parsed with a safe loader; the unsafe loaders are never used                     |
+| Threat                                    | Vector                                                       | Mitigation                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Catastrophic backtracking (ReDoS)         | A `pattern` in an untrusted JSON Schema, compiled to a regex | `from_json_schema` refuses a nested unbounded quantifier with `SchemaError`, before it compiles                                  |
+| Stack exhaustion from a deep document     | A pathologically nested untrusted JSON Schema                | The decoder caps nesting depth and raises `SchemaError` instead of overflowing the stack                                         |
+| Stack exhaustion from deep or cyclic data | Crafted data run through a recursive `Self` schema           | A recursion depth guard raises a clean `Invalid` instead of `RecursionError`                                                     |
+| Arbitrary object construction from YAML   | Tags in an untrusted YAML payload                            | Probatio never parses YAML (or anything else), so it adds no deserialization surface; parse with a safe loader before validating |
 
 These guards cover the specific shapes in the table, and only those. What they
 do not do is bound the overall size of the input: a validator cannot know how
@@ -147,25 +147,23 @@ except Invalid as err:
 The result is the same in both directions: a depth that would crash the process
 becomes a normal, catchable error instead.
 
-## Safe YAML loading
+## Parsing stays with you
 
-Probatio reads YAML with a safe loader and nothing else. `load_yaml` uses
-YAMLRocks when it is installed, otherwise PyYAML's `safe_load`. Neither can
-construct arbitrary Python objects from tags in the document, so a hostile YAML
-payload cannot instantiate classes or run constructors. The unsafe loaders that
-PyYAML also ships are never reached.
+Probatio validates parsed Python objects; it never parses a document itself. That
+keeps a whole class of parser vulnerabilities out of the library, but it also puts
+the choice of parser on you. Parse untrusted YAML with a safe loader (PyYAML's
+`yaml.safe_load`, not `yaml.load`) so a hostile document cannot construct
+arbitrary Python objects, then hand the result to the schema.
+
+<!-- verify: skip -->
 
 ```python
-from probatio import load_yaml
+import yaml
+from probatio import Schema, Required
 
-print(load_yaml("name: app\nport: 8080"))  # {'name': 'app', 'port': 8080}
+schema = Schema({Required("name"): str, Required("port"): int})
+schema(yaml.safe_load("name: app\nport: 8080"))  # {'name': 'app', 'port': 8080}
 ```
-
-:::tip
-This holds for the bare `load_yaml` and for `Schema.load_yaml`. Both go through
-the same safe loader, so validating YAML never opens an object-construction
-hole.
-:::
 
 ## Keeping secrets out of error output
 

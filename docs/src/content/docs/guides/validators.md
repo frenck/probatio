@@ -387,12 +387,10 @@ Schema(Fqdn())("host.example.com")   # 'host.example.com'
 
 ## Encoding
 
-`JSONString` and `YAMLString` validate that a string is valid JSON or YAML (and, with
-an inner schema, that the decoded value matches it) and return the string unchanged.
-`FromJSONString` and `FromYAMLString` are the decoding siblings: they parse the string
-and return the decoded value. YAML is parsed with the safe loader, and the YAML
-validators need a YAML backend installed (they raise a clear error at build time
-otherwise).
+`JSONString` validates that a string is valid JSON (and, with an inner schema, that
+the decoded value matches it) and returns the string unchanged. `FromJSONString` is
+the decoding sibling: it parses the string with the standard library's `json` and
+returns the decoded value.
 
 ```python
 from probatio import Schema, JSONString, FromJSONString

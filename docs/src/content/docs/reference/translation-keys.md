@@ -82,7 +82,6 @@ message, with the close matches also available raw on `context["candidates"]`
 | `expected_uuid`                    | `expected a UUID`                                                                                   |
 | `expected_uuid_version`            | `expected a version {version} UUID`                                                                 |
 | `expected_valid_regex`             | `expected a valid regular expression`                                                               |
-| `expected_yaml_string`             | `expected a YAML string`                                                                            |
 | `inclusive_group`                  | `some but not all values in the same group of inclusion {group!r}`                                  |
 | `invalid_credit_card_number`       | `invalid credit card number`                                                                        |
 | `invalid_data_uri`                 | `invalid data URI`                                                                                  |
@@ -91,7 +90,6 @@ message, with the close matches also available raw on `context["candidates"]`
 | `invalid_phone_number`             | `invalid phone number`                                                                              |
 | `invalid_value`                    | `invalid value`                                                                                     |
 | `invalid_value_or_type`            | `invalid value or type`                                                                             |
-| `invalid_yaml`                     | `invalid YAML`                                                                                      |
 | `key_not_allowed`                  | `key not allowed`                                                                                   |
 | `length_max`                       | `length of value must be at most {max}`                                                             |
 | `length_min`                       | `length of value must be at least {min}`                                                            |

@@ -51,11 +51,9 @@ from probatio.validators.decorators import message, raises, truth, validate
 from probatio.validators.encoding import (
     Base64,
     FromJSONString,
-    FromYAMLString,
     Hex,
     HexInt,
     JSONString,
-    YAMLString,
 )
 from probatio.validators.formats import E164, IBAN, CreditCard, DataURI
 from probatio.validators.identifiers import (
@@ -178,7 +176,6 @@ __all__ = [
     "FromEpoch",
     "FromJSONString",
     "FromPercentage",
-    "FromYAMLString",
     "Hex",
     "HexColor",
     "HexInt",
@@ -246,7 +243,6 @@ __all__ = [
     "Upper",
     "Url",
     "WriteOnce",
-    "YAMLString",
     "message",
     "raises",
     "truth",

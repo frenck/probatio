@@ -3,6 +3,15 @@
 **Date**: 2026-06-26
 **Status**: Accepted
 
+**Amendment (2026-07-04)**: The optional `fast`/`yaml`/`toml` extras named in the
+`Decision` and `Consequences` below are gone. They existed only for the serde
+loaders and dumpers, which were removed ([ADR-016](016-remove-serde-loaders-and-dumpers.md)):
+Probatio validates parsed Python objects and no longer parses or serializes
+anything, so there are no backends to accelerate. The core decision is unchanged
+and, if anything, stronger: Probatio is pure Python with no required runtime
+dependencies and now no optional ones either. Read the extras references below as
+historical.
+
 **Context**: Probatio is a drop-in for voluptuous (see ADR-001), and voluptuous
 is pure Python with no required runtime dependencies. A validation library sits
 low in the dependency tree: Home Assistant and many other projects pull it in
