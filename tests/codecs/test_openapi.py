@@ -658,3 +658,63 @@ def test_duration_renders_a_duration_string() -> None:
     expected = {"type": "string", "format": "duration"}
     assert to_openapi(Schema(Duration())) == expected
     assert to_openapi(Schema(AsTimedelta())) == expected
+
+
+def test_inclusive_group_renders_all_or_none_per_version() -> None:
+    """An Inclusive group renders dependentRequired on 3.1 and a oneOf form on 3.0.
+
+    OpenAPI 3.0 lacks dependentRequired (and silently ignores it), so all-or-none
+    is spelled with keywords 3.0 has: every member present, or none present.
+    """
+    from probatio import Inclusive  # noqa: PLC0415
+
+    schema = Schema({Inclusive("a", "g"): int, Inclusive("b", "g"): int})
+    assert to_openapi(schema, openapi_version="3.1.0")["dependentRequired"] == {
+        "a": ["b"],
+        "b": ["a"],
+    }
+    assert to_openapi(schema, openapi_version="3.0")["allOf"] == [
+        {
+            "oneOf": [
+                {"required": ["a", "b"]},
+                {"not": {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}},
+            ],
+        },
+    ]
+
+
+def test_exclusive_group_renders_at_most_one() -> None:
+    """An Exclusive group renders an at-most-one constraint, the same on both versions."""
+    from probatio import Exclusive  # noqa: PLC0415
+
+    schema = Schema({Exclusive("a", "e"): int, Exclusive("b", "e"): int})
+    at_most_one = [{"not": {"anyOf": [{"required": ["a", "b"]}]}}]
+    assert to_openapi(schema, openapi_version="3.0")["allOf"] == at_most_one
+    assert to_openapi(schema, openapi_version="3.1.0")["allOf"] == at_most_one
+
+
+def test_required_exclusive_group_renders_exactly_one() -> None:
+    """A required Exclusive group with no default demands exactly one member."""
+    from probatio import Exclusive  # noqa: PLC0415
+
+    schema = Schema(
+        {Exclusive("a", "e", required=True): int, Exclusive("b", "e"): int},
+    )
+    assert to_openapi(schema)["allOf"] == [
+        {"oneOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+def test_inclusive_group_round_trips_through_openapi_3_1() -> None:
+    """A 3.1 Inclusive group decodes back to an Inclusive group via from_openapi."""
+    from probatio import Inclusive, from_openapi  # noqa: PLC0415
+
+    document = to_openapi(
+        Schema({Inclusive("a", "g"): int, Inclusive("b", "g"): int}),
+        openapi_version="3.1.0",
+    )
+    rebuilt = from_openapi(document)
+    assert rebuilt({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+    assert rebuilt({}) == {}
+    with pytest.raises(probatio.Invalid):
+        rebuilt({"a": 1})
