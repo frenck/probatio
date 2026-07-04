@@ -290,7 +290,13 @@ def test_no_builtin_validator_leaks_a_non_invalid_exception(value: Any) -> None:
             schema(value)
 
 
-@pytest.mark.parametrize("probe", _HOSTILE_PROBES, ids=repr)
+def _probe_id(probe: object) -> str:
+    """A short, readable parametrize id, so an oversized probe does not bloat node ids."""
+    text = repr(probe)
+    return text if len(text) <= 24 else f"{text[:21]}..."
+
+
+@pytest.mark.parametrize("probe", _HOSTILE_PROBES, ids=_probe_id)
 def test_no_builtin_leaks_on_a_hostile_probe(probe: Any) -> None:
     """Each hostile probe, fed to every built-in, yields only Invalid, never a leak.
 
