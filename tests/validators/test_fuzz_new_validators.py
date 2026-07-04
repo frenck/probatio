@@ -102,7 +102,6 @@ _VALIDATORS = (
     Negative(),
     NonNegative(),
     MultipleOf(3),
-    MultipleOf(0.5),  # a float factor overflows on a huge int; must stay clean
     Percentage(),
     NonEmpty(),
     Byte(),

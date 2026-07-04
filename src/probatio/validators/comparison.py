@@ -273,9 +273,17 @@ class MultipleOf(_SafeValidator):
     """Require a number to be an integer multiple of a non-zero factor."""
 
     def __init__(self, factor: typing.Any, msg: str | None = None) -> None:
-        """Store the factor; reject a zero or non-numeric factor at build time."""
-        if not isinstance(factor, int | float) or factor == 0:
-            message = "MultipleOf factor must be a non-zero number"
+        """Store the factor; reject a zero, fractional, or non-numeric factor.
+
+        The check is an *integer* multiple, so a fractional factor (``0.1``) has no
+        meaning here and its float ``%`` would mis-reject exact multiples through
+        representation error; it is refused at build time. An integer-valued float
+        (``2.0``) is accepted and normalized to ``int``.
+        """
+        if isinstance(factor, float) and factor.is_integer():
+            factor = int(factor)
+        if not isinstance(factor, int) or factor == 0:
+            message = "MultipleOf factor must be a non-zero whole number"
             raise SchemaError(message)
         self.factor = factor
         self.msg = msg
@@ -294,9 +302,9 @@ class MultipleOf(_SafeValidator):
             )
 
         try:
-            # ``%`` with a float factor promotes a huge int to float, which can
-            # overflow (an ArithmeticError); an ``int`` subclass can also define a
-            # ``__mod__`` that raises. Report either cleanly, not as a leak.
+            # The factor is a plain non-zero int, so ``%`` on a plain int or float
+            # value cannot raise. An ``int`` subclass can still define a ``__mod__``
+            # that raises, though, so contain that as Invalid rather than leak it.
             remainder = value % self.factor
         except Exception as exc:
             raise MultipleOfInvalid(

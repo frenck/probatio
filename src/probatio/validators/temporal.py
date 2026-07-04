@@ -54,8 +54,11 @@ _ISO8601_DURATION = re.compile(
 )
 
 # A fixed UTC offset: a sign, two-digit hours, optional colon, two-digit minutes.
-# Matched in full, no backtracking, so a crafted string cannot make it hang.
-_UTC_OFFSET = re.compile(r"[+-]\d{2}:?\d{2}")
+# Matched in full, no backtracking, so a crafted string cannot make it hang. Minutes
+# are 00..59: a value like ``+0099`` is rejected here rather than silently rolled into
+# extra hours by ``timedelta``. Out-of-range hours are caught later, when
+# ``datetime.timezone`` refuses an offset of 24 hours or more.
+_UTC_OFFSET = re.compile(r"[+-]\d{2}:?[0-5]\d")
 
 # How many epoch sub-units make one second, per accepted ``FromEpoch`` unit.
 _EPOCH_DIVISORS = {"seconds": 1, "milliseconds": 1000}

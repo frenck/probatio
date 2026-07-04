@@ -329,11 +329,37 @@ def test_multiple_of_rejects_a_non_number(value: object) -> None:
     assert isinstance(caught.value.errors[0], MultipleOfInvalid)
 
 
-@pytest.mark.parametrize("factor", [0, "x"])
+@pytest.mark.parametrize("factor", [0, "x", 0.1, 2.5, float("nan"), float("inf")])
 def test_multiple_of_rejects_a_bad_factor_at_build_time(factor: object) -> None:
-    """A zero or non-numeric factor is a schema definition error."""
+    """A zero, fractional, or non-numeric factor is a schema definition error.
+
+    A fractional factor has no meaning for an integer-multiple check, and its float
+    ``%`` would mis-reject exact multiples through representation error, so it is
+    refused at build time rather than silently accepted.
+    """
     with pytest.raises(SchemaError):
         MultipleOf(factor)
+
+
+def test_multiple_of_normalizes_an_integer_valued_float_factor() -> None:
+    """An integer-valued float factor (2.0) is accepted and stored as an int."""
+    validator = MultipleOf(2.0)
+    assert validator.factor == 2
+    assert isinstance(validator.factor, int)
+    assert Schema(validator)(4) == 4
+
+
+def test_multiple_of_contains_a_hostile_int_subclass_mod() -> None:
+    """An int subclass whose __mod__ raises yields Invalid, not a leaked exception."""
+
+    class _BadInt(int):
+        def __mod__(self, _other: object) -> int:
+            message = "hostile mod"
+            raise RuntimeError(message)
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(MultipleOf(3))(_BadInt(9))
+    assert isinstance(caught.value.errors[0], MultipleOfInvalid)
 
 
 def test_percentage_validates_and_returns_unchanged() -> None:

@@ -378,7 +378,17 @@ def test_astimezone_passes_through_a_native_timezone() -> None:
     assert Schema(AsTimezone())(tz) is tz
 
 
-_INVALID_OFFSETS = ["Europe/Amsterdam", "noon", "", "+25:00", 5]
+_INVALID_OFFSETS = [
+    "Europe/Amsterdam",
+    "noon",
+    "",
+    "+25:00",  # hours out of range
+    "+0099",  # 99 minutes is out of the 0..59 range, not rolled into extra hours
+    "+0060",
+    "+00:60",
+    "-0060",
+    5,
+]
 
 
 @pytest.mark.parametrize("value", _INVALID_OFFSETS)
