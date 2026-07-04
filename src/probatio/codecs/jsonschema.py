@@ -1831,8 +1831,12 @@ def _apply_inclusive_groups(dependent: Any, mapping: dict[Any, Any]) -> None:
     (asymmetric, a self-dependency, a member that is not a declared optional
     property) is refused, so the decoder never silently widens.
     """
-    for members in _symmetric_groups(dependent):
-        group = "_".join(sorted(members))
+    # An index makes the group id, not the member names joined: a property name
+    # may contain any character, so no join separator is collision-free (``a_b``
+    # plus ``c`` and ``a`` plus ``b_c`` would both read ``a_b_c`` and merge two
+    # unrelated groups). Components are sorted, so the ids are stable.
+    for index, members in enumerate(_symmetric_groups(dependent)):
+        group = f"inclusive_{index}"
         for name in members:
             key = _optional_key(mapping, name)
             replacement = Inclusive(
@@ -1895,7 +1899,11 @@ def _require_symmetric(graph: dict[str, set[str]]) -> None:
 
 
 def _connected_groups(graph: dict[str, set[str]]) -> list[list[str]]:
-    """Return the connected components of a symmetric graph, keeping those of size 2+."""
+    """Return the connected components of a symmetric graph, keeping those of size 2+.
+
+    Each component and the list of components are sorted, so the caller's group
+    ids are stable regardless of the input's key order.
+    """
     seen: set[str] = set()
     groups: list[list[str]] = []
     for start in graph:
@@ -1911,8 +1919,8 @@ def _connected_groups(graph: dict[str, set[str]]) -> list[list[str]]:
             component.append(member)
             stack.extend(graph[member] - seen)
         if len(component) > 1:
-            groups.append(component)
-    return groups
+            groups.append(sorted(component))
+    return sorted(groups)
 
 
 def _optional_key(mapping: dict[Any, Any], name: str) -> Optional:

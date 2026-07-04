@@ -727,6 +727,32 @@ def test_three_member_dependent_required_group_is_all_or_none() -> None:
         schema({"a": 1, "b": 2})
 
 
+def test_underscored_property_names_do_not_merge_distinct_groups() -> None:
+    """Group ids stay distinct even when member names contain the separator.
+
+    Joining member names would alias ``{a_b, c}`` and ``{a, b_c}`` (both read
+    ``a_b_c``) and merge two unrelated all-or-none groups. Each group must stay
+    independent: satisfying one leaves the other free.
+    """
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {name: {} for name in ("a_b", "c", "a", "b_c")},
+            "dependentRequired": {
+                "a_b": ["c"],
+                "c": ["a_b"],
+                "a": ["b_c"],
+                "b_c": ["a"],
+            },
+        },
+    )
+    # The first group is satisfied and the second is empty: valid only if the two
+    # groups did not merge into one four-way all-or-none.
+    assert schema({"a_b": 1, "c": 2}) == {"a_b": 1, "c": 2}
+    with pytest.raises(Invalid):
+        schema({"a_b": 1})
+
+
 def test_vacuous_dependent_required_adds_no_group() -> None:
     """A member depending on nothing is a no-op: it adds no Inclusive constraint."""
     schema = from_json_schema(
