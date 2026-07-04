@@ -59,7 +59,18 @@ def _normalize(  # noqa: PLR0911, PLR0912
     structure fails with a clean ``ValueError`` instead of recursing until the
     interpreter raises ``RecursionError`` (or hangs a backend).
     """
-    if isinstance(value, bool) or value is None:
+    if value is None:
+        if fmt == "toml":
+            # TOML has no null, so None is unrepresentable anywhere, not only at the
+            # top level; refuse it here with a clear message rather than let tomli-w
+            # leak a raw TypeError from deep in a nested table.
+            message = (
+                "TOML cannot represent None; omit the key or use a different format"
+            )
+            raise ValueError(message)
+        return value
+
+    if isinstance(value, bool):
         return value
 
     if isinstance(value, float):
@@ -119,6 +130,11 @@ def _normalize_dict(
             # A string key holds a surrogate just as a value can; refuse it too, or
             # the backend would emit the same non-reloadable text through the key.
             _encodable_str(key)
+        elif fmt == "toml":
+            # TOML keys are always strings; a non-string key would leak a cryptic
+            # tomli-w error (JSON coerces one to a string instead, below).
+            message = f"TOML mapping keys must be strings, got {type(key).__name__}"
+            raise TypeError(message)
         if coerced_keys is not None:
             coerced = _json_key(key)
             if isinstance(coerced, str):

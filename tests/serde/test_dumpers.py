@@ -208,11 +208,25 @@ def test_dump_toml_preserves_native_temporal_types() -> None:
     assert isinstance(parsed["at"], datetime.time)
 
 
-@pytest.mark.parametrize("value", [None, 5, [1, 2]])
+@pytest.mark.parametrize("value", [5, [1, 2]])
 def test_dump_toml_rejects_non_mapping_top_level(value: Any) -> None:
     """A TOML document is a table, so a bare scalar or list is refused clearly."""
     with pytest.raises(TypeError, match="top level"):
         dump_toml(value)
+
+
+@pytest.mark.parametrize("value", [None, {"a": None}, {"a": {"b": None}}])
+def test_dump_toml_rejects_none_anywhere(value: Any) -> None:
+    """TOML has no null, so a None value at any depth is refused, not leaked."""
+    with pytest.raises(ValueError, match="cannot represent None"):
+        dump_toml(value)
+
+
+@pytest.mark.parametrize("key", [1, (1, 2), None])
+def test_dump_toml_rejects_a_non_string_key(key: Any) -> None:
+    """TOML keys must be strings; a non-string key is refused, not a cryptic leak."""
+    with pytest.raises(TypeError, match="keys must be strings"):
+        dump_toml({key: "x"})
 
 
 def test_dump_toml_without_a_dumper(monkeypatch: pytest.MonkeyPatch) -> None:
