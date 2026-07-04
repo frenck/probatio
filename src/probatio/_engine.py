@@ -764,13 +764,18 @@ class _SequenceValidator:
         # validated items, so return it directly rather than copying it into a new
         # one. Other types are rebuilt as the data's own type (voluptuous semantics),
         # so a subclass or namedtuple round-trips. A namedtuple takes its fields
-        # positionally, not a single iterable, so it is rebuilt with a splat.
+        # positionally, not a single iterable, so it is rebuilt with a splat. A
+        # subclass whose constructor is not ``(iterable)`` cannot be rebuilt that
+        # way, so fall back to the plain base type rather than leak its TypeError.
         out_type = type(data)
         if out_type is list:
             return result
-        if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-            return out_type(*result)
-        return out_type(result)
+        try:
+            if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
+                return out_type(*result)
+            return out_type(result)
+        except TypeError:
+            return list(result) if issubclass(out_type, list) else tuple(result)
 
     def _validate_item(
         self,

@@ -16,6 +16,7 @@ from probatio.error import (
     EmailInvalid,
     LengthInvalid,
     MatchInvalid,
+    SchemaError,
     SlugInvalid,
     UrlInvalid,
 )
@@ -457,6 +458,18 @@ class Replace(_SafeValidator):
         self.pattern = re.compile(pattern) if isinstance(pattern, str) else pattern
         self.substitution = substitution
         self.msg = msg
+        # Validate the substitution now, not at call time. A bad group reference
+        # (``\2`` with one group) is a schema error, and ``re`` parses the template
+        # eagerly, so a dry run against an empty string surfaces it here as a clean
+        # SchemaError rather than leaking ``re.error`` on the first matching value.
+        try:
+            self.pattern.sub(self.substitution, "")
+        except re.error as exc:
+            message = (
+                f"Replace substitution {substitution!r} is not valid for pattern "
+                f"{self.pattern.pattern!r}: {exc}"
+            )
+            raise SchemaError(message) from exc
 
     def __repr__(self) -> str:
         """Render as a constructor call, matching voluptuous."""

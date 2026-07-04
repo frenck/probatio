@@ -275,6 +275,9 @@ _INVALID_DURATIONS = [
     "1:99",  # 99 minutes is out of the 0..59 clock range
     "0:60",  # 60 minutes is out of range
     "1:00:99",  # 99 seconds is out of range
+    "1:²",  # a superscript digit: str.isdigit() admits it, int() does not
+    "1:2:³",
+    "²:00",
     "P",  # a bare designator carries no fields
     "PT",  # a time separator with no time field
     "P1DT",  # a dangling time separator
@@ -291,6 +294,7 @@ _OVERFLOW_DURATIONS = [
     "1e400",
     {"days": 10**20},
     "P999999999999999999W",  # an ISO 8601 duration past timedelta's range
+    "9" * 5000 + ":00",  # decimal digits, but past int()'s string-length limit
 ]
 
 

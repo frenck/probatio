@@ -30,7 +30,13 @@ from probatio import (
     Upper,
     Url,
 )
-from probatio.error import EmailInvalid, MatchInvalid, SlugInvalid, UrlInvalid
+from probatio.error import (
+    EmailInvalid,
+    MatchInvalid,
+    SchemaError,
+    SlugInvalid,
+    UrlInvalid,
+)
 
 
 def test_replace() -> None:
@@ -49,6 +55,17 @@ def test_replace_on_non_string(value: object) -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Replace(r"x", "y"))(value)
     assert isinstance(caught.value.errors[0], MatchInvalid)
+
+
+def test_replace_rejects_a_bad_backreference_at_build() -> None:
+    """A substitution with an invalid group reference is a build-time SchemaError.
+
+    ``re`` parses the replacement template eagerly, so ``\\2`` against a one-group
+    pattern is caught when the validator is constructed, not leaked as a raw
+    ``re.error`` on the first matching value.
+    """
+    with pytest.raises(SchemaError, match="substitution"):
+        Replace(r"(a)", r"\2")
 
 
 def test_string_transforms() -> None:

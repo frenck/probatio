@@ -88,11 +88,17 @@ class ExactSequence(_SafeValidator):
 
         # Rebuild the sequence as its own type. A namedtuple takes its fields
         # positionally (``Point(*result)``), not as a single iterable, so detect it
-        # the way the sequence engine does rather than leak a TypeError.
+        # the way the sequence engine does rather than leak a TypeError. A list or
+        # tuple subclass whose constructor is not ``(iterable)`` (a custom
+        # ``__init__``/``__new__``) cannot be rebuilt that way, so fall back to the
+        # plain base type rather than leak the TypeError its constructor raises.
         out_type = type(value)
-        if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-            return out_type(*result)
-        return out_type(result)
+        try:
+            if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
+                return out_type(*result)
+            return out_type(result)
+        except TypeError:
+            return list(result) if issubclass(out_type, list) else tuple(result)
 
 
 class Unique(_SafeValidator):
