@@ -29,10 +29,12 @@ to_openapi(schema)
 # {'type': 'object', 'properties': {'name': {'type': 'string'}, 'port': {'type': 'integer', 'default': 8080}}, 'required': ['name'], 'additionalProperties': False}
 ```
 
-Note the missing `additionalProperties`: where `to_json_schema` closes an object
-with an explicit `additionalProperties: False`, `to_openapi` matches
-voluptuous-openapi's output and omits the keyword on a closed object, emitting
-`additionalProperties: True` only when the schema allows extra keys.
+A closed object emits `additionalProperties: False`, the same as `to_json_schema`.
+An `ALLOW_EXTRA` object emits `additionalProperties: True`, and a `REMOVE_EXTRA`
+object omits the keyword (it accepts extra keys but strips them, so the wire shape
+is open). This is one of the places `to_openapi` diverges from voluptuous-openapi,
+which omits the keyword on a closed object: `to_openapi` emits correct OpenAPI even
+where the reference implementation does not.
 
 Going the other way, an OpenAPI Schema object becomes a working validator.
 `nullable` is read back too, so a nullable field accepts both `None` and a real

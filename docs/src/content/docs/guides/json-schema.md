@@ -137,29 +137,36 @@ round-trip:
 | `MultipleOf`                  | `multipleOf`                                                                                                                      |
 | `Secret` key                  | its property with `writeOnly: true`                                                                                               |
 | `Base64`                      | `contentEncoding: base64`                                                                                                         |
-| `Duration` / `AsTimedelta`    | `format: duration`                                                                                                                |
 
 Combinators and a few more constructs also render, though most have no inverse
 so they do not round-trip:
 
-| Probatio construct   | JSON Schema output                                                        |
-| -------------------- | ------------------------------------------------------------------------- |
-| `Any` / `Or`         | `anyOf`                                                                   |
-| `Union` / `Switch`   | `anyOf` (the discriminant is an optimization, so any branch is allowed)   |
-| `All` / `And`        | one merged object, or `allOf` when two validators emit the same keyword   |
-| `Maybe`              | `anyOf` with `{"type": "null"}`                                           |
-| `SomeOf`             | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)           |
-| `Msg`                | the wrapped validator's shape (the message has no JSON Schema equivalent) |
-| An `enum.Enum` class | `enum` of the member values                                               |
-| `Self`               | `{"$ref": "#"}` (a recursive reference to the document root)              |
-| `Alias`              | one property per accepted name (plus `anyOf` of `required` when required) |
-| `Inclusive` group    | `dependentRequired` (all-or-none)                                         |
-| `Exclusive` group    | at-most-one (`not` over the pairs), or `oneOf` when the group is required |
+| Probatio construct         | JSON Schema output                                                           |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `Any` / `Or`               | `anyOf`                                                                      |
+| `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)      |
+| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword      |
+| `Maybe`                    | `anyOf` with `{"type": "null"}`                                              |
+| `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)              |
+| `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)    |
+| An `enum.Enum` class       | `enum` of the member values                                                  |
+| `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)                 |
+| `Alias`                    | one property per accepted name (plus `anyOf` of `required` when required)    |
+| `Inclusive` group          | `dependentRequired` (all-or-none), a keyword the decoder refuses (see below) |
+| `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required    |
+| `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string    |
 
 The known widener: JSON Schema has a single `hostname` format, so both
 `Hostname` and `Fqdn` export to it and decode back as `Hostname`, meaning a
 round-tripped `Fqdn` accepts a dotless host the original would reject. Pin it
 with a `pattern` or an explicit check if the distinction matters.
+
+An `Inclusive` group is the one construct whose encoded output the decoder
+refuses rather than widens. It emits `dependentRequired`, an all-or-none
+constraint Probatio cannot honor on decode, so it is one of the [refused
+keywords](#supported-keywords): feeding `to_json_schema`'s own output for an
+`Inclusive` group back into `from_json_schema` raises `SchemaError`. Encode it
+for publication, not for a round trip.
 
 `oneOf` decodes with its exact semantics (a value must match exactly one branch,
 so one matching two or more is rejected), unlike the looser `anyOf`.
