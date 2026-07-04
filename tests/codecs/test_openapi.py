@@ -201,6 +201,46 @@ def test_any_with_open_object_keeps_all_branches() -> None:
     }
 
 
+def test_any_open_and_nullable_keeps_the_open_branch_and_admits_null() -> None:
+    """Any(dict, int, None) keeps the open branch and adds a dedicated null branch."""
+    schema = Schema(probatio.Any(dict, int, None))
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "anyOf": [
+            {"type": "object", "additionalProperties": True},
+            {"type": "integer"},
+            {"type": "null"},
+        ],
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "anyOf": [
+            {"type": "object", "additionalProperties": True},
+            {"type": "integer"},
+            {"type": "object", "nullable": True, "description": "Must be null"},
+        ],
+    }
+
+
+def test_nested_nullable_any_flattens_and_admits_null_once() -> None:
+    """Any(Any(int, str, None), bool) flattens to one anyOf with a single null branch."""
+    schema = Schema(probatio.Any(probatio.Any(int, str, None), bool))
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "string"},
+            {"type": "null"},
+            {"type": "boolean"},
+        ],
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "string"},
+            {"type": "boolean"},
+            {"type": "object", "nullable": True, "description": "Must be null"},
+        ],
+    }
+
+
 def test_unrecognized_value_is_open() -> None:
     """An unrecognized, non-callable value renders as an open schema."""
     assert to_openapi(Schema(object())) == {}
