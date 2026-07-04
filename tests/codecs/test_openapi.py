@@ -42,6 +42,7 @@ from probatio import (
     Time,
     to_openapi,
 )
+from tests.strategies import canonical_openapi
 
 _ORACLE_VERSION = {"3.0": OpenApiVersion.V3, "3.1.0": OpenApiVersion.V3_1}
 
@@ -148,7 +149,9 @@ def test_matches_voluptuous_openapi(case: str, version: str) -> None:
     )
     actual = to_openapi(build(probatio)[case], openapi_version=version)
 
-    assert actual == expected
+    # ``to_openapi`` renders a closed mapping's ``additionalProperties`` and a
+    # null enum member more correctly than the oracle; compare the rest.
+    assert canonical_openapi(actual) == canonical_openapi(expected)
 
 
 def test_unrecognized_value_is_open() -> None:
@@ -230,7 +233,7 @@ def test_custom_serializer_overrides_and_defers() -> None:
         custom_serializer=custom_voluptuous,
     )
 
-    assert p == v
+    assert canonical_openapi(p) == canonical_openapi(v)
 
 
 _T = TypeVar("_T")
@@ -330,6 +333,7 @@ def test_secret_key_to_openapi_write_only() -> None:
         "type": "object",
         "properties": {"password": {"type": "string", "writeOnly": True}},
         "required": ["password"],
+        "additionalProperties": False,
     }
 
 
@@ -431,3 +435,64 @@ def test_unrepresentable_default_is_omitted() -> None:
 
     schema = Schema({Optional("t", default=b"raw"): object})
     assert "default" not in to_openapi(schema)["properties"]["t"]
+
+
+def test_exclusive_bounds_use_the_version_form() -> None:
+    """3.0 spells an exclusive bound as a boolean flag; 3.1 uses the numeric form."""
+    from probatio import All, Range  # noqa: PLC0415
+
+    schema = Schema(All(int, Range(min=0, min_included=False)))
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "type": "integer",
+        "minimum": 0,
+        "exclusiveMinimum": True,
+    }
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "type": "integer",
+        "exclusiveMinimum": 0,
+    }
+
+
+def test_array_length_retargets_to_item_counts() -> None:
+    """A Length on an array renders minItems/maxItems, not minLength/maxLength."""
+    from probatio import All, Length  # noqa: PLC0415
+
+    assert to_openapi(Schema(All([int], Length(min=1, max=3)))) == {
+        "type": "array",
+        "items": {"type": "integer"},
+        "minItems": 1,
+        "maxItems": 3,
+    }
+
+
+def test_closed_mapping_forbids_extra_keys() -> None:
+    """A strict (PREVENT_EXTRA) mapping renders additionalProperties: false."""
+    result = to_openapi(Schema({"a": int}))
+    assert result["additionalProperties"] is False
+
+
+def test_remove_extra_renders_open() -> None:
+    """REMOVE_EXTRA accepts extra keys, so it leaves additionalProperties open (absent)."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    result = to_openapi(Schema({"a": int}, extra=REMOVE_EXTRA))
+    assert "additionalProperties" not in result
+
+
+def test_array_length_retargets_min_only() -> None:
+    """An array Length with only a minimum retargets to minItems alone."""
+    from probatio import All, Length  # noqa: PLC0415
+
+    result = to_openapi(Schema(All([int], Length(min=2))))
+    assert result["minItems"] == 2
+    assert "maxItems" not in result
+    assert "minLength" not in result
+
+
+def test_array_length_retargets_max_only() -> None:
+    """An array Length with only a maximum retargets to maxItems alone."""
+    from probatio import All, Length  # noqa: PLC0415
+
+    result = to_openapi(Schema(All([int], Length(max=5))))
+    assert result["maxItems"] == 5
+    assert "minItems" not in result

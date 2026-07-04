@@ -52,7 +52,7 @@ _SERIALIZE_FIELDS = st.dictionaries(
     max_examples=400, derandomize=True, suppress_health_check=[HealthCheck.too_slow]
 )
 def test_to_openapi_matches_oracle(spec: Any, version: str) -> None:
-    """to_openapi matches voluptuous-openapi convert() on a generated schema."""
+    """to_openapi matches voluptuous-openapi convert(), modulo probatio's corrections."""
     try:
         expected = voluptuous_openapi.convert(
             voluptuous.Schema(strategies.build(spec, voluptuous)),
@@ -65,7 +65,9 @@ def test_to_openapi_matches_oracle(spec: Any, version: str) -> None:
         probatio.Schema(strategies.build(spec, probatio)),
         openapi_version=version,
     )
-    assert actual == expected
+    assert strategies.canonical_openapi(actual) == strategies.canonical_openapi(
+        expected
+    )
 
 
 @given(fields=_SERIALIZE_FIELDS)

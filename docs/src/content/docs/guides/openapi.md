@@ -26,7 +26,7 @@ from probatio import Schema, Required, Optional, to_openapi
 
 schema = Schema({Required("name"): str, Optional("port", default=8080): int})
 to_openapi(schema)
-# {'type': 'object', 'properties': {'name': {'type': 'string'}, 'port': {'type': 'integer', 'default': 8080}}, 'required': ['name']}
+# {'type': 'object', 'properties': {'name': {'type': 'string'}, 'port': {'type': 'integer', 'default': 8080}}, 'required': ['name'], 'additionalProperties': False}
 ```
 
 Note the missing `additionalProperties`: where `to_json_schema` closes an object
