@@ -147,6 +147,13 @@ def test_length_bounds() -> None:
         Schema(Length(max=2))("abc")
 
 
+def test_length_with_a_non_numeric_bound_is_invalid_not_a_leak() -> None:
+    """A non-numeric bound makes the comparison fail cleanly, like Range, not leak."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Length(min="x"))("abc")
+    assert isinstance(caught.value.errors[0], LengthInvalid)
+
+
 def test_length_without_bounds_never_measures() -> None:
     """With no bound set, Length passes any value, even one without a length."""
     assert Schema(Length())(0.0) == 0.0

@@ -109,11 +109,26 @@ class NoWhitespace(_CharacterClass):
     _translation_key = "expected_no_whitespace"
 
 
+def _is_affix(value: typing.Any) -> bool:
+    """Whether ``value`` is a valid ``startswith``/``endswith`` argument.
+
+    ``str.startswith``/``endswith`` accept a string or a tuple of strings; anything
+    else raises a ``TypeError`` at call time, so it is refused when the validator is
+    built instead.
+    """
+    if isinstance(value, str):
+        return True
+    return isinstance(value, tuple) and all(isinstance(item, str) for item in value)
+
+
 class StartsWith(_SafeValidator):
     """Require a string to start with a given prefix."""
 
     def __init__(self, prefix: str, msg: str | None = None) -> None:
-        """Store the required prefix."""
+        """Store the required prefix, rejecting a non-string one at build time."""
+        if not _is_affix(prefix):
+            message = "StartsWith prefix must be a string or a tuple of strings"
+            raise SchemaError(message)
         self.prefix = prefix
         self.msg = msg
 
@@ -132,7 +147,10 @@ class EndsWith(_SafeValidator):
     """Require a string to end with a given suffix."""
 
     def __init__(self, suffix: str, msg: str | None = None) -> None:
-        """Store the required suffix."""
+        """Store the required suffix, rejecting a non-string one at build time."""
+        if not _is_affix(suffix):
+            message = "EndsWith suffix must be a string or a tuple of strings"
+            raise SchemaError(message)
         self.suffix = suffix
         self.msg = msg
 
@@ -173,9 +191,17 @@ class ByteLength(_SafeValidator):
         # ``surrogatepass`` so a lone surrogate (``'\ud800'``) is measured rather
         # than leaking a UnicodeEncodeError.
         size = len(value.encode("utf-8", "surrogatepass"))
-        if (self.min is not None and size < self.min) or (
-            self.max is not None and size > self.max
-        ):
+        try:
+            out_of_bounds = (self.min is not None and size < self.min) or (
+                self.max is not None and size > self.max
+            )
+        except TypeError as exc:
+            # A non-numeric bound makes the comparison raise; report it cleanly like
+            # Range does, rather than leak the TypeError.
+            raise LengthInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+        if out_of_bounds:
             raise LengthInvalid(self.msg, translation_key="byte_length_out_of_bounds")
 
         return value
@@ -203,8 +229,30 @@ class Match(_SafeValidator):
     """Require a string to match a regular expression."""
 
     def __init__(self, pattern: typing.Any, msg: str | None = None) -> None:
-        """Compile ``pattern`` (read its source as ``.pattern.pattern``)."""
-        self.pattern = re.compile(pattern) if isinstance(pattern, str) else pattern
+        """Compile ``pattern`` (read its source as ``.pattern.pattern``).
+
+        A ``str`` or ``bytes`` pattern is compiled now, so an invalid regular
+        expression is a build-time ``SchemaError`` rather than a leaked ``re.error``;
+        an already-compiled pattern is used as is. Anything else (an ``int``, a bare
+        object) would only fail later on ``.match``, so it is refused here.
+        """
+        if isinstance(pattern, str | bytes):
+            try:
+                self.pattern = re.compile(pattern)
+            except re.error as exc:
+                message = (
+                    f"Match pattern {pattern!r} is not a valid regular expression: "
+                    f"{exc}"
+                )
+                raise SchemaError(message) from exc
+        elif isinstance(pattern, re.Pattern):
+            self.pattern = pattern
+        else:
+            message = (
+                "Match pattern must be a string, bytes, or a compiled regular "
+                "expression"
+            )
+            raise SchemaError(message)
         self.msg = msg
 
     def __repr__(self) -> str:
