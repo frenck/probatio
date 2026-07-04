@@ -95,6 +95,32 @@ def test_dump_json_handles_big_ints_and_non_str_keys() -> None:
     assert load_json(dump_json({1: "a"})) == {"1": "a"}
 
 
+def test_dump_json_falls_back_and_still_handles_big_ints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stdlib fallback path also serializes a >64-bit int and a non-string key."""
+    monkeypatch.setattr(_optional, "orjson", None)
+    assert load_json(dump_json({"n": 2**70})) == {"n": 2**70}
+    assert load_json(dump_json({1: "a"})) == {"1": "a"}
+
+
+@pytest.mark.parametrize("dumper", [dump_json, dump_yaml])
+def test_dump_rejects_an_unpaired_surrogate(dumper: object) -> None:
+    """A lone surrogate has no UTF-8 form, so it is refused, not emitted as invalid text.
+
+    Previously dump_json emitted ``'"\\ud800"'``, which cannot be UTF-8 encoded or
+    reloaded; a clean ValueError is raised instead.
+    """
+    with pytest.raises(ValueError, match="surrogate"):
+        dumper("\ud800")  # type: ignore[operator]
+
+
+def test_dump_toml_rejects_an_unpaired_surrogate() -> None:
+    """The surrogate check applies to TOML too, before the backend sees the value."""
+    with pytest.raises(ValueError, match="surrogate"):
+        dump_toml({"key": "\ud800"})
+
+
 def test_dump_json_output_matches_across_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

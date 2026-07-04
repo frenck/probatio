@@ -33,7 +33,24 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _normalize(  # noqa: PLR0911
+def _encodable_str(value: str) -> str:
+    """Return the string, or raise if it holds an unpaired surrogate.
+
+    A lone surrogate has no UTF-8 encoding, so it cannot be represented in
+    JSON/YAML/TOML text at all. orjson rejects it, but the stdlib JSON fallback (and
+    the YAML path) would emit output that cannot be re-read, so it is refused here
+    with a clear error rather than silently produced. ASCII strings skip the check.
+    """
+    if not value.isascii():
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            message = "cannot serialize a string containing unpaired surrogates"
+            raise ValueError(message) from exc
+    return value
+
+
+def _normalize(  # noqa: PLR0911, PLR0912
     value: Any, default: Any, *, fmt: str, seen: set[int] | None = None
 ) -> Any:
     """Convert a value into one built only from the target format's native types.
@@ -51,7 +68,10 @@ def _normalize(  # noqa: PLR0911
             raise ValueError(message)
         return value
 
-    if isinstance(value, str | int):
+    if isinstance(value, str):
+        return _encodable_str(value)
+
+    if isinstance(value, int):
         return value
 
     if isinstance(value, dict | list | tuple | set | frozenset):
