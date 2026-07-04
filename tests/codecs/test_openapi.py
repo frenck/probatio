@@ -705,6 +705,51 @@ def test_required_exclusive_group_renders_exactly_one() -> None:
     ]
 
 
+def test_alias_key_expands_to_one_property_per_accepted_name() -> None:
+    """An Alias key renders every accepted name as a property with the same schema."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_openapi(Schema({Alias("name", "userName"): str}))
+    assert result["properties"] == {
+        "name": {"type": "string"},
+        "userName": {"type": "string"},
+    }
+    assert "anyOf" not in result
+
+
+def test_required_alias_demands_at_least_one_name() -> None:
+    """A required Alias adds an at-least-one-name constraint over its accepted names."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_openapi(Schema({Alias("name", "userName", required=True): str}))
+    assert result["anyOf"] == [
+        {"required": ["name"]},
+        {"required": ["userName"]},
+    ]
+
+
+def test_required_alias_with_a_default_demands_no_name() -> None:
+    """A required Alias carrying a default fills the empty case, so it demands no name."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_openapi(
+        Schema({Alias("name", "userName", required=True, default="x"): str}),
+    )
+    assert "anyOf" not in result
+    assert result["properties"]["name"]["default"] == "x"
+    assert result["properties"]["userName"]["default"] == "x"
+
+
+def test_alias_without_canonical_only_emits_the_alias_names() -> None:
+    """With accept_canonical=False the canonical name is not an accepted input name."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    result = to_openapi(
+        Schema({Alias("name", "userName", accept_canonical=False): str}),
+    )
+    assert result["properties"] == {"userName": {"type": "string"}}
+
+
 def test_inclusive_group_round_trips_through_openapi_3_1() -> None:
     """A 3.1 Inclusive group decodes back to an Inclusive group via from_openapi."""
     from probatio import Inclusive, from_openapi  # noqa: PLC0415
