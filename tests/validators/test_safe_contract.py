@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import contextlib
 from decimal import Decimal
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Self
 
+import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -195,24 +196,69 @@ class _HostileDunders:
         return "<hostile>"
 
 
-_hostile = st.sampled_from(
-    [
-        float("nan"),
-        float("inf"),
-        float("-inf"),
-        Decimal("NaN"),
-        Decimal("sNaN"),
-        Decimal("Infinity"),
-        10**400,
-        -(10**400),
-        "\ud800",
-        "\udfff",
-        "a\x00b",
-        (),
-        (1, 2),
-        _HostileDunders(),
-    ],
-)
+class _TaggedList(list):
+    """A ``list`` subclass whose constructor is not ``(iterable)``.
+
+    A validator that rebuilds a sequence as its own type (``ExactSequence``, the
+    engine's list path) must not leak the ``TypeError`` this constructor raises when
+    called with a single iterable; it holds ``[1, "a"]`` so it satisfies the
+    ``ExactSequence([int, str])`` under test and actually reaches the rebuild.
+    """
+
+    def __init__(self, items: Any, tag: object) -> None:
+        """Build the list from ``items`` and stash an extra, non-iterable field."""
+        super().__init__(items)
+        self.tag = tag
+
+
+class _Pair(tuple):
+    """A ``tuple`` subclass whose constructor is not ``(iterable)`` (like ``_TaggedList``)."""
+
+    __slots__ = ()
+
+    def __new__(cls, a: object, b: object) -> Self:
+        """Build a two-element tuple from positional arguments."""
+        return super().__new__(cls, (a, b))
+
+
+# The hostile probes: values that historically slip past a validator's guards. Fed
+# to every built-in deterministically (``test_no_builtin_leaks_on_a_hostile_probe``)
+# so each is exercised on every run, and also mixed into the recursive fuzz below for
+# random breadth. The deterministic feed is the real net: the fuzz draws any one
+# probe only occasionally, too rarely to reliably reach a specific parser branch.
+_HOSTILE_PROBES: list[Any] = [
+    float("nan"),
+    float("inf"),
+    float("-inf"),
+    Decimal("NaN"),
+    Decimal("sNaN"),
+    Decimal("Infinity"),
+    10**400,
+    -(10**400),
+    "\ud800",
+    "\udfff",
+    "a\x00b",
+    # Unicode digit look-alikes: ``str.isdigit()``/``isnumeric()`` accept these, but
+    # ``int()`` rejects the superscript ones, so a parser that gates on the wrong
+    # predicate leaks a ValueError (the bug that hit the duration parser).
+    "²",  # a superscript two on its own
+    "1:²",  # and in a colon slot, the exact shape that broke the duration parser
+    "\uff11\uff12\uff13",  # fullwidth 123: isdigit() and int() accept, still exotic
+    # Oversized strings: past ``int()``'s string-length limit and past a small
+    # ``max_size``, so a validator that does ``int(str)`` or scans the whole string
+    # is exercised at scale.
+    "9" * 5000,
+    "a" * 5000,
+    (),
+    (1, 2),
+    # Container subclasses with a non-``(iterable)`` constructor, to stress the
+    # type-preserving rebuild paths.
+    _TaggedList([1, "a"], "tag"),
+    _Pair(1, "a"),
+    _HostileDunders(),
+]
+
+_hostile = st.sampled_from(_HOSTILE_PROBES)
 
 _values = st.recursive(
     st.none()
@@ -244,15 +290,23 @@ def test_no_builtin_validator_leaks_a_non_invalid_exception(value: Any) -> None:
             schema(value)
 
 
-def test_no_builtin_leaks_on_a_value_whose_dunders_raise() -> None:
-    """A value whose validation dunders all raise still yields only Invalid.
+def _probe_id(probe: object) -> str:
+    """A short, readable parametrize id, so an oversized probe does not bloat node ids."""
+    text = repr(probe)
+    return text if len(text) <= 24 else f"{text[:21]}..."
 
-    Deterministic counterpart to the fuzz above: it feeds the dunder-raising value
-    to every built-in so each operator-boundary guard (comparison, membership,
-    length, truthiness, iteration, numeric conversion) is exercised on every run,
-    independent of which inputs Hypothesis happens to generate.
+
+@pytest.mark.parametrize("probe", _HOSTILE_PROBES, ids=_probe_id)
+def test_no_builtin_leaks_on_a_hostile_probe(probe: Any) -> None:
+    """Each hostile probe, fed to every built-in, yields only Invalid, never a leak.
+
+    Deterministic counterpart to the fuzz above: the fuzz draws any one probe only
+    occasionally, so a specific parser branch (a superscript digit in a duration, an
+    oversized ``int(str)``, a rebuild of a hostile container subclass) is reached
+    reliably only by feeding every probe to every validator on every run. Each
+    operator-boundary guard (comparison, membership, length, truthiness, iteration,
+    numeric conversion) is exercised too, via the dunder-raising probe.
     """
-    hostile = _HostileDunders()
     for schema in _SAFE_SCHEMAS:
         with contextlib.suppress(Invalid):
-            schema(hostile)
+            schema(probe)
