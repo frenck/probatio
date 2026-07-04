@@ -58,12 +58,7 @@ def test_replace_on_non_string(value: object) -> None:
 
 
 def test_replace_rejects_a_bad_backreference_at_build() -> None:
-    """A substitution with an invalid group reference is a build-time SchemaError.
-
-    ``re`` parses the replacement template eagerly, so ``\\2`` against a one-group
-    pattern is caught when the validator is constructed, not leaked as a raw
-    ``re.error`` on the first matching value.
-    """
+    """A substitution with an invalid group reference raises SchemaError at build time."""
     with pytest.raises(SchemaError, match="substitution"):
         Replace(r"(a)", r"\2")
 

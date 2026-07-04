@@ -77,11 +77,7 @@ def test_namedtuple_schema_accepts_a_plain_tuple() -> None:
 
 
 def test_list_subclass_that_cannot_rebuild_falls_back_to_a_plain_list() -> None:
-    """A list subclass with a non-(iterable) constructor does not leak a TypeError.
-
-    Rebuilding the data as its own type would raise from the subclass constructor;
-    the sequence engine falls back to a plain list instead.
-    """
+    """A list subclass with a non-(iterable) constructor rebuilds to a plain list, not a leak."""
 
     class TaggedList(list):
         def __init__(self, items: object, tag: object) -> None:

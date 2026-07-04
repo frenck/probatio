@@ -56,11 +56,7 @@ def test_exact_sequence_rebuilds_a_namedtuple() -> None:
 
 
 def test_exact_sequence_falls_back_when_a_subclass_cannot_rebuild() -> None:
-    """A list/tuple subclass whose constructor is not (iterable) does not leak.
-
-    ``type(value)(result)`` would raise a raw ``TypeError`` for a subclass with a
-    custom constructor; the rebuild falls back to the plain base type instead.
-    """
+    """A list/tuple subclass with a non-(iterable) constructor rebuilds to the base type."""
 
     class TaggedList(list):
         def __init__(self, items: object, tag: object) -> None:
