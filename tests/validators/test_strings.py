@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from probatio import (
@@ -32,6 +34,7 @@ from probatio import (
 )
 from probatio.error import (
     EmailInvalid,
+    LengthInvalid,
     MatchInvalid,
     SchemaError,
     SlugInvalid,
@@ -97,6 +100,21 @@ def test_match_on_non_string() -> None:
 def test_match_exposes_the_pattern_source() -> None:
     """Match keeps a compiled pattern whose source is readable."""
     assert Match(r"^\d+$").pattern.pattern == r"^\d+$"
+
+
+def test_match_accepts_a_compiled_or_bytes_pattern() -> None:
+    """A pre-compiled pattern is used as is, and a bytes pattern is compiled."""
+    import re  # noqa: PLC0415
+
+    assert Schema(Match(re.compile(r"^\d+$")))("123") == "123"
+    assert Match(rb"\d+").pattern.pattern == rb"\d+"
+
+
+@pytest.mark.parametrize("pattern", [123, object(), r"("])
+def test_match_rejects_a_bad_pattern_at_build(pattern: object) -> None:
+    """A non-pattern arg, or an invalid regular expression, is a build-time SchemaError."""
+    with pytest.raises(SchemaError):
+        Match(pattern)
 
 
 def test_email_accepts_and_rejects() -> None:
@@ -234,6 +252,21 @@ def test_starts_with_and_ends_with() -> None:
         Schema(EndsWith(".txt"))(123)
 
 
+def test_starts_with_and_ends_with_accept_a_tuple_of_strings() -> None:
+    """A tuple of prefixes/suffixes is accepted (str.startswith/endswith allow it)."""
+    assert Schema(StartsWith(("http://", "https://")))("https://x") == "https://x"
+    assert Schema(EndsWith((".txt", ".md")))("a.md") == "a.md"
+
+
+@pytest.mark.parametrize("affix", [123, None, ("a", 1)])
+def test_starts_with_rejects_a_non_string_affix_at_build(affix: object) -> None:
+    """A non-string prefix/suffix is a schema definition error, not a call-time TypeError."""
+    with pytest.raises(SchemaError):
+        StartsWith(affix)
+    with pytest.raises(SchemaError):
+        EndsWith(affix)
+
+
 def test_byte_length() -> None:
     """ByteLength bounds the UTF-8 byte length, not the code-point count."""
     assert Schema(ByteLength(min=1, max=3))("ab") == "ab"
@@ -246,6 +279,14 @@ def test_byte_length() -> None:
         Schema(ByteLength(min=2))("a")
     with pytest.raises(MultipleInvalid):
         Schema(ByteLength(min=1))(123)
+
+
+@pytest.mark.parametrize("bound", ["x", Decimal("NaN")])
+def test_byte_length_with_a_bad_bound_is_invalid_not_a_leak(bound: object) -> None:
+    """A bad bound (a str TypeError, a Decimal NaN ArithmeticError) is clean, not a leak."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(ByteLength(min=bound))("abc")
+    assert isinstance(caught.value.errors[0], LengthInvalid)
 
 
 @pytest.mark.parametrize("value", ["#abc", "#ff8800"])

@@ -467,13 +467,24 @@ class Length(_SafeValidator):
         except Exception as exc:
             raise LengthInvalid(self.msg, translation_key="value_no_length") from exc
 
-        if self.min is not None and length < self.min:
+        try:
+            below_min = self.min is not None and length < self.min
+            above_max = self.max is not None and length > self.max
+        except Exception as exc:
+            # A bad bound makes the comparison raise (a str bound a TypeError, a
+            # Decimal('NaN') an ArithmeticError); report it cleanly like Range does,
+            # rather than leak. No intentional Invalid is raised inside this try.
+            raise LengthInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+        if below_min:
             raise LengthInvalid(
                 self.msg,
                 translation_key="length_min",
                 placeholders={"min": self.min},
             )
-        if self.max is not None and length > self.max:
+        if above_max:
             raise LengthInvalid(
                 self.msg,
                 translation_key="length_max",

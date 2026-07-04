@@ -147,6 +147,14 @@ def test_length_bounds() -> None:
         Schema(Length(max=2))("abc")
 
 
+@pytest.mark.parametrize("bound", ["x", Decimal("NaN")])
+def test_length_with_a_bad_bound_is_invalid_not_a_leak(bound: object) -> None:
+    """A bad bound (a str TypeError, a Decimal NaN ArithmeticError) is clean, not a leak."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Length(min=bound))("abc")
+    assert isinstance(caught.value.errors[0], LengthInvalid)
+
+
 def test_length_without_bounds_never_measures() -> None:
     """With no bound set, Length passes any value, even one without a length."""
     assert Schema(Length())(0.0) == 0.0
