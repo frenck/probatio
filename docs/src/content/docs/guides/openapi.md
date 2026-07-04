@@ -95,6 +95,26 @@ accepts every member present or none present and rejects any partial combination
 The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
 `from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
 
+## Strict mode
+
+By default a construct with no OpenAPI form widens to an open schema (`{}`), so
+the emitted document stays a superset of what Probatio validates. Pass
+`strict=True` to raise `SchemaError` instead, so a lossy conversion is caught
+rather than silently accepted, the same as [`to_json_schema`](/guides/json-schema/#widening-the-encoder-and-overriding-it):
+
+<!-- verify: raises SchemaError -->
+
+```python
+from probatio import Schema, In, to_openapi
+
+to_openapi(Schema(In([b"raw"])), strict=True)
+```
+
+A faithfully open construct (`object`, a bare `dict`) is not a loss, so it stays
+open even under `strict=True`. Strict catches the constructs that widen to an open
+schema, not a version-specific partial drop (an OpenAPI 3.0 `Contains` still
+renders as a plain array).
+
 ## Customizing the output
 
 `to_openapi` takes a `custom_serializer` hook, the same one `serialize` uses, to
