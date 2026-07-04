@@ -1,10 +1,15 @@
-"""Property-based differential fuzzing of the codecs against their oracles.
+"""Property-based differential fuzzing of ``serialize`` against its oracle.
 
-``to_openapi`` is compared to voluptuous-openapi's ``convert`` (both OpenAPI
-versions) and ``serialize`` to voluptuous-serialize's ``convert``, on the same
+``serialize`` is compared to voluptuous-serialize's ``convert`` on the same
 generated schema built in each library. When the oracle itself raises (it has
-bugs probatio does not, like crashing on a multi-item array), the example is
-skipped rather than counted against probatio.
+bugs probatio does not), the example is skipped rather than counted against
+probatio.
+
+``to_openapi`` is no longer fuzzed against voluptuous-openapi: it now emits
+correct OpenAPI even where the oracle is buggy, so a byte-for-byte comparison
+fails on the oracle's own errors. Its property-based gate lives in
+``test_openapi_oracle.py``, which validates the emitted document against the
+``openapi-schema-validator`` reference implementation instead.
 """
 
 from __future__ import annotations
@@ -12,16 +17,12 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous
-import voluptuous_openapi
 import voluptuous_serialize
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
-from voluptuous_openapi import OpenApiVersion
 
 import probatio
 from tests import strategies
-
-_ORACLE_VERSION = {"3.0": OpenApiVersion.V3, "3.1.0": OpenApiVersion.V3_1}
 
 # serialize works on a mapping of fields; keep the values to the leaf validators
 # both it and voluptuous-serialize handle (no nested mappings or sequences).
@@ -45,29 +46,6 @@ _SERIALIZE_FIELDS = st.dictionaries(
     st.tuples(st.sampled_from(["required", "optional"]), _SERIALIZE_VALUES),
     max_size=4,
 )
-
-
-@given(spec=strategies.specs(), version=st.sampled_from(["3.0", "3.1.0"]))
-@settings(
-    max_examples=400, derandomize=True, suppress_health_check=[HealthCheck.too_slow]
-)
-def test_to_openapi_matches_oracle(spec: Any, version: str) -> None:
-    """to_openapi matches voluptuous-openapi convert(), modulo probatio's corrections."""
-    try:
-        expected = voluptuous_openapi.convert(
-            voluptuous.Schema(strategies.build(spec, voluptuous)),
-            openapi_version=_ORACLE_VERSION[version],
-        )
-    except Exception:  # noqa: BLE001
-        assume(False)
-        return
-    actual = probatio.to_openapi(
-        probatio.Schema(strategies.build(spec, probatio)),
-        openapi_version=version,
-    )
-    assert strategies.canonical_openapi(actual) == strategies.canonical_openapi(
-        expected
-    )
 
 
 @given(fields=_SERIALIZE_FIELDS)

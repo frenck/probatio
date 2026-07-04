@@ -109,6 +109,10 @@ test = [
   # it (both that the schema is valid and that it never rejects input probatio
   # accepts). Never a runtime dependency.
   "jsonschema==4.26.0",
+  # openapi-schema-validator is a dev-only oracle: to_openapi output is validated
+  # against it (that it is a valid OpenAPI 3.0/3.1 schema and never rejects input
+  # probatio accepts). Never a runtime dependency.
+  "openapi-schema-validator==0.9.0",
   # mashumaro is a benchmark-only comparison for the dataclass path (its codegen
   # from_dict against DataclassSchema). It is not an oracle: it deserializes rather
   # than validates, so it is never compared for correctness. Never a runtime dep.

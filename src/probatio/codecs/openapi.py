@@ -36,32 +36,43 @@ from probatio.validators import (
     AsDate,
     AsDatetime,
     AsTime,
+    AsTimedelta,
     Base64,
     Capitalize,
     Clamp,
     Coerce,
+    Contains,
     Date,
     Datetime,
+    Duration,
     Email,
+    Equal,
+    ExactSequence,
     FqdnUrl,
     FromEpoch,
     FromPercentage,
     In,
     Length,
+    Literal,
     Lower,
     Match,
     Maybe,
+    Msg,
     MultipleOf,
+    NotIn,
     Percentage,
     Port,
     Range,
+    SomeOf,
     Strip,
     Time,
     Title,
+    Unique,
     Upper,
     Url,
 )
 from probatio.validators import Any as AnyValidator
+from probatio.validators import Union as UnionValidator
 
 _NONE_TYPE = type(None)
 _V3_0 = "3.0"
@@ -110,13 +121,63 @@ def to_openapi(
     ``SchemaError`` rather than a bare ``RecursionError``.
     """
     try:
-        return _oa(schema, custom_serializer, openapi_version)
+        rendered = _oa(schema, custom_serializer, openapi_version)
     except RecursionError as exc:
         message = (
             "schema is too deeply nested or references itself; use the Self "
             "marker for a recursive schema"
         )
         raise SchemaError(message) from exc
+    return cast("dict[str, Any]", _admit_null(rendered, openapi_version))
+
+
+def _admit_null(node: Any, version: str) -> Any:
+    """Make every nullable schema actually accept null, per the OpenAPI version.
+
+    A ``nullable: true`` schema that also carries an ``enum`` rejects null unless
+    null is in the enum (the flag admits the null *type*, not a value outside the
+    enumerated set), so null is added to such an enum. On 3.1 there is no
+    ``nullable`` keyword at all, so it is rewritten as ``"null"`` on the type.
+    """
+    if isinstance(node, dict):
+        result = {key: _admit_null(value, version) for key, value in node.items()}
+        if result.get("nullable") is True:
+            _mark_nullable(result, version)
+        return result
+    if isinstance(node, list):
+        return [_admit_null(item, version) for item in node]
+    return node
+
+
+_COMBINATORS = ("anyOf", "oneOf", "allOf")
+
+
+def _mark_nullable(result: dict[str, Any], version: str) -> None:
+    """Rewrite a ``nullable: true`` dict so it actually accepts null on ``version``.
+
+    A ``nullable`` flag is inert on an ``enum`` (null must be a member) and on a
+    combinator (3.0 ignores it there), so null is added as an enum member or a
+    dedicated branch. On 3.1 there is no ``nullable`` keyword, so it becomes
+    ``"null"`` on the type.
+    """
+    enum = result.get("enum")
+    if isinstance(enum, list) and None not in enum:
+        result["enum"] = [*enum, None]
+
+    combinator = next((key for key in _COMBINATORS if key in result), None)
+    if combinator is not None:
+        # A combinator has no type to carry null, so admit it with a branch.
+        result[combinator] = [*result[combinator], _oa_null(version)]
+        result.pop("nullable", None)
+        return
+
+    if version == _V3_1:
+        del result["nullable"]
+        node_type = result.get("type")
+        # The renderer only ever carries ``nullable`` beside a scalar ``type``; a
+        # type array is produced here, so there is no list case to widen.
+        if isinstance(node_type, str):
+            result["type"] = [node_type, "null"]
 
 
 def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
@@ -138,11 +199,11 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
     # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
     # has no policy of its own and defaults to closed.
     closed = True
-    if isinstance(node, Schema):
-        if node.extra in (ALLOW_EXTRA, REMOVE_EXTRA):
-            closed = False
-        if node.extra == ALLOW_EXTRA:
-            additional = True
+    # A ``Schema`` value is itself a valid validator, so schemas can nest. Unwrap
+    # every layer: the innermost one does the validation, so its extra policy wins.
+    while isinstance(node, Schema):
+        closed = node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA)
+        additional = True if node.extra == ALLOW_EXTRA else None
         node = node.schema
 
     if custom is not None:
@@ -287,7 +348,10 @@ def _assemble_object(
 
     if properties or not additional:
         result["properties"] = properties
-        result["required"] = required
+        # OpenAPI 3.0 requires ``required`` to be non-empty, so an empty list is
+        # omitted rather than emitted (``required: []`` is invalid there).
+        if required:
+            result["required"] = required
     if additional:
         # ``True`` (open) or a variable-key value schema.
         result["additionalProperties"] = additional
@@ -399,17 +463,77 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         if isinstance(source, bytes):
             return {"type": "string"}
         return {"pattern": source}
+    if isinstance(node, Equal | Literal):
+        return _oa_enum([node.target if isinstance(node, Equal) else node.lit])
     if isinstance(node, In):
         return _oa_enum(list(node.container))
+    if isinstance(node, NotIn):
+        enum = _oa_enum(list(node.container))
+        return {"not": enum} if enum else {}
     if node in _OPENAPI_FORMATS:
         return {"format": _OPENAPI_FORMATS[node]}
 
+    if isinstance(node, Msg):
+        # ``Msg`` only swaps the error message; the shape is the wrapped validator.
+        return _oa(node.validator, custom, version)
     if isinstance(node, Maybe):
         return _oa_any([None, node.validator], custom, version)
-    if isinstance(node, AnyValidator):
+    # ``Union``/``Switch`` accept any branch (the discriminant is an optimization),
+    # so they render like ``Any``, sharing its version-aware nullable handling.
+    if isinstance(node, AnyValidator | UnionValidator):
         return _oa_any(list(node.validators), custom, version)
+    if isinstance(node, SomeOf):
+        return _oa_some_of(node, custom, version)
+
+    collection = _oa_collection(node, custom, version)
+    if collection is not None:
+        return collection
 
     return _oa_typed(node)
+
+
+def _oa_some_of(node: SomeOf, custom: Any, version: str) -> dict[str, Any]:
+    """Render a SomeOf for the counts OpenAPI can express, else an open schema.
+
+    Exactly one branch (``min == max == 1``) is ``oneOf``, at least one
+    (``min == 1``, ``max`` the branch count) is ``anyOf``, and every branch
+    (``min == max == count``) is ``allOf``; any other count widens to open.
+    """
+    branches = [_oa(validator, custom, version) for validator in node.validators]
+    count = len(branches)
+    if node.min_valid == node.max_valid == 1:
+        return {"oneOf": branches}
+    if node.min_valid == 1 and node.max_valid == count:
+        return {"anyOf": branches}
+    if node.min_valid == node.max_valid == count:
+        return {"allOf": branches}
+    return {}
+
+
+def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
+    """Render the array/string collection constraints, or None if not one.
+
+    ``contains`` and ``prefixItems`` are JSON Schema keywords OpenAPI 3.1 shares
+    but 3.0 lacks (and misreads), so on 3.0 the positional/contains constraint is
+    dropped to a plain array rather than emitted in a form a 3.0 consumer breaks on.
+    """
+    if isinstance(node, Unique):
+        return {"type": "array", "uniqueItems": True}
+    if isinstance(node, Contains):
+        if version == _V3_1:
+            return {
+                "type": "array",
+                "contains": _ensure_default(_oa(node.item, custom, version)),
+            }
+        return {"type": "array"}
+    if isinstance(node, ExactSequence):
+        if version == _V3_1:
+            prefix = [_ensure_default(_oa(v, custom, version)) for v in node.validators]
+            return {"type": "array", "prefixItems": prefix, "items": False}
+        return {"type": "array"}
+    if isinstance(node, Duration | AsTimedelta):
+        return {"type": "string", "format": "duration"}
+    return None
 
 
 def _oa_typed(node: Any) -> dict[str, Any] | None:
@@ -530,29 +654,37 @@ def _oa_length(node: Length) -> dict[str, Any]:
 
 
 def _oa_enum(values: list[Any]) -> dict[str, Any]:
-    """Render an enum (from In or an Enum type), extracting null members.
+    """Render an enum (from In or an Enum type), keeping any null member.
 
-    Like voluptuous-openapi, an enum marks itself ``nullable`` regardless of the
-    OpenAPI version (unlike ``Any``, which splits on version).
+    Null stays *in* the enum (``nullable: true`` admits the null type, not a value
+    outside the enumerated set), and a ``nullable`` flag is added on 3.0 so the
+    null type passes too (``_admit_null`` rewrites it for 3.1). A single member
+    type labels the enum; a mixed-type enum (``In(["a", 1])``) is left untyped so
+    it accepts every listed value rather than mislabel by the first member.
     """
-    nullable = False
+    has_null = False
     cleaned: list[Any] = []
     for value in _ordered(values):
         if value is None or value is _NONE_TYPE:
-            nullable = True
+            has_null = True
             continue
         # An enum member with no JSON form (a ``datetime``, an ``Enum``) is
-        # rendered JSON-safe, so the emitted enum never crashes ``json.dumps``. A
-        # member with no representation at all (``bytes``) drops the whole enum to
-        # an open schema rather than leak an unserializable value.
+        # rendered JSON-safe. A member with no representation at all (``bytes``)
+        # drops the whole enum to open rather than leak an unserializable value.
         safe = _json_safe(value)
         if safe is _UNREPRESENTABLE:
-            return {"nullable": True} if nullable else {}
+            return {"nullable": True} if has_null else {}
         cleaned.append(safe)
 
-    enum_type = _OPENAPI_TYPES.get(type(cleaned[0]), "string") if cleaned else "string"
-    result: dict[str, Any] = {"type": enum_type, "enum": cleaned}
-    if nullable:
+    # OpenAPI requires enum members to be unique, so drop duplicates the container
+    # may hold (``In([0, 0])``), keeping first-seen order.
+    cleaned = _dedup_preserving_order(cleaned)
+    member_types = {type(member) for member in cleaned}
+    result: dict[str, Any] = {}
+    if len(member_types) == 1:
+        result["type"] = _OPENAPI_TYPES.get(cleaned[0].__class__, "string")
+    result["enum"] = [*cleaned, None] if has_null else cleaned
+    if has_null:
         result["nullable"] = True
     return result
 
@@ -576,6 +708,11 @@ def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
         validators = [v for v in validators if v is not None and v is not _NONE_TYPE]
         nullable = True
 
+    if not validators:
+        # Every branch was ``None`` (an ``Any(None, None)``), so only null is
+        # accepted; an empty ``anyOf`` is invalid, so render the null schema.
+        return _oa_null(version)
+
     if len(validators) == 1:
         result = _oa(validators[0], custom, version)
         if nullable:
@@ -587,11 +724,6 @@ def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
     )
     nullable = nullable or nested_nullable
 
-    if _OPEN_OBJECT in any_of:
-        result = dict(_OPEN_OBJECT)
-        if nullable:
-            result["nullable"] = True
-        return result
     return _collapse_any(_dedup_any(any_of), nullable=nullable)
 
 

@@ -102,18 +102,18 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
     )
 
 
-def data(*, booleans: bool = True) -> st.SearchStrategy[Any]:
+def data(*, booleans: bool = True, floats: bool = True) -> st.SearchStrategy[Any]:
     """JSON-shaped values: scalars, lists, and string-keyed dicts (no NaN/inf).
 
-    ``booleans=False`` drops bare booleans, for the differential oracle where the
-    bool-is-int impedance would otherwise read as a spurious narrowing.
+    ``booleans=False`` drops bare booleans and ``floats=False`` drops floats, for
+    a differential oracle where Python's numeric equality (``0 == 0.0``,
+    ``1 == True``) would read a strict-typed schema's rejection as a spurious
+    narrowing (an ``enum`` member matches a cross-type number under probatio's
+    ``==`` but not under the JSON type model the schema encodes).
     """
-    scalars = (
-        st.none()
-        | st.integers(min_value=-12, max_value=12)
-        | st.floats(allow_nan=False, allow_infinity=False)
-        | st.text(max_size=3)
-    )
+    scalars = st.none() | st.integers(min_value=-12, max_value=12) | st.text(max_size=3)
+    if floats:
+        scalars |= st.floats(allow_nan=False, allow_infinity=False)
     if booleans:
         scalars |= st.booleans()
     return st.recursive(
@@ -177,19 +177,33 @@ def _build_dict(spec: Any, lib: Any) -> Any:
 def canonical_openapi(node: Any) -> Any:
     """Erase the dimensions to_openapi renders more correctly than voluptuous-openapi.
 
-    ``to_openapi`` diverges from the oracle in two documented ways: a closed
-    mapping emits ``additionalProperties: false`` (the oracle omits it), and a 3.0
-    exclusive bound uses the Draft 4 boolean-companion form (``minimum`` plus
-    ``exclusiveMinimum: true``) where the oracle emits the JSON Schema numeric
-    form. Dropping ``additionalProperties`` and normalizing the boolean bound to
-    the numeric form on both sides leaves the rest of the structure to compare.
+    ``to_openapi`` diverges from the oracle in a few documented ways: a closed
+    mapping emits ``additionalProperties: false`` (the oracle omits it), an empty
+    ``required`` is omitted (the oracle emits ``required: []``, invalid on 3.0),
+    a nullable enum keeps null as a member (the oracle drops it), and a 3.0
+    exclusive bound uses the Draft 4 boolean-companion form where the oracle emits
+    the numeric form. Normalizing those away on both sides leaves the rest of the
+    structure to compare; the behavioral oracle checks the corrected dimensions.
     """
     if isinstance(node, dict):
         result = {
             key: canonical_openapi(value)
             for key, value in node.items()
-            if key != "additionalProperties"
+            if key not in ("additionalProperties", "nullable")
         }
+        # An omitted empty ``required`` and an emitted ``required: []`` are equal.
+        if result.get("required") == []:
+            del result["required"]
+        # An enum's ``type`` diverges (probatio drops it for a mixed-type enum,
+        # and omits duplicates and orders members differently from the oracle's
+        # ``set``), so compare an enum by its sorted, null-free member set alone.
+        if isinstance(result.get("enum"), list):
+            members = {v for v in result["enum"] if v is not None}
+            result["enum"] = sorted(members, key=repr)
+            result.pop("type", None)
+        if isinstance(result.get("type"), list):
+            kept = [t for t in result["type"] if t != "null"]
+            result["type"] = kept[0] if len(kept) == 1 else kept
         # The 3.0 boolean-companion exclusive bound canonicalizes to the numeric
         # (3.1/oracle) form, so both spellings compare equal.
         for bound in ("Minimum", "Maximum"):
