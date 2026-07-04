@@ -23,6 +23,7 @@ invisible implementation detail.
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -33,6 +34,22 @@ from probatio.serde._config import effective_options
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+# A run of 19 or more digits may be an integer orjson would coerce to a float and
+# lose precision: 2**63 (the signed 64-bit floor a negative literal can cross) has
+# 19 digits, so any shorter run always fits. A match is a cheap, conservative
+# trigger to parse with the arbitrary-precision standard library instead of orjson;
+# it may over-trigger on a long digit run inside a string or a float, which only
+# means the exact-but-slower path runs, never a wrong result.
+_LONG_DIGIT_RUN_STR = re.compile(r"\d{19,}")
+_LONG_DIGIT_RUN_BYTES = re.compile(rb"\d{19,}")
+
+
+def _may_hold_a_big_int(data: str | bytes) -> bool:
+    """Whether the JSON text has a digit run long enough to risk orjson's float coercion."""
+    if isinstance(data, bytes):
+        return _LONG_DIGIT_RUN_BYTES.search(data) is not None
+    return _LONG_DIGIT_RUN_STR.search(data) is not None
 
 
 def _read(source: Any) -> Any:
@@ -108,7 +125,11 @@ def load_json(source: Any, *, options: dict[str, Any] | None = None) -> Any:
         merged: dict[str, Any] = {"parse_constant": _reject_json_constant, **opts}
         return json.loads(data, **merged)
 
-    if _optional.orjson is not None:
+    # orjson coerces an integer >= 2**64 to a float, silently losing precision,
+    # where the standard library keeps arbitrary-precision ints. So a document that
+    # might carry a big integer is parsed by the standard library instead, keeping
+    # the same result regardless of which backend is installed.
+    if _optional.orjson is not None and not _may_hold_a_big_int(data):
         return _optional.orjson.loads(data)
 
     # The standard library accepts the JavaScript constants NaN/Infinity/-Infinity by

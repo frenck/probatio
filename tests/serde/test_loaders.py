@@ -81,6 +81,38 @@ def test_load_json_falls_back_to_stdlib(monkeypatch: pytest.MonkeyPatch) -> None
     assert load_json('{"a": 1}') == {"a": 1}
 
 
+@pytest.mark.parametrize("with_orjson", [True, False])
+@pytest.mark.parametrize(
+    "literal",
+    [
+        "18446744073709551616",  # 2**64, the first positive value orjson floats
+        "100000000000000000000000000000000000000",  # 10**38
+        "-9223372036854775809",  # one past the signed 64-bit floor
+    ],
+)
+def test_load_json_keeps_big_integers_exact_on_both_paths(
+    literal: str,
+    *,
+    with_orjson: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An integer past 64 bits stays an exact int, not a float, with or without orjson.
+
+    orjson coerces such a value to a float; the loader detects a long digit run and
+    parses with the standard library, so the result is the same either way.
+    """
+    if not with_orjson:
+        monkeypatch.setattr(_optional, "orjson", None)
+    result = load_json(f'{{"n": {literal}}}')
+    assert result == {"n": int(literal)}
+    assert isinstance(result["n"], int)
+
+
+def test_load_json_long_digit_string_is_not_misparsed() -> None:
+    """A 19+ digit run inside a string only triggers the stdlib path, not a wrong value."""
+    assert load_json('{"id": "1234567890123456789"}') == {"id": "1234567890123456789"}
+
+
 @pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
 @pytest.mark.parametrize("with_orjson", [True, False])
 def test_load_json_rejects_non_standard_constants(
