@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, NewType
 
 import pytest
 
@@ -303,6 +303,41 @@ def test_annotation_that_cannot_resolve_is_a_schema_error() -> None:
 
     with pytest.raises(SchemaError, match="cannot resolve"):
         probatio(f)
+
+
+def test_a_validator_as_a_parameter_annotation_is_rejected() -> None:
+    """A validator where a type belongs is a loud error, not silently accepted."""
+
+    def f(x: Range(min=0, max=10)) -> int:  # type: ignore[valid-type]
+        return x  # type: ignore[no-any-return]
+
+    with pytest.raises(SchemaError, match="annotated with a validator"):
+        probatio(f)
+
+
+def test_a_validator_as_the_return_annotation_is_rejected() -> None:
+    """A validator return annotation under returns=True is a loud error too."""
+
+    def f(x: int) -> Range(min=0):  # type: ignore[valid-type]
+        return x
+
+    with pytest.raises(SchemaError, match="annotated with a validator"):
+        probatio(returns=True)(f)
+
+
+_UserId = NewType("_UserId", int)
+
+
+def test_a_newtype_annotation_is_not_mistaken_for_a_validator() -> None:
+    """A NewType is callable and not a type, yet a valid annotation, so it is kept."""
+
+    @probatio
+    def f(x: _UserId) -> int:
+        return x
+
+    assert f(5) == 5
+    with pytest.raises(MultipleInvalid):
+        f("not an int")
 
 
 def test_empty_call_form() -> None:
