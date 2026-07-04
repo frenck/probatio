@@ -763,3 +763,43 @@ def test_inclusive_group_round_trips_through_openapi_3_1() -> None:
     assert rebuilt({}) == {}
     with pytest.raises(probatio.Invalid):
         rebuilt({"a": 1})
+
+
+def test_strict_raises_on_an_unrepresentable_validator() -> None:
+    """strict=True refuses a construct that would silently widen to an open schema."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_openapi(Schema(frozenset[int]), strict=True)
+
+
+def test_strict_raises_on_an_unrepresentable_enum_member() -> None:
+    """strict=True refuses an enum member with no OpenAPI form."""
+    from probatio import In  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="no OpenAPI form"):
+        to_openapi(Schema(In([b"raw"])), strict=True)
+
+
+def test_strict_raises_on_an_inexpressible_some_of() -> None:
+    """strict=True refuses a SomeOf whose count OpenAPI cannot express."""
+    from probatio import SomeOf  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(SomeOf(validators=[int, str], min_valid=0, max_valid=1))
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_openapi(schema, strict=True)
+
+
+def test_strict_allows_a_faithfully_open_schema() -> None:
+    """strict=True does not raise for object, which is faithfully an open schema."""
+    assert to_openapi(Schema(object), strict=True) == {
+        "type": "object",
+        "additionalProperties": True,
+    }
+
+
+def test_non_strict_still_widens_by_default() -> None:
+    """Without strict, an unrepresentable construct still widens to an open schema."""
+    assert to_openapi(Schema(frozenset[int])) == {}

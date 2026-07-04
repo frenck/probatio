@@ -14,6 +14,7 @@ this is a distinct codec rather than a tweak of ``to_json_schema``.
 
 from __future__ import annotations
 
+import contextvars
 import itertools
 from dataclasses import dataclass, field
 from enum import Enum
@@ -116,11 +117,35 @@ _OA_PERCENT_MIN = 0
 _OA_PERCENT_MAX = 100
 
 
+# Whether the active ``to_openapi`` call raises on a construct with no OpenAPI
+# form instead of widening it to an open schema. A ``ContextVar`` carries the flag
+# to every node without threading a third argument through the recursive encoder;
+# ``to_openapi`` sets it on entry and resets it on exit.
+_STRICT: contextvars.ContextVar[bool] = contextvars.ContextVar("_STRICT", default=False)
+
+
+def _open(reason: str) -> dict[str, Any]:
+    """Render an open schema for a construct with no OpenAPI form.
+
+    In strict mode the silent widening is an error (the construct's constraint
+    would be dropped); otherwise it widens to accept-anything, the default
+    best-effort behavior. Mirrors ``to_json_schema``'s ``_open``.
+    """
+    if _STRICT.get():
+        message = (
+            f"to_openapi cannot represent {reason}; it would widen to an open "
+            "schema (pass strict=False to allow it)"
+        )
+        raise SchemaError(message)
+    return {}
+
+
 def to_openapi(
     schema: Any,
     *,
     custom_serializer: Any = None,
     openapi_version: str = _V3_0,
+    strict: bool = False,
 ) -> dict[str, Any]:
     """Render a schema as an OpenAPI Schema object.
 
@@ -129,10 +154,16 @@ def to_openapi(
     for each node and may return a dict to override the default, or ``UNSUPPORTED``
     to defer.
 
+    By default a construct with no OpenAPI form widens to an open schema (``{}``).
+    With ``strict=True`` such a construct raises ``SchemaError`` instead, so a
+    lossy conversion is caught rather than silently accepted, the same as
+    ``to_json_schema``.
+
     A raw schema that references itself (a dict holding itself as a value) has no
     finite rendering, so the runaway recursion is reported as a clean
     ``SchemaError`` rather than a bare ``RecursionError``.
     """
+    token = _STRICT.set(strict)
     try:
         rendered = _oa(schema, custom_serializer, openapi_version)
     except RecursionError as exc:
@@ -141,6 +172,8 @@ def to_openapi(
             "marker for a recursive schema"
         )
         raise SchemaError(message) from exc
+    finally:
+        _STRICT.reset(token)
     return cast("dict[str, Any]", _admit_null(rendered, openapi_version))
 
 
@@ -513,10 +546,12 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return _oa_null(version)
 
     typed = _oa_type(node, version)
-    if typed or not callable(node):
+    if typed:
         return typed
+    if callable(node):
+        return _oa_callable(node, custom, version)
 
-    return _oa_callable(node, custom, version)
+    return _open(f"the value {node!r}")
 
 
 def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
@@ -532,11 +567,11 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
         )
         params = list(signature(node).parameters.keys())
     except (TypeError, NameError, ValueError):
-        return {}
+        return _open(f"the callable {node!r} (its signature cannot be inspected)")
 
     hint = hints.get(params[0], Any) if params else Any
     if hint is Any or isinstance(hint, TypeVar):
-        return {}
+        return _open(f"the callable {node!r} (its first parameter has no type hint)")
 
     if isinstance(hint, UnionType) or get_origin(hint) is Union:
         members = [arg for arg in get_args(hint) if not isinstance(arg, TypeVar)]
@@ -545,7 +580,7 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
         elif len(members) == 1 and members[0] is not _NONE_TYPE:
             hint = members[0]
         else:
-            return {}
+            return _open(f"the callable {node!r} (its only hint is None or a TypeVar)")
 
     return _ensure_default(_oa(hint, custom, version))
 
@@ -623,7 +658,7 @@ def _oa_some_of(node: SomeOf, custom: Any, version: str) -> dict[str, Any]:
         return {"anyOf": branches}
     if node.min_valid == node.max_valid == count:
         return {"allOf": branches}
-    return {}
+    return _open("a SomeOf with a min/max count OpenAPI cannot express")
 
 
 def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
@@ -789,6 +824,9 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
         # drops the whole enum to open rather than leak an unserializable value.
         safe = _json_safe(value)
         if safe is _UNREPRESENTABLE:
+            # In strict mode this lossy drop is an error; otherwise keep any
+            # nullability the enum still carries.
+            _open("an enum member with no OpenAPI form")
             return {"nullable": True} if has_null else {}
         cleaned.append(safe)
 
