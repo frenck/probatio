@@ -47,9 +47,9 @@ schema = Schema({Required("name"): str, Optional("port", default=8080): int})
 schema({"name": "app"})  # {'name': 'app', 'port': 8080}
 ```
 
-`Schema` also has convenience loaders that parse and validate in one step:
-`schema.load_json(source)`, `schema.load_yaml(source)`, `schema.load_toml(source)`,
-and `schema.load(source, format=None)`.
+Probatio validates parsed Python objects; parsing stays with the caller. Parse
+your JSON, YAML, or TOML with the library of your choice, then hand the result to
+the schema (`schema(json.loads(source))`).
 
 ## Markers
 
@@ -282,10 +282,6 @@ Python object.
   value against `schema`), returning the string unchanged.
 - `FromJSONString(schema=None, msg=None)`: parse a JSON string to the decoded value
   (the decoding sibling of `JSONString`), optionally validating it against `schema`.
-- `YAMLString(schema=None, msg=None)`: validate a YAML string (safe-load, needs a YAML
-  backend), returning the string unchanged.
-- `FromYAMLString(schema=None, msg=None)`: parse a YAML string to the decoded value
-  (the decoding sibling of `YAMLString`).
 - `Base64(msg=None)`, `Hex(msg=None)`: validate a Base64 or hexadecimal string,
   returning it unchanged.
 - `HexInt(msg=None)`: parse a hexadecimal integer (a string like `"0x1A"` or `"1a"`,
@@ -399,7 +395,7 @@ Semantic subclasses let callers catch by kind: `TypeInvalid`, `RangeInvalid`,
 
 In `probatio.humanize`:
 
-- `humanize_error(data, validation_error, max_sub_error_length=..., *, locator=None)`: render an error against the data as a readable string, naming the offending value. With a `locator` (a callable mapping an error `path` to a `Location`, such as the one from `load_yaml_with_locations`), each line gains its source position.
+- `humanize_error(data, validation_error, max_sub_error_length=..., *, locator=None)`: render an error against the data as a readable string, naming the offending value. With a `locator` (a callable you supply that maps an error `path` to a `Location`, typically backed by a location-aware loader), each line gains its source position.
 - `validate_with_humanized_errors(data, schema, ...)`: validate, raising `Error` with a humanized message on failure.
 
 Importable straight from `probatio` (it lives in `probatio.error`, not
@@ -459,12 +455,7 @@ that process-wide (see [Compiled schemas](/guides/compiled-schemas/)):
 
 ## Loading and dumping
 
-Probatio reads and writes JSON, YAML, and TOML, using a fast backend when one is
-installed. JSON read and write and TOML read work on the standard library; YAML
-(read and write) and TOML write need an optional extra (see
-[Installation](/getting-started/installation/)).
-
-- `load(source, format=None, *, options=None)`, `load_json`, `load_yaml`, `load_toml`: `source` is a string or bytes of content, a `pathlib.Path`, or an open file. `load` auto-detects the format from a path suffix. `options` is forwarded to the active backend (for example a YAML spec switch).
-- `load_yaml_with_locations(source, *, options=None)`: like `load_yaml`, but returns `(data, locator)`, where the locator maps an error `path` to a source `Location`. Needs the YAMLRocks backend.
-- `dump(value, format)`, `dump_json`, `dump_yaml`, `dump_toml`: each takes a `default` keyword for non-native values and an `options` mapping forwarded to the active backend.
-- `set_default_options(format, *, load=None, dump=None)`: set process-wide default backend options for a format (clear with `clear_default_options()`). `default_options(format, *, load=None, dump=None)` is the scoped, async/thread-safe context-manager form. A call's own `options` win over a scoped default, which wins over the process-wide one.
+Probatio validates parsed Python objects; parsing and serialization stay with the
+caller. Parse with the library of your choice, then validate the result, and
+serialize a validated value with your own dumper (see the [loading and dumping
+guide](/guides/loading-and-dumping/)).

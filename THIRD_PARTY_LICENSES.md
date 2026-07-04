@@ -6,14 +6,9 @@ wheel and there are no third-party licenses to reproduce here. The release
 workflow also generates a CycloneDX SBOM and attaches it to each build, so this
 claim is verifiable from the published artifact, not just asserted.
 
-Optional integrations are used only when you install them yourself, and they
-ship under their own licenses, not with probatio:
-
-- [orjson](https://github.com/ijl/orjson) for fast JSON loading.
-  License: `MPL-2.0 AND (Apache-2.0 OR MIT)`.
-- [YAMLRocks](https://github.com/frenck/yamlrocks) (`MIT`) or
-  [PyYAML](https://pyyaml.org) (`MIT`) for YAML loading.
-- [tomli-w](https://github.com/hukkin/tomli-w) for writing TOML. License: `MIT`.
+Probatio validates parsed Python objects; parsing and serialization stay with
+the caller. Any JSON, YAML, or TOML library you pair with it is installed by you
+and ships under its own license, not with Probatio.
 
 Development and test tooling (pytest, ruff, mypy, ty, and voluptuous as a
 test-only conformance oracle) is not distributed with the package.

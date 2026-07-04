@@ -36,58 +36,13 @@ poetry add probatio
 Probatio needs Python 3.12 or newer. It is tested on CPython 3.12, 3.13, 3.14,
 and 3.15. If you can run those, you can run Probatio.
 
-## Optional backends
+## No runtime dependencies
 
-The core has no runtime dependencies. What works on a bare install depends on the
-format, because the standard library does not ship a YAML parser or a TOML
-writer:
-
-| Format | Read                             | Write                            |
-| ------ | -------------------------------- | -------------------------------- |
-| JSON   | standard library                 | standard library                 |
-| TOML   | standard library (`tomllib`)     | needs the `toml` extra           |
-| YAML   | needs the `yaml` or `fast` extra | needs the `yaml` or `fast` extra |
-
-When a faster backend is installed, Probatio reaches for it first. Three extras
-are available:
-
-- `fast`: `orjson` for JSON and `yamlrocks` for YAML (speed, and YAML support).
-- `yaml`: `PyYAML`, the portable YAML backend for environments without
-  `yamlrocks`. Install this (or `fast`) if you load or dump YAML.
-- `toml`: `tomli-w` for writing TOML. Reading TOML uses the standard library's
-  `tomllib`, so reading needs no extra.
-
-Without a YAML backend, `load_yaml`/`dump_yaml` raise a clear `RuntimeError`
-telling you which extra to install; the same goes for `dump_toml` without the
-`toml` extra. JSON and TOML reading always work.
-
-Install one or more extras:
-
-<Tabs syncKey="installer">
-<TabItem label="uv">
-```sh
-uv add "probatio[fast]"
-uv add "probatio[yaml,toml]"
-```
-</TabItem>
-<TabItem label="pip">
-```sh
-pip install "probatio[fast]"
-pip install "probatio[yaml,toml]"
-```
-</TabItem>
-<TabItem label="Poetry">
-```sh
-poetry add "probatio[fast]"
-poetry add "probatio[yaml,toml]"
-```
-</TabItem>
-</Tabs>
-
-:::note
-The extras are about speed and YAML support, not validation features. A schema
-validates the same way with or without them.
-:::
+The core has no runtime dependencies, and there are no extras to install.
+Probatio validates parsed Python objects: parsing and serialization stay with the
+caller. Parse your JSON, YAML, or TOML with whatever library you already use,
+then hand the result to a schema. See the [loading and dumping
+guide](/guides/loading-and-dumping/) for the pattern.
 
 ## Confirm it works
 

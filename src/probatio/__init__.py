@@ -6,8 +6,9 @@ it can be dropped in where voluptuous is used, while being free to improve the
 internals, error model, and tooling underneath.
 
 This module is the public facade: it re-exports the schema engine, markers,
-validators, the error hierarchy, the JSON Schema / OpenAPI / field-list codecs,
-and the JSON/YAML/TOML loaders and dumpers.
+validators, the error hierarchy, and the JSON Schema / OpenAPI / field-list
+codecs. Parsing and serialization are the caller's job: validate the parsed
+Python object, and use your own loader or dumper around it.
 """
 
 from __future__ import annotations
@@ -83,7 +84,6 @@ from probatio.error import (
     UrlInvalid,
     UuidInvalid,
     ValueInvalid,
-    YamlInvalid,
 )
 from probatio.fields import Key
 from probatio.markers import (
@@ -156,7 +156,6 @@ from probatio.validators import (
     FromEpoch,
     FromJSONString,
     FromPercentage,
-    FromYAMLString,
     Hex,
     HexColor,
     HexInt,
@@ -224,7 +223,6 @@ from probatio.validators import (
     Upper,
     Url,
     WriteOnce,
-    YAMLString,
     message,
     raises,
     truth,
@@ -243,23 +241,9 @@ if TYPE_CHECKING:
         to_json_schema,
         to_openapi,
     )
-    from probatio.serde import (
-        clear_default_options,
-        default_options,
-        dump,
-        dump_json,
-        dump_toml,
-        dump_yaml,
-        load,
-        load_json,
-        load_toml,
-        load_yaml,
-        load_yaml_with_locations,
-        set_default_options,
-    )
 
-# The codec and serde layers cost more to import than the validation engine, and a
-# plain ``import probatio`` for validation needs neither. Their public names are
+# The codec layer costs more to import than the validation engine, and a plain
+# ``import probatio`` for validation does not need it. Its public names are
 # re-exported lazily (PEP 562): the submodule is imported on first access of one of
 # its names, and the resolved attribute is cached as a real module global so later
 # reads are free. Maps each re-exported name to the module it lives in.
@@ -273,22 +257,6 @@ _LAZY_NAMES = dict.fromkeys(
         "to_openapi",
     ),
     "probatio.codecs",
-) | dict.fromkeys(
-    (
-        "clear_default_options",
-        "default_options",
-        "dump",
-        "dump_json",
-        "dump_toml",
-        "dump_yaml",
-        "load",
-        "load_json",
-        "load_toml",
-        "load_yaml",
-        "load_yaml_with_locations",
-        "set_default_options",
-    ),
-    "probatio.serde",
 )
 
 
@@ -299,7 +267,7 @@ _LAZY_NAMES = dict.fromkeys(
 # falls back to "0.0.0" for a bare source-tree import (no install); the release
 # workflow stamps the real version at publish time.
 def __getattr__(name: str) -> object:
-    """Resolve ``__version__`` and the lazy codec/serde re-exports on first access."""
+    """Resolve ``__version__`` and the lazy codec re-exports on first access."""
     if name == "__version__":
         from importlib import metadata  # noqa: PLC0415
 
@@ -397,7 +365,6 @@ __all__ = [
     "FromEpoch",
     "FromJSONString",
     "FromPercentage",
-    "FromYAMLString",
     "Hex",
     "HexColor",
     "HexInt",
@@ -512,34 +479,20 @@ __all__ = [
     "UuidInvalid",
     "ValueInvalid",
     "WriteOnce",
-    "YAMLString",
-    "YamlInvalid",
     "__version__",
-    "clear_default_options",
     "create_dataclass_schema",
     "create_typeddict_schema",
     "current_context",
     "default_factory",
-    "default_options",
-    "dump",
-    "dump_json",
-    "dump_toml",
-    "dump_yaml",
     "from_json_schema",
     "from_openapi",
     "get_compile_policy",
     "is_dataclass",
-    "load",
-    "load_json",
-    "load_toml",
-    "load_yaml",
-    "load_yaml_with_locations",
     "message",
     "probatio",
     "raises",
     "serialize",
     "set_compile_policy",
-    "set_default_options",
     "to_json_schema",
     "to_openapi",
     "truth",

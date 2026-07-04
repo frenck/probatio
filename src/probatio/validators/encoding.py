@@ -1,11 +1,9 @@
-"""Validators for encoded strings: Base64/hex, and JSON/YAML.
+"""Validators for encoded strings: Base64/hex, and JSON.
 
-``JSONString``/``YAMLString`` validate that a string is valid JSON or YAML (and
-optionally that the decoded value matches an inner schema) and return the string
-unchanged. ``FromJSONString``/``FromYAMLString`` are the decoding siblings: they parse
-the string and return the decoded value. YAML is parsed with the same safe loader as
-``load_yaml`` (no arbitrary object construction), and both YAML validators need a YAML
-backend installed (``probatio[yaml]``), checked when the schema is built.
+``JSONString`` validates that a string is valid JSON (and optionally that the decoded
+value matches an inner schema) and returns the string unchanged. ``FromJSONString`` is
+the decoding sibling: it parses the string with the standard library's ``json`` and
+returns the decoded value.
 """
 
 from __future__ import annotations
@@ -18,9 +16,7 @@ import typing
 from probatio.error import (
     CoerceInvalid,
     JsonInvalid,
-    SchemaError,
     ValueInvalid,
-    YamlInvalid,
 )
 from probatio.schema import compile_schema
 from probatio.validators._base import _SafeValidator
@@ -155,64 +151,5 @@ class JSONString(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if it is valid JSON, else raise JsonInvalid."""
-        self._decode(value)
-        return value
-
-
-class FromYAMLString(_SafeValidator):
-    """Parse a YAML string (safely), optionally validating the decoded value.
-
-    With an inner ``schema``, the decoded value is validated against it; without
-    one, the decoded value is returned as-is. A value that is not a YAML string,
-    or not valid YAML, raises ``YamlInvalid``. Building the validator raises
-    ``SchemaError`` when no YAML backend is installed. ``YAMLString`` is the
-    validate-only sibling that checks the same and returns the original string.
-    """
-
-    def __init__(self, schema: typing.Any = None, msg: str | None = None) -> None:
-        """Compile the optional inner schema; require a YAML backend up front."""
-        from probatio.serde import _optional  # noqa: PLC0415
-
-        if _optional.yamlrocks is None and _optional.pyyaml is None:
-            # ``YAMLString`` builds a ``FromYAMLString`` to validate, so keep this
-            # message validator-agnostic rather than naming one of them.
-            message = "a YAML validator needs a YAML parser; install probatio[yaml]"
-            raise SchemaError(message)
-        self._validate = None if schema is None else compile_schema(schema)
-        self.msg = msg
-
-    def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the decoded (and validated) value, else raise YamlInvalid."""
-        from probatio.serde import load_yaml  # noqa: PLC0415
-
-        if not isinstance(value, str | bytes):
-            raise YamlInvalid(self.msg, translation_key="expected_yaml_string")
-
-        try:
-            decoded = load_yaml(value)
-        except Exception as exc:
-            # A YAML backend raises its own parse-error type (YAMLRocks, PyYAML);
-            # normalize any of them, plus deep-nesting recursion, to YamlInvalid.
-            raise YamlInvalid(self.msg, translation_key="invalid_yaml") from exc
-
-        return self._validate(decoded) if self._validate is not None else decoded
-
-
-class YAMLString(_SafeValidator):
-    """Validate a YAML string, returning it unchanged.
-
-    Checks the value is valid YAML, and with an inner ``schema`` that the decoded value
-    matches it; the original string is returned either way. Building the validator
-    raises ``SchemaError`` when no YAML backend is installed. Use ``FromYAMLString``
-    when you want the decoded value instead.
-    """
-
-    def __init__(self, schema: typing.Any = None, msg: str | None = None) -> None:
-        """Build the decoding sibling used to validate, and store a message."""
-        self._decode = FromYAMLString(schema, msg=msg)
-        self.msg = msg
-
-    def __call__(self, value: typing.Any) -> typing.Any:
-        """Return the value if it is valid YAML, else raise YamlInvalid."""
         self._decode(value)
         return value

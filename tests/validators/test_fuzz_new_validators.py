@@ -79,7 +79,6 @@ from probatio import (
     TimeZone,
     TimeZoneInfo,
     Url,
-    YAMLString,
 )
 
 # One instance of every probatio-only validator.
@@ -108,7 +107,6 @@ _VALIDATORS = (
     SmallFloat(),
     IsRegex(),
     JSONString(),
-    YAMLString(),
     IsSymlink(),
     IsSocket(),
     IsFifo(),
@@ -156,7 +154,7 @@ _SCHEMAS = [Schema(v) for v in (*_VALIDATORS, *_SHARED_LEAF_VALIDATORS)]
 _IDEMPOTENT_SCHEMAS = [
     Schema(validator)
     for validator in _VALIDATORS
-    if not isinstance(validator, JSONString | YAMLString)
+    if not isinstance(validator, JSONString)
 ]
 
 # Hostile scalars that have tripped real leaks: NaN/infinity (float and Decimal),

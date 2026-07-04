@@ -48,12 +48,11 @@ def _format_candidates(names: list[str]) -> str:
 class Location:
     """A source location for a value: its line, column, and file when known.
 
-    Produced by a *locator* (for example the YAMLRocks-backed one from
-    ``load_yaml_with_locations``) that maps an error's ``path`` back to where the
-    offending value sits in the source. ``humanize_error`` appends ``str(...)`` of
-    it; programmatic callers read the fields directly. Line and column are
-    1-indexed; ``file`` is the source file (the included file, through nested
-    ``!include`` layers) or ``None`` when the source was not a file.
+    Produced by a *locator*: a callable you supply that maps an error's ``path``
+    back to where the offending value sits in the source (a location-aware loader
+    is the usual source). ``humanize_error`` appends ``str(...)`` of it;
+    programmatic callers read the fields directly. Line and column are 1-indexed;
+    ``file`` is the source file or ``None`` when the source was not a file.
     """
 
     line: int
@@ -831,9 +830,3 @@ class JsonInvalid(Invalid):
     """The value is not a valid JSON string."""
 
     default_code = "json"
-
-
-class YamlInvalid(Invalid):
-    """The value is not a valid YAML string."""
-
-    default_code = "yaml"

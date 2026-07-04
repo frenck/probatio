@@ -752,34 +752,6 @@ class Schema:
 
         return result
 
-    # The serde loaders are imported lazily inside these convenience methods, so
-    # the validation engine does not pull in the I/O layer (and its optional-backend
-    # probing) just by being imported.
-
-    def load_json(self, source: Any) -> Any:
-        """Parse JSON from ``source`` and validate it against this schema."""
-        from probatio.serde import load_json  # noqa: PLC0415
-
-        return self(load_json(source))
-
-    def load_yaml(self, source: Any) -> Any:
-        """Parse YAML from ``source`` and validate it against this schema."""
-        from probatio.serde import load_yaml  # noqa: PLC0415
-
-        return self(load_yaml(source))
-
-    def load_toml(self, source: Any) -> Any:
-        """Parse TOML from ``source`` and validate it against this schema."""
-        from probatio.serde import load_toml  # noqa: PLC0415
-
-        return self(load_toml(source))
-
-    def load(self, source: Any, format: str | None = None) -> Any:  # noqa: A002
-        """Parse ``source`` (format auto-detected from a path) and validate it."""
-        from probatio.serde import load  # noqa: PLC0415
-
-        return self(load(source, format))
-
     def _compile(self, schema: Any) -> CompiledSchema:  # noqa: PLR0911
         """Dispatch a schema node to the right compiler for its kind."""
         if schema is Self:

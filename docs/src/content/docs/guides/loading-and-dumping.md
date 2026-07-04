@@ -1,261 +1,166 @@
 ---
 title: Loading and dumping
-description: Parse JSON, YAML, and TOML into Python, validate it, and write it back out.
+description: Parse JSON, YAML, or TOML with your own library, then validate the result with Probatio.
 ---
 
 Validation works on Python values, but data arrives as text: a JSON request
-body, a YAML config file, a TOML manifest. This page covers the loaders that
-parse all three into Python, the dumpers that write them back out, and the best
-part, [source locations](#source-locations): load YAML with locations and a
-validation error can point at the exact line and column in the file, like
-`Got 70000 (at 2:9)`. voluptuous has none of this: no loaders, no dumpers, no
-source locations. Every function here is exported from the top level.
+body, a YAML config file, a TOML manifest. Probatio does not parse any of it.
+It validates the parsed object, and parsing (and serializing back out) stays
+with you, using whatever library you already trust for the format. That keeps a
+whole class of parser bugs and dependencies out of the library, and it means you
+are never surprised by which parser happens to be installed.
+
+This is the same split voluptuous, pydantic (`model_validate`), marshmallow, and
+cattrs draw: the validator takes an object, you own the bytes. The examples here
+use [orjson](https://github.com/ijl/orjson) and
+[YAMLRocks](https://pypi.org/project/yamlrocks/) as fast, concrete choices, but
+nothing about Probatio ties you to them.
 
 ## Loading
 
-The loaders parse text into Python values. There is one per format, plus a
-unified entry point:
-
-- `load_json(source)`, `load_yaml(source)`, `load_toml(source)`: parse a known
-  format.
-- `load(source, format=None)`: dispatch on `format`, or auto-detect it from a
-  path extension when `format` is omitted.
-
-A `source` is the content itself (a string or bytes), a `pathlib.Path` read from
-disk, or a file-like object.
+Parse the text yourself, then hand the result to a schema. JSON parses with the
+standard library, so the two-liner works on a bare install:
 
 ```python
-from probatio import load_json
-
-load_json('{"port": 8080}')  # {'port': 8080}
-```
-
-Parsing alone does not validate. A parsed value is whatever the text said, so
-run it through a schema:
-
-```python
-from probatio import Schema, Required, load_json
-
-schema = Schema({Required("port"): int})
-schema(load_json('{"port": 8080}'))  # {'port': 8080}
-```
-
-That two-step is common enough that `Schema` has convenience methods to parse and
-validate in one call: `schema.load_json(source)`, `schema.load_yaml(source)`,
-`schema.load_toml(source)`, and `schema.load(source, format=None)`. Same result,
-one step:
-
-```python
+import json
 from probatio import Schema, Required
 
 schema = Schema({Required("port"): int})
-schema.load_json('{"port": 8080}')  # {'port': 8080}
+schema(json.loads('{"port": 8080}'))  # {'port': 8080}
 ```
 
-The convenience methods take no `options`; when you need to tune the backend
-(see [Backend options](#backend-options)), parse with the module function and
-validate the result yourself.
+Swapping in a faster parser is a one-import change; the schema call is identical.
+With orjson:
 
-`load` infers the format from a path extension. Write a file, then read it back
-without naming the format:
+<!-- verify: skip -->
 
 ```python
-from pathlib import Path
-from probatio import load
+import orjson
+from probatio import Schema, Required
 
-Path("config.json").write_text('{"port": 8080}')
-load(Path("config.json"))  # {'port': 8080}
+schema = Schema({Required("port"): int})
+schema(orjson.loads('{"port": 8080}'))  # {'port': 8080}
+```
+
+YAML has no standard-library parser. Reach for YAMLRocks (fast, YAML 1.2, and
+bomb-resistant) or PyYAML, and always use a safe load for untrusted input:
+
+<!-- verify: skip -->
+
+```python
+import yamlrocks
+from probatio import Schema, Required
+
+schema = Schema({Required("port"): int})
+schema(yamlrocks.loads("port: 8080"))  # {'port': 8080}
+```
+
+TOML reads with the standard library's `tomllib` (Python 3.11 and newer):
+
+```python
+import tomllib
+from probatio import Schema, Required
+
+schema = Schema({Required("port"): int})
+schema(tomllib.loads("port = 8080"))  # {'port': 8080}
 ```
 
 :::caution[Untrusted YAML]
-`load_yaml` never uses an unsafe YAML loader. The input is untrusted by default,
-so it sticks to a safe load that builds plain Python values, not arbitrary
-objects; if you were relying on YAML constructing custom types for you, it will
-not. A safe load still expands YAML aliases, though, so a small document full of
-anchors that reference each other (the billion-laughs pattern) can blow up to
-gigabytes of logical nodes. The backend decides whether that is contained.
-YAMLRocks (the `probatio[fast]` backend) counts the expanded nodes and refuses a
-document that blows up, so it is bomb-resistant. The PyYAML fallback is not: it
-shares the alias references, so the document parses cheaply and the cost lands
-later, when the structure is walked during validation. Prefer the fast backend
-for genuinely untrusted YAML, and bound the input size when you are on the
-PyYAML fallback.
+Use a safe loader for YAML you did not write. PyYAML's `yaml.load` builds
+arbitrary Python objects from tags in the document; `yaml.safe_load` does not, so
+a hostile payload cannot instantiate classes or run constructors. A safe load
+still expands aliases, so a small document full of anchors that reference each
+other (the billion-laughs pattern) can blow up to gigabytes of logical nodes.
+YAMLRocks counts the expanded nodes and refuses a document that blows up; PyYAML
+does not, so bound the input size when you rely on it.
+:::
+
+:::caution[YAML spec versions differ]
+YAMLRocks implements YAML 1.2; PyYAML implements YAML 1.1. They parse a few inputs
+differently. Under 1.1, the bare words `yes`, `no`, `on`, and `off` are booleans,
+a leading-zero number like `0755` is octal, and `12:30` is a sexagesimal number;
+under 1.2 all of these are plain strings or decimals. Quote these values in your
+YAML (`"yes"`, `"0755"`) when the distinction matters, and validate with an
+explicit type so the schema, not the parser, decides.
 :::
 
 ## Dumping
 
-The dumpers go the other way, serializing a value to text. The same shape: one
-per format, plus a unified entry point.
+Serialization is the mirror image: validate first, then serialize the validated
+value with your own library. There is a catch worth stating plainly. A validated
+value often carries types the text format has no native form for, like a
+`datetime`, a `Decimal`, or a `set`. Turning those back into text is a decision
+only you can make (an ISO string? a Unix timestamp? which format?), so it is your
+`default` hook, not Probatio's job.
 
-- `dump_json(value)`, `dump_yaml(value)`, `dump_toml(value)`: serialize to a
-  known format.
-- `dump(value, format)`: dispatch on `format` (`"json"`, `"yaml"`, or `"toml"`).
-
-```python
-from probatio import dump_json, load_json
-
-text = dump_json({"port": 8080})
-load_json(text)  # {'port': 8080}
-```
-
-Before handing a value to the backend, the dumpers normalize the few non-native
-types a validated value commonly carries:
-
-- `Decimal` becomes a float.
-- `set`, `frozenset`, and `tuple` become a list.
-- The temporal types are format-aware. TOML has native `datetime`, `date`, and
-  `time`, so those pass through and round-trip as the same type; JSON and YAML
-  have no temporal types, so they become ISO 8601 strings.
-- A non-finite float (`nan`, `inf`) is refused for JSON with a clear error
-  rather than silently corrupted (the fast backend would turn it into `null`,
-  the standard library into an invalid token). YAML and TOML keep non-finite
-  floats, since both can represent them.
-- The normalization is one-way: a `set`, `frozenset`, or `tuple` dumps as a
-  list and loads back as a list, not as the original type.
-
-This is a convenience for round-tripping validated data, not a general
-serialization framework. For a type the dumpers do not know, every dumper takes
-a `default` hook: a callable that receives the unhandled value and returns one
-the format can carry (the result is normalized again, so it can itself be a
-container). For more than that, reach for a dedicated serializer.
+The standard library's `json.dumps` takes a `default` callable for exactly this:
 
 ```python
-from probatio import dump_json, load_json
+import json
+from datetime import date
+from decimal import Decimal
 
-class Color:
-    def __init__(self, name):
-        self.name = name
+def to_jsonable(value):
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    raise TypeError(type(value).__name__)
 
-text = dump_json({"accent": Color("teal")}, default=lambda color: color.name)
-load_json(text)  # {'accent': 'teal'}
+json.dumps({"when": date(2020, 1, 1)}, default=to_jsonable)  # '{"when": "2020-01-01"}'
 ```
 
-:::note
-The output does not depend on which backend is installed. The JSON text is the
-same with or without orjson (the standard-library path uses the same compact
-separators), and a value orjson cannot handle, like an integer beyond 64 bits or a
-non-string key, falls back to the standard library rather than failing. The
-examples here still round-trip through `load_json` rather than pinning the string,
-since that is what you actually care about.
-:::
+orjson takes the same `default` argument and handles `datetime` natively, so the
+hook only covers what it does not know:
 
-## Backends
-
-Probatio uses a fast backend when one is installed and falls back to the standard
-library otherwise. JSON read and write and TOML read work on the standard library
-alone; YAML (read and write) and TOML write need an optional extra. The backends
-are detected once at import time:
-
-- JSON: [orjson](https://github.com/ijl/orjson) when present, otherwise the
-  standard library's `json`.
-- YAML: [YAMLRocks](https://pypi.org/project/yamlrocks/) when present, then
-  PyYAML's safe loader and dumper. YAML is not a hard dependency. Install the
-  `probatio[yaml]` or `probatio[fast]` extra to get a parser.
-- TOML: reading uses the standard library's `tomllib`, always available on the
-  supported Python versions. Writing needs `tomli-w` (the `probatio[toml]`
-  extra), since the standard library does not write TOML.
-
-On a parse error, each loader raises the backend's own exception, not a single
-probatio type: orjson raises `orjson.JSONDecodeError` (a subclass of the standard
-library's `json.JSONDecodeError`), the standard library raises
-`json.JSONDecodeError`, YAMLRocks and PyYAML raise their own parse errors, and
-`load_toml` raises `tomllib.TOMLDecodeError`. Catch `ValueError` to cover the JSON
-and TOML cases across backends; for YAML, catch the parser's error type.
-
-:::caution[YAML backends follow different spec versions]
-YAMLRocks implements YAML 1.2; PyYAML implements YAML 1.1. They parse a few inputs
-differently. Under 1.1, the bare words `yes`, `no`, `on`, and `off` are booleans,
-a leading-zero number like `0755` is octal, and `12:30` is a sexagesimal number;
-under 1.2 all of these are plain strings or decimals. So the parsed type of such a
-value can depend on which backend is installed. Quote these values in your YAML
-(`"yes"`, `"0755"`) when the distinction matters, and validate with an explicit
-type so the schema, not the parser, decides.
-:::
-
-You do not select a backend. The fast one is used automatically when installed,
-and the result is the same value either way:
+<!-- verify: skip -->
 
 ```python
-from probatio import dump, load_json
+import orjson
+from decimal import Decimal
 
-text = dump({"port": 8080}, "json")
-load_json(text)  # {'port': 8080}
+def to_jsonable(value):
+    if isinstance(value, (set, frozenset)):
+        return sorted(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    raise TypeError(type(value).__name__)
+
+orjson.dumps({"scale": Decimal("1.5")}, default=to_jsonable)  # b'{"scale":1.5}'
 ```
 
-:::tip
-Install the `probatio[fast]` extra in production for the orjson and YAMLRocks
-speedups, and leave it out where a pure standard-library footprint matters. Your
-code does not change; only the backend does.
-:::
-
-## Backend options
-
-Every loader and dumper takes an optional `options` mapping that is forwarded to
-the active backend. Without it, the backend stays invisible (consistent output
-either way). With it, you tune the backend directly, so the call becomes specific
-to whichever backend is installed.
-
-The clearest case is the YAML spec version. YAMLRocks parses YAML 1.2 by default,
-where `yes` is a plain string; switch it to 1.1 and `yes` becomes a boolean:
-
-```python
-import yamlrocks
-from probatio import load_yaml
-
-load_yaml("flag: yes")["flag"]  # 'yes'
-load_yaml("flag: yes", options={"option": yamlrocks.OPT_YAML_1_1})["flag"]  # True
-```
-
-The same `options` reaches `dump_*` (for example `orjson.OPT_INDENT_2` to
-pretty-print JSON) and the other formats (`parse_float` for TOML, `sort_keys` for
-PyYAML). Since options are backend-specific, passing them couples the call to the
-backend you have, which is the trade for the extra control.
-
-### Setting defaults
-
-Passing the same options on every call gets old. Two layers sit beneath a call's
-own `options`. A process-wide default, set once (at your application's entry
-point), applies to every later call for that format:
-
-```python
-import yamlrocks
-from probatio import load_yaml, set_default_options, clear_default_options
-
-set_default_options("yaml", load={"option": yamlrocks.OPT_YAML_1_1})
-load_yaml("flag: yes")["flag"]  # True
-clear_default_options()         # reset (so the rest of this page is unaffected)
-```
-
-A scoped override applies only inside a `with` block and never leaks to other code
-(it is async- and thread-safe), so reusable libraries should prefer it over
-mutating the global:
-
-```python
-import yamlrocks
-from probatio import load_yaml, default_options
-
-with default_options("yaml", load={"option": yamlrocks.OPT_YAML_1_1}):
-    inside = load_yaml("flag: yes")["flag"]
-inside  # True
-```
-
-A call's own `options` win over a scoped default, which wins over the process-wide
-one. Set the global only where you own the whole process (an application, not a
-library that others import).
+This is deliberately not a framework. Probatio's transforms run one way: `AsDate`
+turns a string into a `date` on the way in, and it does not turn a `date` back
+into the string it came from. If you need a faithful round-trip (a value dumped
+in the same shape it was loaded), that is a bidirectional serializer's job, like
+marshmallow, cattrs, or pydantic. Probatio validates; it does not serialize.
 
 ## Source locations
 
 When a config fails validation, the useful question is _where in the file_.
-`load_yaml_with_locations` answers it: it returns `(data, locator)`, where the
-locator maps a validation error's `path` back to the source position. Hand the
-locator to `humanize_error` and each failure gains the place it points at.
+Probatio's `humanize_error` accepts a `locator`: a callable you supply that maps
+an error's `path` to a `Location` (`line`, `column`, and `file`), so each failure
+line gains the place it points at, like `Got 70000 (at 2:9)`.
+
+Building the locator needs a parser that records source positions. YAMLRocks
+(0.5.0 and newer) carries them, so you can walk the located tree it returns and
+resolve an error `path` to a position:
+
+<!-- verify: skip -->
 
 ```python
-from probatio import Schema, Required, Range, MultipleInvalid, load_yaml_with_locations
+from probatio import Schema, Required, Range, MultipleInvalid
+from probatio.error import Location
 from probatio.humanize import humanize_error
 
-data, locator = load_yaml_with_locations("server:\n  port: 70000\n")
 schema = Schema({Required("server"): {Required("port"): Range(min=1, max=65535)}})
+data, positions = load_yaml_with_positions("server:\n  port: 70000\n")  # your loader
+
+def locator(path):
+    node = positions_at(positions, path)  # your lookup into the located tree
+    return Location(node.line, node.column) if node else None
 
 try:
     schema(data)
@@ -264,14 +169,6 @@ except MultipleInvalid as err:
 # value must be at most 65535 at 'server.port'. Got 70000 (at 2:9)
 ```
 
-The locator returns a `Location` (with `line`, `column`, and `file`) that programs
-can read directly, or that renders as `file:line:column`. It points at the exact
-value, scalar leaves included. A `Path` source fills in the `file`, following
-nested `!include` layers to the source that holds the value. A path that is not in
-the document yields `None`.
-
-:::note
-Source locations need the YAMLRocks backend, version 0.5.0 or newer, which carries
-the positions (install `probatio[fast]`). The plain `load_yaml` works on any
-backend; only the located variant needs it.
-:::
+`Location` is exported from `probatio` (it lives in `probatio.error`). It renders
+as `file:line:column`, or programs can read its fields directly. Return `None`
+from the locator for a path you cannot place.

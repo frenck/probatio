@@ -4,8 +4,9 @@ description: Define a schema for an app config, then load and validate a file en
 ---
 
 A config file is just data on disk. You parse it, then check it against a schema.
-Probatio does both in one step: `schema.load(path)` parses the file and validates
-the result. This recipe walks the whole path, from schema to a friendly error.
+Probatio validates the parsed result: you own the parsing, with whatever library
+fits the format, and hand the object to the schema. This recipe walks the whole
+path, from schema to a friendly error.
 
 ## Define the schema
 
@@ -55,12 +56,11 @@ _ = Path("config.json").write_text(json.dumps(config, indent=2))
 
 ## Load and validate
 
-Pass a `Path` to `schema.load`. It reads the file, detects the format from the
-`.json` extension, parses it, and validates the result against the schema in one
-call:
+Read the file, parse it, then validate the parsed object. JSON parses with the
+standard library's `json`, so this works on a bare install:
 
 ```python
-result = schema.load(Path("config.json"))
+result = schema(json.loads(Path("config.json").read_text()))
 print(result)
 # {'name': 'my-app', 'server': {'host': 'localhost', 'port': 9000}, 'log_level': 'info'}
 ```
@@ -69,22 +69,17 @@ Two things normalized on the way through. The port string `"9000"` became the in
 `9000`, and the missing `log_level` was filled with its default `"info"`. The
 result is a fresh dict; your file is untouched.
 
-:::note
-`schema.load` auto-detects the format from a path extension. If you already know
-it, the explicit loaders are there: `schema.load_json`, `schema.load_yaml`, and
-`schema.load_toml`. YAML needs a parser installed (`probatio[yaml]`); JSON and
-TOML use the standard library.
-:::
-
-A YAML file reads the same way, when a YAML parser is installed:
+A YAML file works the same way: parse it with a YAML library (use a safe loader),
+then validate the result.
 
 <!-- verify: skip -->
 
 ```python
 from pathlib import Path
 
-result = schema.load(Path("config.yaml"))  # auto-detects YAML
-result = schema.load_yaml(Path("config.yaml"))  # or be explicit
+import yaml  # PyYAML
+
+result = schema(yaml.safe_load(Path("config.yaml").read_text()))
 ```
 
 ## Handle a bad config
@@ -103,7 +98,7 @@ bad = {"name": "my-app", "server": {"host": "localhost", "port": "70000"}}
 Path("bad.json").write_text(json.dumps(bad))
 
 try:
-    schema.load(Path("bad.json"))
+    schema(json.loads(Path("bad.json").read_text()))
 except Invalid as err:
     print(humanize_error(bad, err))
     # value must be at most 65535 at 'server.port'. Got '70000'

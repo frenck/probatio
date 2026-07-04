@@ -75,37 +75,6 @@ except Invalid as err:           # catches MultipleInvalid too
 To branch on a specific kind of failure (like `RangeInvalid`), inspect
 `err.errors[0]`, not the `MultipleInvalid` itself.
 
-## `RuntimeError: no YAML parser/dumper available`
-
-YAML is not in the Python standard library, so `load_yaml` and `dump_yaml` need a
-backend (the exact message is "no YAML parser available" when reading, "no YAML
-dumper available" when writing). Install one:
-
-```bash
-pip install "probatio[yaml]"   # PyYAML
-pip install "probatio[fast]"   # YAMLRocks, also speeds up JSON
-```
-
-The same applies to TOML _writing_: `dump_toml` needs `probatio[toml]` (`tomli-w`).
-Reading TOML works on the standard library, and JSON read and write always work.
-
-## `schema.load("...")` treats my string as content, not a path
-
-`load` and the `load_*` methods read their argument as the data itself when it is
-a string or bytes. To load a file, pass a `pathlib.Path` (or an open file). The
-format auto-detection in `load` comes from the path suffix, so it needs a path:
-
-```python
-from pathlib import Path
-from probatio import Schema
-
-schema = Schema({"name": str})
-config = Path("/tmp/probatio-example.json")
-config.write_text('{"name": "app"}')
-
-schema.load(config)  # {'name': 'app'}
-```
-
 ## `SchemaError` from a wrapped `Self`
 
 `Self` works as a direct mapping value or list element, and as a branch of a

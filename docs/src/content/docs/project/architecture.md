@@ -137,15 +137,6 @@ backtracking `pattern` and a pathologically deep document, so a hostile schema
 cannot hang the process or overflow the stack. That guard lives in
 `codecs/_regex_safety.py`.
 
-### The serde loaders and dumpers
-
-`serde/` reads and writes JSON, YAML, and TOML. It uses a fast backend when one
-is installed (such as orjson) and falls back to the standard library where the
-standard library can do the job: JSON read and write and TOML read work bare,
-while YAML and TOML write need an optional backend. The `Schema.load_*`
-convenience methods parse and validate in one step on top of
-this layer.
-
 ### The voluptuous compatibility shim
 
 `compat/` is the thin top layer that backs the drop-in promise. It exposes the

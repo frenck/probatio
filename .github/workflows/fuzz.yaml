@@ -39,7 +39,6 @@ jobs:
         harness:
           - fuzz_schema
           - fuzz_from_json_schema
-          - fuzz_serde
           - fuzz_is_catastrophic
     steps:
       - name: ⤵️ Check out code from GitHub

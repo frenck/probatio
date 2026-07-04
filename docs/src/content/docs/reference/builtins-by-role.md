@@ -125,7 +125,6 @@ Check a value and return it unchanged.
 | `Hex`            | Hexadecimal; checks, does not decode.                                                       |
 | `Base64`         | Base64; checks, does not decode.                                                            |
 | `JSONString`     | A JSON string; value via `FromJSONString`.                                                  |
-| `YAMLString`     | A YAML string; value via `FromYAMLString`.                                                  |
 | `ULID`           | A ULID; compose `Upper` for canonical case.                                                 |
 | `DataURI`        | A `data:` URI.                                                                              |
 | `Datetime`       | A datetime string; string in, string out.                                                   |
@@ -211,7 +210,6 @@ The type changes.
 | `FromPercentage` | `"80%"` to a `float`.                     |
 | `HexInt`         | A hex string to an `int`.                 |
 | `FromJSONString` | A JSON string to the decoded value.       |
-| `FromYAMLString` | A YAML string to the decoded value.       |
 | `DefaultTo`      | `None` to a default (substitution).       |
 | `SetTo`          | Anything to a fixed value (substitution). |
 

@@ -28,10 +28,9 @@ mentions it and keeps the plain `validator(value)` shape.
   so existing validators and the voluptuous drop-in promise are untouched. The
   context arrives out of band through the accessor, not as a second argument that
   every nested validator would have to forward.
-- A `ContextVar` is the correct primitive, and one we already use (the serde
-  options in `serde/_config.py`). It is async- and thread-safe, and it makes the
-  context visible to deeply nested validators without threading it through every
-  intermediate call by hand. A thread-local would mishandle asyncio.
+- A `ContextVar` is the correct primitive. It is async- and thread-safe, and it
+  makes the context visible to deeply nested validators without threading it
+  through every intermediate call by hand. A thread-local would mishandle asyncio.
 - It turns a per-call rebuild into a reuse. One compiled schema serves many calls
   with different state, which is the whole point of compiling a schema once.
 
