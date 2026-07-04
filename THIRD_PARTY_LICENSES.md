@@ -8,7 +8,7 @@ claim is verifiable from the published artifact, not just asserted.
 
 Probatio validates parsed Python objects; parsing and serialization stay with
 the caller. Any JSON, YAML, or TOML library you pair with it is installed by you
-and ships under its own license, not with probatio.
+and ships under its own license, not with Probatio.
 
 Development and test tooling (pytest, ruff, mypy, ty, and voluptuous as a
 test-only conformance oracle) is not distributed with the package.

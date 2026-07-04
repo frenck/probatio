@@ -75,6 +75,8 @@ then validate the result.
 <!-- verify: skip -->
 
 ```python
+from pathlib import Path
+
 import yaml  # PyYAML
 
 result = schema(yaml.safe_load(Path("config.yaml").read_text()))
