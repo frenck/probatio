@@ -147,10 +147,11 @@ def test_length_bounds() -> None:
         Schema(Length(max=2))("abc")
 
 
-def test_length_with_a_non_numeric_bound_is_invalid_not_a_leak() -> None:
-    """A non-numeric bound makes the comparison fail cleanly, like Range, not leak."""
+@pytest.mark.parametrize("bound", ["x", Decimal("NaN")])
+def test_length_with_a_bad_bound_is_invalid_not_a_leak(bound: object) -> None:
+    """A bad bound (a str TypeError, a Decimal NaN ArithmeticError) is clean, not a leak."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(Length(min="x"))("abc")
+        Schema(Length(min=bound))("abc")
     assert isinstance(caught.value.errors[0], LengthInvalid)
 
 

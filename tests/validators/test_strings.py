@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from probatio import (
@@ -279,10 +281,11 @@ def test_byte_length() -> None:
         Schema(ByteLength(min=1))(123)
 
 
-def test_byte_length_with_a_non_numeric_bound_is_invalid_not_a_leak() -> None:
-    """A non-numeric bound makes the comparison fail cleanly, like Range, not leak."""
+@pytest.mark.parametrize("bound", ["x", Decimal("NaN")])
+def test_byte_length_with_a_bad_bound_is_invalid_not_a_leak(bound: object) -> None:
+    """A bad bound (a str TypeError, a Decimal NaN ArithmeticError) is clean, not a leak."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(ByteLength(min="x"))("abc")
+        Schema(ByteLength(min=bound))("abc")
     assert isinstance(caught.value.errors[0], LengthInvalid)
 
 
