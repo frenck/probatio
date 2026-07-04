@@ -76,6 +76,19 @@ def test_namedtuple_schema_accepts_a_plain_tuple() -> None:
     assert isinstance(rebuilt, point)
 
 
+def test_list_subclass_that_cannot_rebuild_falls_back_to_a_plain_list() -> None:
+    """A list subclass with a non-(iterable) constructor rebuilds to a plain list, not a leak."""
+
+    class TaggedList(list):
+        def __init__(self, items: object, tag: object) -> None:
+            super().__init__(items)  # type: ignore[arg-type]
+            self.tag = tag
+
+    result = Schema([int])(TaggedList([1, 2], "x"))
+    assert result == [1, 2]
+    assert type(result) is list
+
+
 def test_set_schema_keeps_the_set_type() -> None:
     """A set schema validates a set and returns a set."""
     result = Schema({int})({1, 2, 3})

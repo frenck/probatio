@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from typing import Self
 
 import pytest
 
@@ -52,6 +53,29 @@ def test_exact_sequence_rebuilds_a_namedtuple() -> None:
 
     assert result == point(1, 2)
     assert isinstance(result, point)
+
+
+def test_exact_sequence_falls_back_when_a_subclass_cannot_rebuild() -> None:
+    """A list/tuple subclass with a non-(iterable) constructor rebuilds to the base type."""
+
+    class TaggedList(list):
+        def __init__(self, items: object, tag: object) -> None:
+            super().__init__(items)  # type: ignore[arg-type]
+            self.tag = tag
+
+    class Pair(tuple):
+        __slots__ = ()
+
+        def __new__(cls, a: object, b: object) -> Self:
+            return super().__new__(cls, (a, b))
+
+    from_list = Schema(ExactSequence([int]))(TaggedList([1], "x"))
+    assert from_list == [1]
+    assert type(from_list) is list
+
+    from_tuple = Schema(ExactSequence([int, int]))(Pair(1, 2))
+    assert from_tuple == (1, 2)
+    assert type(from_tuple) is tuple
 
 
 def test_exact_sequence_item_error_has_index() -> None:

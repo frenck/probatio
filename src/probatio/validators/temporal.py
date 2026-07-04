@@ -368,11 +368,21 @@ class AsTimedelta(_SafeValidator):
             return sign * self._seconds(text)
 
         parts = text.split(":")
-        if len(parts) not in _DURATION_PARTS or not all(p.isdigit() for p in parts):
+        # ``isdecimal`` matches exactly what ``int`` accepts; ``isdigit`` is broader
+        # (it admits superscripts like ``²`` that ``int`` then rejects). A part of
+        # decimal digits can still overflow ``int``'s string-length limit on a
+        # pathologically long string, so the conversion is guarded too, keeping the
+        # parser from leaking a ``ValueError`` on either shape.
+        if len(parts) not in _DURATION_PARTS or not all(p.isdecimal() for p in parts):
             raise DurationInvalid(
                 self.msg, translation_key="expected_duration_detailed"
             )
-        hours, minutes, *rest = (int(part) for part in parts)
+        try:
+            hours, minutes, *rest = (int(part) for part in parts)
+        except ValueError as exc:
+            raise DurationInvalid(
+                self.msg, translation_key="expected_duration_detailed"
+            ) from exc
         seconds = rest[0] if rest else 0
 
         # In clock-style input, minutes and seconds stay in their usual range.
