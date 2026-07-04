@@ -1,9 +1,12 @@
-"""Tests for to_openapi(): the voluptuous-openapi convert() shape.
+"""Tests for to_openapi(): the OpenAPI Schema object shape.
 
-These are differential: the same schema is built in both libraries, converted by
-each (in both OpenAPI 3.0 and 3.1 modes), and the output compared. to_openapi must
-match voluptuous-openapi so LLM tool calling and MCP consumers work on probatio
-schemas unchanged.
+Most cases are differential: the same schema is built in both libraries, converted
+by each (in both OpenAPI 3.0 and 3.1 modes), and the output compared, so probatio
+stays a drop-in for voluptuous-openapi where the oracle is correct. Where probatio
+deliberately emits correct OpenAPI the oracle gets wrong (an ``anyOf`` with an open
+or nullable branch, the widened constraint validators), the expected output is
+asserted directly instead, and ``test_openapi_oracle.py`` covers it property-based
+against the ``openapi-schema-validator`` reference implementation.
 """
 
 from __future__ import annotations
@@ -136,7 +139,16 @@ def build(lib: Any) -> dict[str, Any]:
     }
 
 
-_CASES = list(build(voluptuous))
+# These cases render correct OpenAPI that voluptuous-openapi gets wrong, so a
+# comparison against the oracle is meaningless: an ``Any`` with an open-object
+# branch keeps that branch (the oracle collapses the whole ``anyOf`` to the open
+# object) and a nullable ``Any`` admits null with a dedicated branch (the oracle
+# emits an inert top-level ``nullable``). They are asserted directly below, and
+# the behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
+_DIVERGING = frozenset(
+    {"any_three", "any_open", "any_open_nullable", "any_nested_nullable"},
+)
+_CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
 
 
 @pytest.mark.parametrize("version", ["3.0", "3.1.0"])
@@ -152,6 +164,41 @@ def test_matches_voluptuous_openapi(case: str, version: str) -> None:
     # ``to_openapi`` renders a closed mapping's ``additionalProperties`` and a
     # null enum member more correctly than the oracle; compare the rest.
     assert canonical_openapi(actual) == canonical_openapi(expected)
+
+
+def test_any_with_null_branch_admits_null_directly() -> None:
+    """Any(int, str, None) renders a dedicated null branch, not an inert nullable.
+
+    voluptuous-openapi hangs the null on a top-level ``nullable``, which an ``anyOf``
+    ignores (each branch decides its own nullability). probatio adds a branch that
+    actually accepts null: ``type: null`` on 3.1, the nullable-object idiom on 3.0.
+    """
+    schema = Schema(probatio.Any(int, str, None))
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}, {"type": "null"}],
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "string"},
+            {"type": "object", "nullable": True, "description": "Must be null"},
+        ],
+    }
+
+
+def test_any_with_open_object_keeps_all_branches() -> None:
+    """Any(dict, int) keeps both branches instead of collapsing to the open object.
+
+    voluptuous-openapi short-circuits the whole ``anyOf`` to the open object as soon
+    as one branch is open, dropping the ``int`` branch. probatio keeps every branch,
+    so the ``anyOf`` still documents the alternatives.
+    """
+    assert to_openapi(Schema(probatio.Any(dict, int))) == {
+        "anyOf": [
+            {"type": "object", "additionalProperties": True},
+            {"type": "integer"},
+        ],
+    }
 
 
 def test_unrecognized_value_is_open() -> None:
@@ -496,3 +543,78 @@ def test_array_length_retargets_max_only() -> None:
     result = to_openapi(Schema(All([int], Length(max=5))))
     assert result["maxItems"] == 5
     assert "minItems" not in result
+
+
+def test_msg_renders_its_wrapped_validator() -> None:
+    """Msg only swaps the error message, so it renders as the wrapped validator."""
+    from probatio import Msg, Range  # noqa: PLC0415
+
+    assert to_openapi(Schema(Msg(Range(min=1), "too small"))) == {"minimum": 1}
+
+
+@pytest.mark.parametrize(
+    ("some_of", "expected"),
+    [
+        ((1, 1), {"oneOf": [{"type": "integer"}, {"type": "string"}]}),
+        ((1, 2), {"anyOf": [{"type": "integer"}, {"type": "string"}]}),
+        ((2, 2), {"allOf": [{"type": "integer"}, {"type": "string"}]}),
+        ((0, 1), {}),
+    ],
+)
+def test_some_of_maps_counts_to_combinators(
+    some_of: tuple[int, int],
+    expected: dict,
+) -> None:
+    """SomeOf renders oneOf/anyOf/allOf for the counts OpenAPI expresses, else open."""
+    from probatio import SomeOf  # noqa: PLC0415
+
+    min_valid, max_valid = some_of
+    schema = Schema(
+        SomeOf(validators=[int, str], min_valid=min_valid, max_valid=max_valid),
+    )
+    assert to_openapi(schema) == expected
+
+
+def test_unique_renders_a_unique_item_array() -> None:
+    """Unique renders an array with uniqueItems set."""
+    from probatio import Unique  # noqa: PLC0415
+
+    assert to_openapi(Schema(Unique())) == {"type": "array", "uniqueItems": True}
+
+
+def test_contains_uses_the_keyword_only_on_3_1() -> None:
+    """Contains renders the 3.1 ``contains`` keyword; 3.0 drops it to a plain array.
+
+    OpenAPI 3.0 lacks ``contains`` and misreads it, so on 3.0 the constraint widens
+    to a bare array rather than emitting a keyword a 3.0 consumer breaks on.
+    """
+    from probatio import Contains  # noqa: PLC0415
+
+    schema = Schema(Contains(int))
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "type": "array",
+        "contains": {"type": "integer"},
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {"type": "array"}
+
+
+def test_exact_sequence_uses_prefix_items_only_on_3_1() -> None:
+    """ExactSequence renders 3.1 prefixItems; 3.0 lacks it, so it drops to an array."""
+    from probatio import ExactSequence  # noqa: PLC0415
+
+    schema = Schema(ExactSequence([int, str]))
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}, {"type": "string"}],
+        "items": False,
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {"type": "array"}
+
+
+def test_duration_renders_a_duration_string() -> None:
+    """Duration and AsTimedelta both render a string with the duration format."""
+    from probatio import AsTimedelta, Duration  # noqa: PLC0415
+
+    expected = {"type": "string", "format": "duration"}
+    assert to_openapi(Schema(Duration())) == expected
+    assert to_openapi(Schema(AsTimedelta())) == expected
