@@ -34,6 +34,7 @@ from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
 from probatio.error import SchemaError
 from probatio.markers import (
+    Alias,
     Exclusive,
     Inclusive,
     Optional,
@@ -284,7 +285,7 @@ def _oa_mapping(
         pval = _oa(value, custom, version)
         if facets.description:
             pval["description"] = facets.description
-        if isinstance(marker, Required | Optional) and not isinstance(
+        if isinstance(marker, Required | Optional | Alias) and not isinstance(
             marker.default,
             Undefined,
         ):
@@ -312,7 +313,17 @@ def _oa_mapping(
                 marker.default, Undefined
             )
 
-        if isinstance(pkey, AnyValidator):
+        if isinstance(marker, Alias):
+            # Each accepted name renders as a property (the value is the same), and
+            # a required Alias with no default demands at least one of them, an
+            # object-level constraint like a required ``Any`` key. A default fills
+            # the empty case, so a required Alias carrying one demands no name.
+            names = [str(alias_name) for alias_name in marker.input_names]
+            for alias_name in names:
+                properties[alias_name] = pval.copy()
+            if marker.required and isinstance(marker.default, Undefined):
+                constraint_groups.append(names)
+        elif isinstance(pkey, AnyValidator):
             props, any_group = _expand_any_key(
                 pkey,
                 pval,

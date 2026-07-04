@@ -99,6 +99,23 @@ def test_inclusive_group_agrees_with_the_reference_validator(version: str) -> No
 
 
 @pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_required_alias_agrees_with_the_reference_validator(version: str) -> None:
+    """A required Alias emits valid OpenAPI the reference validator reads as at-least-one."""
+    from probatio.markers import Alias  # noqa: PLC0415
+
+    document = probatio.to_openapi(
+        probatio.Schema({Alias("name", "userName", required=True): str}),
+        openapi_version=version,
+    )
+    validator_cls = _VALIDATOR[version]
+    validator_cls.check_schema(document)
+    validator = validator_cls(document)
+    assert validator.is_valid({"name": "a"})
+    assert validator.is_valid({"userName": "a"})
+    assert not validator.is_valid({})
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
 def test_exclusive_group_agrees_with_the_reference_validator(version: str) -> None:
     """An Exclusive group emits valid OpenAPI the reference validator reads as at-most-one."""
     document = probatio.to_openapi(
