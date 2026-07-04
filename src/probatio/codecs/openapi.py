@@ -15,6 +15,7 @@ this is a distinct codec rather than a tweak of ``to_json_schema``.
 from __future__ import annotations
 
 import itertools
+from dataclasses import dataclass, field
 from enum import Enum
 from inspect import isroutine, signature
 from types import UnionType
@@ -24,12 +25,23 @@ from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
     STRING_TYPES,
     UNSUPPORTED,
+    ExclusiveGroup,
+    exclusive_constraint,
+    merge_dependent_required,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
 from probatio.error import SchemaError
-from probatio.markers import Optional, Required, Self, Undefined, resolve_key
+from probatio.markers import (
+    Exclusive,
+    Inclusive,
+    Optional,
+    Required,
+    Self,
+    Undefined,
+    resolve_key,
+)
 from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     All,
@@ -262,6 +274,8 @@ def _oa_mapping(
     properties: dict[str, Any] = {}
     required: list[str] = []
     constraint_groups: list[list[str]] = []
+    inclusive: dict[str, list[str]] = {}
+    exclusive: dict[str, ExclusiveGroup] = {}
 
     for key, value in node.items():
         facets = resolve_key(key)
@@ -286,24 +300,108 @@ def _oa_mapping(
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
+        # A group marker adds an object-level constraint (all-or-none, at-most-one)
+        # on top of the property it declares, collected here and emitted below.
+        if isinstance(marker, Inclusive) and isinstance(pkey, str):
+            inclusive.setdefault(marker.group_of_inclusion, []).append(pkey)
+        elif isinstance(marker, Exclusive) and isinstance(pkey, str):
+            group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
+            group.members.append(pkey)
+            group.required = group.required or marker.group_required
+            group.has_default = group.has_default or not isinstance(
+                marker.default, Undefined
+            )
+
         if isinstance(pkey, AnyValidator):
-            props, group = _expand_any_key(
+            props, any_group = _expand_any_key(
                 pkey,
                 pval,
                 required=isinstance(marker, Required),
                 wildcard=value is object,
             )
             properties.update(props)
-            if group is not None:
-                constraint_groups.append(group)
+            if any_group is not None:
+                constraint_groups.append(any_group)
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
             additional = _absorb_extra(pval, additional)
 
-    return _assemble_object(
-        properties, required, additional, constraint_groups, closed=closed
+    dependent_required, group_constraints = _group_constraints(
+        inclusive, exclusive, version
     )
+    constraints = _ObjectConstraints(
+        required_any=constraint_groups,
+        dependent_required=dependent_required,
+        all_of=group_constraints,
+    )
+    return _assemble_object(
+        properties, required, additional, constraints, closed=closed
+    )
+
+
+@dataclass
+class _ObjectConstraints:
+    """The object-level constraints collected while walking a mapping's keys.
+
+    ``required_any`` is the list of at-least-one name groups (a required ``Any``
+    key), combined into one ``anyOf``. ``dependent_required`` is the merged 3.1
+    all-or-none map. ``all_of`` holds the remaining group constraints (3.0
+    all-or-none and every ``Exclusive`` group).
+    """
+
+    required_any: list[list[str]] = field(default_factory=list)
+    dependent_required: dict[str, list[str]] = field(default_factory=dict)
+    all_of: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _group_constraints(
+    inclusive: dict[str, list[str]],
+    exclusive: dict[str, ExclusiveGroup],
+    version: str,
+) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
+    """Build the constraints for the Inclusive and Exclusive groups.
+
+    Returns a ``(dependentRequired, allOf)`` pair. An ``Inclusive`` group is
+    all-or-none: on OpenAPI 3.1 (JSON Schema 2020-12) it merges into one
+    ``dependentRequired`` sibling, the idiomatic keyword ``from_openapi`` reads
+    back into an ``Inclusive`` group. OpenAPI 3.0 lacks ``dependentRequired`` (and
+    silently ignores it), so there each group renders under ``allOf`` instead. An
+    ``Exclusive`` group (at most one, or exactly one when required with no default)
+    always renders under ``allOf``. The ``allOf`` entries never collide on a
+    keyword with each other or with the ``dependentRequired`` sibling.
+    """
+    dependent: dict[str, list[str]] = {}
+    all_of: list[dict[str, Any]] = []
+    if version == _V3_1:
+        dependent = merge_dependent_required(inclusive.values())
+    else:
+        all_of += [
+            _oa_inclusive_30(members)
+            for members in inclusive.values()
+            if len(members) > 1
+        ]
+    all_of += [
+        constraint
+        for constraint in (exclusive_constraint(group) for group in exclusive.values())
+        if constraint
+    ]
+    return dependent, all_of
+
+
+def _oa_inclusive_30(members: list[str]) -> dict[str, Any]:
+    """Render an all-or-none group for OpenAPI 3.0, which lacks ``dependentRequired``.
+
+    All-or-none is spelled with the keywords 3.0 does have: exactly one of "every
+    member present" or "no member present" holds, which rejects any partial
+    combination.
+    """
+    return {
+        "oneOf": [
+            {"required": list(members)},
+            {"not": {"anyOf": [{"required": [member]} for member in members]}},
+        ],
+    }
 
 
 def _expand_any_key(
@@ -332,7 +430,7 @@ def _assemble_object(
     properties: dict[str, Any],
     required: list[str],
     additional: Any,
-    constraint_groups: list[list[str]],
+    constraints: _ObjectConstraints,
     *,
     closed: bool,
 ) -> dict[str, Any]:
@@ -359,11 +457,18 @@ def _assemble_object(
         # A closed mapping rejects undeclared keys; an open (REMOVE_EXTRA) one is
         # left without the keyword, accepting extra keys the way it strips them.
         result["additionalProperties"] = False
-    if constraint_groups:
+    if constraints.required_any:
         result["anyOf"] = [
             {"required": list(combination)}
-            for combination in itertools.product(*constraint_groups)
+            for combination in itertools.product(*constraints.required_any)
         ]
+    if constraints.dependent_required:
+        # OpenAPI 3.1 all-or-none: a sibling ``from_openapi`` reads back as Inclusive.
+        result["dependentRequired"] = constraints.dependent_required
+    if constraints.all_of:
+        # The remaining group constraints go under ``allOf`` so they never collide
+        # on a keyword with each other or with the ``anyOf`` above.
+        result["allOf"] = constraints.all_of
     return result
 
 

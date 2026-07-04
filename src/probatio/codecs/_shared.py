@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import datetime
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 from probatio.validators import (
     ASCII,
@@ -56,6 +60,53 @@ UNSUPPORTED = _Unsupported()
 # Returned from ``json_safe`` for a value with no JSON representation, so the
 # caller can omit the offending keyword rather than emit an unserializable dict.
 UNREPRESENTABLE = object()
+
+
+@dataclass
+class ExclusiveGroup:
+    """The members of an ``Exclusive`` group and how an empty group is judged.
+
+    Shared by the JSON Schema and OpenAPI codecs: an ``Exclusive`` group is
+    version-independent (``oneOf``/``not`` exist on both), so both codecs must
+    render it identically, and one accumulator here keeps them from drifting.
+    """
+
+    members: list[str] = field(default_factory=list)
+    required: bool = False
+    has_default: bool = False
+
+
+def exclusive_constraint(group: ExclusiveGroup) -> dict[str, Any]:
+    """Render one ``Exclusive`` group as at-most-one, or exactly-one when required.
+
+    A required group with no default demands exactly one member (``oneOf`` over the
+    per-member ``required``). Otherwise at most one member may appear: the negation
+    of any two being present together. Shared so both codecs stay identical.
+    """
+    members = group.members
+    if group.required and not group.has_default:
+        return {"oneOf": [{"required": [member]} for member in members]}
+    pairs = [
+        [members[i], members[j]]
+        for i in range(len(members))
+        for j in range(i + 1, len(members))
+    ]
+    return {"not": {"anyOf": [{"required": pair} for pair in pairs]}} if pairs else {}
+
+
+def merge_dependent_required(groups: Iterable[list[str]]) -> dict[str, list[str]]:
+    """Merge multi-member all-or-none groups into one ``dependentRequired`` map.
+
+    Each member requires every other member of its group. Group memberships are
+    disjoint, so the merged map's connected components recover the original groups
+    on decode. Shared so the JSON Schema and OpenAPI 3.1 encoders cannot drift.
+    """
+    dependent: dict[str, list[str]] = {}
+    for members in groups:
+        if len(members) > 1:
+            for member in members:
+                dependent[member] = [other for other in members if other != member]
+    return dependent
 
 
 def ordered_values(values: Any) -> list[Any]:

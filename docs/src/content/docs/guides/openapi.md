@@ -74,6 +74,27 @@ to_openapi(schema)["properties"]["nickname"]
 nullability the JSON Schema way instead, as an `anyOf` with a `{"type": "null"}`
 branch.
 
+## Group constraints across versions
+
+The `Inclusive` (all-or-none) and `Exclusive` (at most one, or exactly one when
+required) dict-group markers render as object-level constraints, and one of them
+splits on version. `Exclusive` uses `oneOf`/`not`, which both OpenAPI versions
+have. `Inclusive` maps to `dependentRequired`, which only OpenAPI 3.1 has:
+
+```python
+from probatio import Schema, Inclusive, to_openapi
+
+schema = Schema({Inclusive("lat", "coords"): float, Inclusive("lon", "coords"): float})
+to_openapi(schema, openapi_version="3.1.0")["dependentRequired"]
+# {'lat': ['lon'], 'lon': ['lat']}
+```
+
+OpenAPI 3.0 has no `dependentRequired` (and silently ignores it), so there the
+same all-or-none is spelled with the keywords 3.0 does have, an `allOf` entry that
+accepts every member present or none present and rejects any partial combination.
+The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
+`from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
+
 ## Customizing the output
 
 `to_openapi` takes a `custom_serializer` hook, the same one `serialize` uses, to
