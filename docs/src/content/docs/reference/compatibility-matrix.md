@@ -246,12 +246,6 @@ carries forward an upstream request.
   raw value of itself, used in place of the bare `isinstance` check when that type
   is a schema. `EnumInvalid` is the error its built-in consumer (an enum class)
   raises. voluptuous has no such hook.
-- `register_type`, `unregister_type`, `type_registry`, `clear_type_registry`: a
-  registry mapping a type to a validator, consulted by the annotation-driven builders
-  (the dataclass and TypedDict schemas) so coercion of a type like `datetime` is
-  opt-in and applies wherever the type appears. Register or remove a single type, or
-  empty the registry; process-wide or scoped to a `with` block. voluptuous has no
-  equivalent.
 - `current_context` with `schema(data, context=...)`: an optional call argument
   that hands per-call state to validators that read `current_context()`, so one
   compiled schema validates against state known only at call time. Additive (a

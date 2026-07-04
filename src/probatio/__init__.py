@@ -19,12 +19,6 @@ from probatio._compile_policy import (
     get_compile_policy,
     set_compile_policy,
 )
-from probatio._type_registry import (
-    clear_type_registry,
-    register_type,
-    type_registry,
-    unregister_type,
-)
 from probatio.dataclass_schema import (
     DataclassSchema,
     TypedDictSchema,
@@ -522,7 +516,6 @@ __all__ = [
     "YamlInvalid",
     "__version__",
     "clear_default_options",
-    "clear_type_registry",
     "create_dataclass_schema",
     "create_typeddict_schema",
     "current_context",
@@ -544,14 +537,11 @@ __all__ = [
     "message",
     "probatio",
     "raises",
-    "register_type",
     "serialize",
     "set_compile_policy",
     "set_default_options",
     "to_json_schema",
     "to_openapi",
     "truth",
-    "type_registry",
-    "unregister_type",
     "validate",
 ]

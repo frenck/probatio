@@ -1,12 +1,11 @@
 """A process-wide mapping with a context-scoped overlay, thread- and async-safe.
 
-The type registry (``_type_registry``) and the serde option defaults
-(``serde/_config``) both layer a per-context override over a process-wide default in
-the same shape: a plain ``dict`` for the global layer, and a ``ContextVar`` overlay
-pushed inside a ``with`` block and restored on exit. This holds that contextvar
-plumbing (the ``None`` default that readers treat as empty, and the set/reset token)
-in one place, so the restore semantics cannot drift between the two. Each module
-keeps its own merge and lookup rules on top.
+The serde option defaults (``serde/_config``) layer a per-context override over a
+process-wide default: a plain ``dict`` for the global layer, and a ``ContextVar``
+overlay pushed inside a ``with`` block and restored on exit. This holds that
+contextvar plumbing (the ``None`` default that readers treat as empty, and the
+set/reset token) in one place, so the restore semantics stay in a single, tested
+spot. The caller keeps its own merge and lookup rules on top.
 """
 
 from __future__ import annotations

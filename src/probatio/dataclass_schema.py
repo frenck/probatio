@@ -26,8 +26,8 @@ A field annotation may also carry its own validators inline with
 type, its ``isinstance`` check runs on the *result*, so the type says what the field is
 rather than gating the raw input: ``Annotated[datetime, AsDatetime()]`` parses the
 string and confirms the result is a ``datetime``, keeping the field honestly typed. When
-``X`` itself coerces (a type registered to a validator, a nested schema), it runs first
-and the metadata layers on top. A ``NewType`` is followed to the type it wraps. Both are
+``X`` itself coerces (a nested schema), it runs first and the metadata layers on top. A
+``NewType`` is followed to the type it wraps. Both are
 an alternative to the ``additional_constraints`` side mapping, with the constraint
 living next to the field it guards.
 """
@@ -62,7 +62,6 @@ from typing import Union as TypingUnion
 
 from probatio._codegen import compile_mapping
 from probatio._engine import _MappingValidator
-from probatio._type_registry import resolve_type_validator
 from probatio.error import Invalid, MultipleInvalid, SchemaError, ValueInvalid
 from probatio.fields import Key
 from probatio.markers import (
@@ -218,8 +217,7 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     origin = get_origin(annotation)
     if origin is None:
         if isinstance(annotation, type):
-            registered = resolve_type_validator(annotation)
-            return registered if registered is not None else annotation
+            return annotation
         return object
 
     args = get_args(annotation)

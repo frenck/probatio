@@ -1,7 +1,25 @@
 # ADR-008: A type-to-validator registry for schema builders
 
 **Date**: 2026-06-27
-**Status**: Accepted
+**Status**: Reversed on 2026-07-04 (never shipped to users)
+
+**Reversal (2026-07-04)**: This feature was removed before any release. The
+`Consequences` below name the cost as "global mutable state, mitigated by
+preferring the scoped context manager in library code". In practice that
+mitigation is not enough, and the process-wide layer is a footgun: a library (or a
+transitive dependency) that calls `register_type` changes how _every_ dataclass
+and TypedDict schema in the process coerces that type, so an unrelated dependency
+silently gets different validation results. The scoped `type_registry` avoids the
+leak but only for code disciplined enough to use it, and nothing enforces that.
+The problem it solved has a local, non-global answer: annotate the field that needs
+coercion, `field: Annotated[datetime, Coerce(datetime.fromisoformat)]`. That covers
+nested dataclass fields too (the builder descends into them), so the one capability
+the registry had that a per-field hint lacked, reaching a nested type without
+touching its fields, turned out not to be worth a process-global switch. The
+public names (`register_type`, `unregister_type`, `clear_type_registry`,
+`type_registry`) and the `_type_registry` module are gone; the self-validation
+protocol ([ADR-007](007-self-validation-protocol.md)) remains for types you own.
+The original decision is kept below as the historical record.
 
 **Context**: The structural schema builders turn a type annotation into a
 validator: `create_dataclass_schema` reads a dataclass's fields today, and the
