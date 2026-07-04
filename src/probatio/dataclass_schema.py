@@ -1089,14 +1089,16 @@ class DataclassSchema[DataclassT](Schema):
 
 
 def _typeddict_presence(
-    annotation: TypingAny, *, total: bool
+    annotation: TypingAny, *, default_required: bool
 ) -> tuple[bool, TypingAny]:
     """Read a TypedDict field's required-ness and strip its Required/NotRequired.
 
     ``Required``/``NotRequired`` may wrap the whole annotation or sit inside an
     ``Annotated`` (``Annotated[NotRequired[int], Key(...)]``). Handle both, returning
     the presence and the annotation with the qualifier removed but the ``Annotated``
-    metadata (a ``Key``, a value validator) kept, so it is still read.
+    metadata (a ``Key``, a value validator) kept, so it is still read. Without such a
+    wrapper the field keeps ``default_required``, the presence its class and totality
+    already imply.
     """
     origin = get_origin(annotation)
     if origin is RequiredHint:
@@ -1110,7 +1112,7 @@ def _typeddict_presence(
             return True, Annotated[(get_args(base)[0], *meta)]
         if base_origin is NotRequired:
             return False, Annotated[(get_args(base)[0], *meta)]
-    return total, annotation
+    return default_required, annotation
 
 
 def _typeddict_mapping(
@@ -1127,16 +1129,19 @@ def _typeddict_mapping(
         message = f"cannot resolve type hints for {typeddict_type.__name__!r}: {exc}"
         raise SchemaError(message) from exc
 
-    # Required-ness is read from each resolved annotation, not from
-    # ``__required_keys__``: under ``from __future__ import annotations`` the
-    # annotations are strings at class-creation time, so ``__required_keys__``
-    # cannot see a ``Required``/``NotRequired`` wrapper and comes out wrong. A
-    # field with an explicit wrapper takes it; otherwise the TypedDict's ``total``
-    # decides.
-    total = typeddict_type.__total__
+    # A field's presence comes from two sources, in order. An explicit
+    # ``Required``/``NotRequired`` wrapper on the resolved annotation wins, and it is
+    # the only one ``__required_keys__`` misses: under ``from __future__ import
+    # annotations`` the wrapper is a string at class-creation time, so Python cannot
+    # see it. Otherwise ``__required_keys__`` decides, which stays correct across
+    # inheritance and per-base ``total`` where the class's own ``__total__`` does not
+    # (a required field inherited into a ``total=False`` child, and the reverse).
+    required_keys = typeddict_type.__required_keys__
     mapping: dict[TypingAny, TypingAny] = {}
     for name, annotation in hints.items():
-        required, field_type = _typeddict_presence(annotation, total=total)
+        required, field_type = _typeddict_presence(
+            annotation, default_required=name in required_keys
+        )
         value_schema = _annotation_to_schema(field_type, self_refs)
         if name in constraints:
             value_schema = All(value_schema, constraints[name])

@@ -96,6 +96,48 @@ def test_not_required_makes_a_field_optional() -> None:
     assert TypedDictSchema(Mixed)({"x": 1}) == {"x": 1}
 
 
+class _TotalBase(TypedDict):
+    """A total base: its field is required."""
+
+    a: int
+
+
+class InheritsIntoPartial(_TotalBase, total=False):
+    """A total=False child of a total base: b is optional, a stays required."""
+
+    b: str
+
+
+def test_required_field_inherited_into_a_partial_child_stays_required() -> None:
+    """A required base field keeps its presence under a total=False child."""
+    schema = TypedDictSchema(InheritsIntoPartial)
+    assert schema({"a": 1}) == {"a": 1}  # b is optional
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"b": "x"})  # a is inherited-required, not optional
+    assert caught.value.errors[0].path == ["a"]
+
+
+class _PartialBase(TypedDict, total=False):
+    """A total=False base: its field is optional."""
+
+    x: int
+
+
+class InheritsIntoTotal(_PartialBase):
+    """A total child of a total=False base: y is required, x stays optional."""
+
+    y: int
+
+
+def test_optional_field_inherited_into_a_total_child_stays_optional() -> None:
+    """An optional base field keeps its presence under a total child."""
+    schema = TypedDictSchema(InheritsIntoTotal)
+    assert schema({"y": 1}) == {"y": 1}  # x is inherited-optional, not required
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"x": 1})  # y is required
+    assert caught.value.errors[0].path == ["y"]
+
+
 class Inner(TypedDict):
     """A nested TypedDict."""
 
