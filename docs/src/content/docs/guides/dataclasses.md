@@ -282,41 +282,34 @@ is_dataclass(User)  # True
 create_dataclass_schema(User)({"name": "ada"})  # User(name='ada')
 ```
 
-## Coercing a type wherever it appears
+## Coercing a field's type
 
 A field annotated with `datetime` validates by `isinstance`, so a string from
 JSON or YAML is rejected. That is the safe default: probatio validates, it does
-not silently transform. When you do want a type coerced, register a validator for
-it once, and every field of that type (including fields of nested dataclasses)
-picks it up while the schema is built.
+not silently transform. When you do want a field coerced, say so on the field with
+an `Annotated` hint, and the coercion is scoped to exactly that field:
 
 ```python
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Annotated
 
-from probatio import DataclassSchema, Coerce, register_type, clear_type_registry
+from probatio import DataclassSchema, Coerce
 
 
 @dataclass
 class Event:
-    when: datetime
+    when: Annotated[datetime, Coerce(datetime.fromisoformat)]
 
 
-register_type(datetime, Coerce(datetime.fromisoformat))
 DataclassSchema(Event)({"when": "2020-01-01T12:00"})  # Event(when=datetime(2020, 1, 1, 12, 0))
-clear_type_registry()  # reset, so the rest of this page is unaffected
 ```
 
-The registration is read when the schema is built and baked in, so a schema does
-not change once constructed. `register_type` sets it process-wide (for an
-application's entry point); a library should prefer the `type_registry` context
-manager, which scopes the registrations to a `with` block. `unregister_type(cls)`
-removes a single type again, and `clear_type_registry()` empties the registry. A
-use-site validator (an `Annotated` hint or `additional_constraints`) still applies
-on top, so the type is coerced first and the extra rule checks the result. The
-hand-written
-`Schema(datetime)` path is never affected; only annotation-driven building reads
-the registry.
+The `Coerce` runs first and the `datetime` type confirms the result, so the field
+stays honestly typed (see the [annotation mapping
+table](#annotations-drive-the-validators)). This works the same way in a nested
+dataclass field, and `additional_constraints` still layers on top. The
+hand-written `Schema(datetime)` path is never affected.
 
 ## Recursive dataclasses
 

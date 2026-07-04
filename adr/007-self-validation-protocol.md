@@ -52,9 +52,8 @@ surface we commit to. The safe-validator contract still binds: an implementation
 must only ever raise `Invalid` on bad input, never leak another exception. The
 boundary to police in docs is that this is _self_-validation (an Enum value to its
 member, a value object to itself), not a license for arbitrary transformation
-that would break the validate-not-transform identity. Precedence against the
-type-to-validator registry ([ADR-008](008-type-to-validator-registry.md)) is
-defined there: an explicit registry entry overrides a type's own protocol, since
-you register precisely to override a type you do not control. A type's own
-protocol still beats bare `isinstance`. Enum fields in dataclass and `Annotated`
+that would break the validate-not-transform identity. A type's own protocol beats
+a bare `isinstance` check. (The type-to-validator registry once proposed in
+[ADR-008](008-type-to-validator-registry.md) would have overridden this protocol,
+but it was reversed before shipping.) Enum fields in dataclass and `Annotated`
 schemas stop rejecting their own values for free, since they ride this dispatch.

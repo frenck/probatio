@@ -189,8 +189,8 @@ guide](/guides/dataclasses/) covers the rest, and it all behaves the same with a
 `TypedDict`:
 
 - The [annotation mapping table](/guides/dataclasses/#annotations-drive-the-validators).
-- [Coercing a type wherever it appears](/guides/dataclasses/#coercing-a-type-wherever-it-appears)
-  with `register_type` / `type_registry`.
+- [Coercing a field's type](/guides/dataclasses/#coercing-a-fields-type) with an
+  `Annotated` hint.
 - [Recursive](/guides/dataclasses/#recursive-dataclasses) and mutually recursive
   types, with the same depth guard.
 - [Discriminated unions](/guides/dataclasses/#discriminated-unions) over a shared
