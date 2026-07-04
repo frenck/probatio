@@ -121,6 +121,12 @@ def test_dump_toml_rejects_an_unpaired_surrogate() -> None:
         dump_toml({"key": "\ud800"})
 
 
+def test_dump_json_rejects_an_unpaired_surrogate_in_a_key() -> None:
+    """A surrogate in a dict key is refused too, not just in a value."""
+    with pytest.raises(ValueError, match="surrogate"):
+        dump_json({"\ud800": 1})
+
+
 def test_dump_json_output_matches_across_backends(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

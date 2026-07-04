@@ -115,6 +115,10 @@ def _normalize_dict(
     coerced_keys: set[str] | None = set() if fmt == "json" else None
 
     for key, item in value.items():
+        if isinstance(key, str):
+            # A string key holds a surrogate just as a value can; refuse it too, or
+            # the backend would emit the same non-reloadable text through the key.
+            _encodable_str(key)
         if coerced_keys is not None:
             coerced = _json_key(key)
             if isinstance(coerced, str):
