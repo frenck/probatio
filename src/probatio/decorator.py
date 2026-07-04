@@ -52,6 +52,35 @@ def _name(func: typing.Callable[..., typing.Any]) -> str:
     return getattr(func, "__name__", repr(func))
 
 
+def _reject_validator_annotation(
+    func: typing.Callable[..., typing.Any],
+    where: str,
+    annotation: typing.Any,
+    inferred: typing.Any,
+) -> None:
+    """Reject a validator used where a *type* annotation is expected.
+
+    An annotation is mapped like a dataclass field: a type says what the value is.
+    A validator instance (``Range(min=0)``), a ``Schema``, or a bare function is not
+    a type, so ``_annotation_to_schema`` cannot read it and falls back to ``object``
+    (accept anything), which would silently drop all validation. That is almost
+    never what the writer meant, so name the mistake and point at the two places a
+    validator belongs: the ``constraints`` map, or ``Annotated[type, validator]``.
+
+    Gated on the fallback actually firing (``inferred is object``), so an annotation
+    that is callable yet handled, a ``NewType`` (followed to its supertype), a bare
+    type (constructs, so it *is* a type), is left alone. ``typing.Any`` reaches
+    ``object`` too, but on purpose and not callable, so it is not caught.
+    """
+    if inferred is object and callable(annotation) and not isinstance(annotation, type):
+        message = (
+            f"probatio: {where} of {_name(func)!r} is annotated with a validator "
+            f"({annotation!r}), but an annotation must be a type. Put the validator "
+            f"in constraints, or use Annotated[type, validator]."
+        )
+        raise SchemaError(message)
+
+
 def _check_constraints(
     func: typing.Callable[..., typing.Any],
     constraints: dict[str, typing.Any],
@@ -103,6 +132,7 @@ def _resolve_hints(
 
 
 def _parameter_schema(
+    func: typing.Callable[..., typing.Any],
     signature: inspect.Signature,
     constraints: dict[str, typing.Any],
     hints: dict[str, typing.Any],
@@ -117,7 +147,13 @@ def _parameter_schema(
     for name, parameter in signature.parameters.items():
         if parameter.kind not in _VALIDATED_KINDS:
             continue
-        inferred = _annotation_to_schema(hints[name], {}) if name in hints else _UNSET
+        if name in hints:
+            inferred = _annotation_to_schema(hints[name], {})
+            _reject_validator_annotation(
+                func, f"parameter {name!r}", hints[name], inferred
+            )
+        else:
+            inferred = _UNSET
         extra = constraints.get(name, _UNSET)
         if inferred is not _UNSET and extra is not _UNSET:
             mapping[name] = All(inferred, extra)
@@ -146,7 +182,9 @@ def _return_schema(
                 f"probatio: returns=True needs a return annotation on {_name(func)!r}"
             )
             raise SchemaError(message)
-        return Schema(_annotation_to_schema(hints[_RETURN], {}))
+        inferred = _annotation_to_schema(hints[_RETURN], {})
+        _reject_validator_annotation(func, "the return", hints[_RETURN], inferred)
+        return Schema(inferred)
     return Schema(returns)
 
 
@@ -219,7 +257,7 @@ def _decorate[**P, R](
         needed.add(_RETURN)
     hints = _resolve_hints(func, needed)
 
-    parameter_schema = _parameter_schema(signature, constraints, hints)
+    parameter_schema = _parameter_schema(func, signature, constraints, hints)
     input_schema: typing.Callable[[typing.Any], typing.Any] = (
         Schema(parameter_schema, extra=ALLOW_EXTRA) if parameter_schema else _identity
     )
