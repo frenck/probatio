@@ -26,6 +26,9 @@ from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
     STRING_TYPES,
     UNSUPPORTED,
+    ExclusiveGroup,
+    exclusive_constraint,
+    merge_dependent_required,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -243,15 +246,6 @@ def _child(node: Any) -> dict[str, Any]:
     return _convert(node, required_default=False, allow_extra=False)
 
 
-@dataclass
-class _ExclusiveGroup:
-    """The members of an ``Exclusive`` group and how an empty group is judged."""
-
-    members: list[str] = field(default_factory=list)
-    required: bool = False
-    has_default: bool = False
-
-
 class _Groups:
     """Accumulates the group-marker memberships found while walking a mapping."""
 
@@ -259,7 +253,7 @@ class _Groups:
         """Start with no groups recorded."""
         self.alias_required: list[list[str]] = []
         self.inclusive: dict[str, list[str]] = {}
-        self.exclusive: dict[str, _ExclusiveGroup] = {}
+        self.exclusive: dict[str, ExclusiveGroup] = {}
 
     def add_alias(self, marker: Alias) -> None:
         """Record a required ``Alias`` (one of its names must be present).
@@ -277,7 +271,7 @@ class _Groups:
 
     def add_exclusive(self, marker: Exclusive, name: str) -> None:
         """Record an ``Exclusive`` member (at most one present within its group)."""
-        group = self.exclusive.setdefault(marker.group_of_exclusion, _ExclusiveGroup())
+        group = self.exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
         group.members.append(name)
         group.required = group.required or marker.group_required
         group.has_default = group.has_default or not isinstance(
@@ -296,42 +290,17 @@ class _Groups:
             for names in self.alias_required
         ]
         constraints += [
-            _exclusive_constraint(group) for group in self.exclusive.values()
+            exclusive_constraint(group) for group in self.exclusive.values()
         ]
         return [constraint for constraint in constraints if constraint]
 
     def dependent_required(self) -> dict[str, list[str]]:
         """Merge every multi-member ``Inclusive`` group into one ``dependentRequired``.
 
-        Each member requires every other member of its group (all-or-none). Group
-        memberships are disjoint, so the merged map's connected components recover
-        the original groups on decode.
+        Group memberships are disjoint, so the merged map's connected components
+        recover the original groups on decode.
         """
-        dependent: dict[str, list[str]] = {}
-        for members in self.inclusive.values():
-            if len(members) > 1:
-                for member in members:
-                    dependent[member] = [other for other in members if other != member]
-        return dependent
-
-
-def _exclusive_constraint(group: _ExclusiveGroup) -> dict[str, Any]:
-    """Render one ``Exclusive`` group as an at-most-one (or exactly-one) constraint.
-
-    A required group with no default demands exactly one member (``oneOf`` over
-    the per-member ``required``). Otherwise the group allows at most one: a
-    default fills the empty group, so the empty object stays valid. At most one
-    is "not any two present", the negation of every pair being present together.
-    """
-    members = group.members
-    if group.required and not group.has_default:
-        return {"oneOf": [{"required": [member]} for member in members]}
-    pairs = [
-        [members[i], members[j]]
-        for i in range(len(members))
-        for j in range(i + 1, len(members))
-    ]
-    return {"not": {"anyOf": [{"required": pair} for pair in pairs]}} if pairs else {}
+        return merge_dependent_required(self.inclusive.values())
 
 
 def _convert_mapping(

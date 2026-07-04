@@ -25,6 +25,9 @@ from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
     STRING_TYPES,
     UNSUPPORTED,
+    ExclusiveGroup,
+    exclusive_constraint,
+    merge_dependent_required,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -272,7 +275,7 @@ def _oa_mapping(
     required: list[str] = []
     constraint_groups: list[list[str]] = []
     inclusive: dict[str, list[str]] = {}
-    exclusive: dict[str, _OaExclusiveGroup] = {}
+    exclusive: dict[str, ExclusiveGroup] = {}
 
     for key, value in node.items():
         facets = resolve_key(key)
@@ -302,7 +305,7 @@ def _oa_mapping(
         if isinstance(marker, Inclusive) and isinstance(pkey, str):
             inclusive.setdefault(marker.group_of_inclusion, []).append(pkey)
         elif isinstance(marker, Exclusive) and isinstance(pkey, str):
-            group = exclusive.setdefault(marker.group_of_exclusion, _OaExclusiveGroup())
+            group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
             group.members.append(pkey)
             group.required = group.required or marker.group_required
             group.has_default = group.has_default or not isinstance(
@@ -338,15 +341,6 @@ def _oa_mapping(
 
 
 @dataclass
-class _OaExclusiveGroup:
-    """The members of an ``Exclusive`` group and how an empty group is judged."""
-
-    members: list[str] = field(default_factory=list)
-    required: bool = False
-    has_default: bool = False
-
-
-@dataclass
 class _ObjectConstraints:
     """The object-level constraints collected while walking a mapping's keys.
 
@@ -363,7 +357,7 @@ class _ObjectConstraints:
 
 def _group_constraints(
     inclusive: dict[str, list[str]],
-    exclusive: dict[str, _OaExclusiveGroup],
+    exclusive: dict[str, ExclusiveGroup],
     version: str,
 ) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
     """Build the constraints for the Inclusive and Exclusive groups.
@@ -377,20 +371,19 @@ def _group_constraints(
     always renders under ``allOf``. The ``allOf`` entries never collide on a
     keyword with each other or with the ``dependentRequired`` sibling.
     """
-    groups = [members for members in inclusive.values() if len(members) > 1]
     dependent: dict[str, list[str]] = {}
     all_of: list[dict[str, Any]] = []
     if version == _V3_1:
-        for members in groups:
-            for member in members:
-                dependent[member] = [other for other in members if other != member]
+        dependent = merge_dependent_required(inclusive.values())
     else:
-        all_of += [_oa_inclusive_30(members) for members in groups]
+        all_of += [
+            _oa_inclusive_30(members)
+            for members in inclusive.values()
+            if len(members) > 1
+        ]
     all_of += [
         constraint
-        for constraint in (
-            _oa_exclusive_constraint(group) for group in exclusive.values()
-        )
+        for constraint in (exclusive_constraint(group) for group in exclusive.values())
         if constraint
     ]
     return dependent, all_of
@@ -409,24 +402,6 @@ def _oa_inclusive_30(members: list[str]) -> dict[str, Any]:
             {"not": {"anyOf": [{"required": [member]} for member in members]}},
         ],
     }
-
-
-def _oa_exclusive_constraint(group: _OaExclusiveGroup) -> dict[str, Any]:
-    """Render one ``Exclusive`` group as at-most-one, or exactly-one when required.
-
-    A required group with no default demands exactly one member (``oneOf`` over the
-    per-member ``required``). Otherwise at most one member may appear: the negation
-    of any two being present together.
-    """
-    members = group.members
-    if group.required and not group.has_default:
-        return {"oneOf": [{"required": [member]} for member in members]}
-    pairs = [
-        [members[i], members[j]]
-        for i in range(len(members))
-        for j in range(i + 1, len(members))
-    ]
-    return {"not": {"anyOf": [{"required": pair} for pair in pairs]}} if pairs else {}
 
 
 def _expand_any_key(
