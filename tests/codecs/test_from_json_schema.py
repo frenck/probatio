@@ -671,6 +671,108 @@ def test_unsupported_keyword_fails_closed(node: dict[str, object]) -> None:
         from_json_schema(node)
 
 
+def test_symmetric_dependent_required_decodes_to_an_inclusive_group() -> None:
+    """A symmetric all-or-none dependentRequired becomes an Inclusive group."""
+    from probatio.markers import Inclusive  # noqa: PLC0415
+
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"lat": {"type": "number"}, "lon": {"type": "number"}},
+            "dependentRequired": {"lat": ["lon"], "lon": ["lat"]},
+        },
+    )
+    assert [
+        type(key).__name__ for key in schema.schema if isinstance(key, Inclusive)
+    ] == [
+        "Inclusive",
+        "Inclusive",
+    ]
+    assert schema({"lat": 1.0, "lon": 2.0}) == {"lat": 1.0, "lon": 2.0}
+    assert schema({}) == {}
+    with pytest.raises(Invalid):
+        schema({"lat": 1.0})
+
+
+def test_dependent_required_round_trips_an_inclusive_group() -> None:
+    """to_json_schema then from_json_schema preserves an Inclusive group's behavior."""
+    from probatio.markers import Inclusive  # noqa: PLC0415
+
+    original = Schema(
+        {Inclusive("a", "grp"): int, Inclusive("b", "grp"): int},
+    )
+    rebuilt = from_json_schema(to_json_schema(original))
+    assert rebuilt({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+    assert rebuilt({}) == {}
+    with pytest.raises(Invalid):
+        rebuilt({"a": 1})
+
+
+def test_three_member_dependent_required_group_is_all_or_none() -> None:
+    """A three-way symmetric dependentRequired becomes one all-or-none group."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {name: {} for name in ("a", "b", "c")},
+            "dependentRequired": {
+                "a": ["b", "c"],
+                "b": ["a", "c"],
+                "c": ["a", "b"],
+            },
+        },
+    )
+    assert schema({"a": 1, "b": 2, "c": 3}) == {"a": 1, "b": 2, "c": 3}
+    assert schema({}) == {}
+    with pytest.raises(Invalid):
+        schema({"a": 1, "b": 2})
+
+
+def test_vacuous_dependent_required_adds_no_group() -> None:
+    """A member depending on nothing is a no-op: it adds no Inclusive constraint."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"a": {"type": "integer"}},
+            "dependentRequired": {"a": []},
+        },
+    )
+    assert schema({}) == {}
+    assert schema({"a": 1}) == {"a": 1}
+
+
+@pytest.mark.parametrize(
+    "dependent",
+    [
+        {"a": ["a"]},  # a self-dependency is not a group
+        {"a": ["b"], "b": ["a"], "c": ["a"]},  # asymmetric: c requires a, not back
+        ["a", "b"],  # not an object
+        {1: ["a"]},  # a non-string key
+        {"a": "b"},  # a dependency list that is not a list
+        {"a": [1]},  # a dependency that is not a property name
+    ],
+)
+def test_malformed_dependent_required_is_refused(dependent: object) -> None:
+    """A dependentRequired that is not a clean symmetric group is refused."""
+    node = {
+        "type": "object",
+        "properties": {name: {} for name in ("a", "b", "c")},
+        "dependentRequired": dependent,
+    }
+    with pytest.raises(SchemaError):
+        from_json_schema(node)
+
+
+def test_dependent_required_naming_an_undeclared_property_is_refused() -> None:
+    """A dependentRequired member without a declared optional property is refused."""
+    node = {
+        "type": "object",
+        "properties": {"a": {}},
+        "dependentRequired": {"a": ["b"], "b": ["a"]},
+    }
+    with pytest.raises(SchemaError, match="not a declared optional property"):
+        from_json_schema(node)
+
+
 def test_exclusive_and_inclusive_bounds_keep_the_tighter_one() -> None:
     """When minimum and exclusiveMinimum are both present, the tighter bound wins."""
     schema = from_json_schema(
