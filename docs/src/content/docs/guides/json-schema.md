@@ -99,17 +99,19 @@ to_json_schema(Schema({"token": str.strip}), custom_serializer=as_password)
 `from_json_schema` understands the keywords below. A purely descriptive keyword
 it does not read (`title`, `examples`) is ignored, so a partial schema still
 yields a usable validator. A _restrictive_ keyword it cannot honor
-(`if`/`then`/`else`, `propertyNames`, `patternProperties`, `dependentRequired`,
-`dependentSchemas`, `dependencies`, `unevaluatedProperties`, `unevaluatedItems`,
-`$dynamicRef`, `$recursiveRef`) is refused with a `SchemaError` rather than
-silently dropped, so an untrusted schema is never quietly widened to accept what
-its author meant to forbid. The object and array keywords apply even on a node
-without a `type` (scoped to instances of their type, as the spec says).
-`to_json_schema` emits the same constructs in the other direction.
+(`if`/`then`/`else`, `propertyNames`, `patternProperties`, `dependentSchemas`,
+`dependencies`, `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`,
+`$recursiveRef`) is refused with a `SchemaError` rather than silently dropped, so
+an untrusted schema is never quietly widened to accept what its author meant to
+forbid. `dependentRequired` is honored only in the symmetric all-or-none form
+that maps to an `Inclusive` group (see below); its asymmetric form is refused the
+same way. The object and array keywords apply even on a node without a `type`
+(scoped to instances of their type, as the spec says). `to_json_schema` emits the
+same constructs in the other direction.
 
 | Area    | Keywords                                                                                                                                                                           |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Objects | `properties`, `required`, `additionalProperties`, `minProperties`, `maxProperties`                                                                                                 |
+| Objects | `properties`, `required`, `additionalProperties`, `minProperties`, `maxProperties`, `dependentRequired` (symmetric all-or-none only)                                               |
 | Arrays  | `items`, `minItems`, `maxItems`, `prefixItems`, `uniqueItems`, `contains`, `minContains`, `maxContains`                                                                            |
 | Strings | `minLength`, `maxLength`, `pattern`, `format` (`date`, `date-time`, `time`, `email`, `uri`, `ipv4`, `ipv6`, `uuid`, `hostname`, `byte`), `writeOnly`, `contentEncoding` (`Base64`) |
 | Numbers | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`                                                                                                         |
@@ -137,36 +139,36 @@ round-trip:
 | `MultipleOf`                  | `multipleOf`                                                                                                                      |
 | `Secret` key                  | its property with `writeOnly: true`                                                                                               |
 | `Base64`                      | `contentEncoding: base64`                                                                                                         |
+| `Inclusive` group             | `dependentRequired` (all-or-none); the symmetric map decodes back to an `Inclusive` group                                         |
 
 Combinators and a few more constructs also render, though most have no inverse
 so they do not round-trip:
 
-| Probatio construct         | JSON Schema output                                                           |
-| -------------------------- | ---------------------------------------------------------------------------- |
-| `Any` / `Or`               | `anyOf`                                                                      |
-| `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)      |
-| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword      |
-| `Maybe`                    | `anyOf` with `{"type": "null"}`                                              |
-| `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)              |
-| `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)    |
-| An `enum.Enum` class       | `enum` of the member values                                                  |
-| `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)                 |
-| `Alias`                    | one property per accepted name (plus `anyOf` of `required` when required)    |
-| `Inclusive` group          | `dependentRequired` (all-or-none), a keyword the decoder refuses (see below) |
-| `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required    |
-| `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string    |
+| Probatio construct         | JSON Schema output                                                        |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `Any` / `Or`               | `anyOf`                                                                   |
+| `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)   |
+| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword   |
+| `Maybe`                    | `anyOf` with `{"type": "null"}`                                           |
+| `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)           |
+| `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent) |
+| An `enum.Enum` class       | `enum` of the member values                                               |
+| `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)              |
+| `Alias`                    | one property per accepted name (plus `anyOf` of `required` when required) |
+| `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required |
+| `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string |
 
 The known widener: JSON Schema has a single `hostname` format, so both
 `Hostname` and `Fqdn` export to it and decode back as `Hostname`, meaning a
 round-tripped `Fqdn` accepts a dotless host the original would reject. Pin it
 with a `pattern` or an explicit check if the distinction matters.
 
-An `Inclusive` group is the one construct whose encoded output the decoder
-refuses rather than widens. It emits `dependentRequired`, an all-or-none
-constraint Probatio cannot honor on decode, so it is one of the [refused
-keywords](#supported-keywords): feeding `to_json_schema`'s own output for an
-`Inclusive` group back into `from_json_schema` raises `SchemaError`. Encode it
-for publication, not for a round trip.
+An `Inclusive` group round-trips through `dependentRequired`. `to_json_schema`
+emits the symmetric all-or-none map (every member requires every other), and
+`from_json_schema` reads that shape back into an `Inclusive` group per connected
+set of mutually dependent properties. The general `dependentRequired` is broader:
+an asymmetric dependency (`a` requires `b` but not the reverse) has no `Inclusive`
+equivalent, so it is refused rather than silently widened.
 
 `oneOf` decodes with its exact semantics (a value must match exactly one branch,
 so one matching two or more is rejected), unlike the looser `anyOf`.

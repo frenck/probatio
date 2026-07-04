@@ -742,13 +742,11 @@ def test_required_alias_demands_one_name() -> None:
 
 
 def test_inclusive_group_is_all_or_none() -> None:
-    """An Inclusive group renders dependentRequired, so members come all or none."""
+    """An Inclusive group renders a dependentRequired sibling, all-or-none members."""
     from probatio.markers import Inclusive  # noqa: PLC0415
 
     schema = Schema({Inclusive("a", "g"): int, Inclusive("b", "g"): int})
-    assert to_json_schema(schema)["allOf"] == [
-        {"dependentRequired": {"a": ["b"], "b": ["a"]}},
-    ]
+    assert to_json_schema(schema)["dependentRequired"] == {"a": ["b"], "b": ["a"]}
 
 
 def test_exclusive_group_is_at_most_one() -> None:
@@ -792,7 +790,7 @@ def test_single_member_groups_add_no_vacuous_constraint() -> None:
     """A one-member Inclusive or at-most-one Exclusive group needs no constraint."""
     from probatio.markers import Exclusive, Inclusive  # noqa: PLC0415
 
-    assert "allOf" not in to_json_schema(Schema({Inclusive("a", "g"): int}))
+    assert "dependentRequired" not in to_json_schema(Schema({Inclusive("a", "g"): int}))
     assert "allOf" not in to_json_schema(Schema({Exclusive("a", "g"): int}))
 
 

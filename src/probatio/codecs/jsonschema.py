@@ -285,31 +285,34 @@ class _Groups:
         )
 
     def constraints(self) -> list[dict[str, Any]]:
-        """Build the object-level JSON Schema constraints for every recorded group."""
+        """Build the ``allOf`` object-level constraints (alias and exclusive groups).
+
+        ``Inclusive`` groups are not here: they render as a ``dependentRequired``
+        sibling (see ``dependent_required``), the idiomatic all-or-none keyword.
+        """
         constraints: list[dict[str, Any]] = [
             # At least one of the alias names must be present.
             {"anyOf": [{"required": [name]} for name in names]}
             for names in self.alias_required
         ]
         constraints += [
-            _inclusive_constraint(members)
-            for members in self.inclusive.values()
-            if len(members) > 1
-        ]
-        constraints += [
             _exclusive_constraint(group) for group in self.exclusive.values()
         ]
         return [constraint for constraint in constraints if constraint]
 
+    def dependent_required(self) -> dict[str, list[str]]:
+        """Merge every multi-member ``Inclusive`` group into one ``dependentRequired``.
 
-def _inclusive_constraint(members: list[str]) -> dict[str, Any]:
-    """Render an ``Inclusive`` group as all-or-none: any member pulls in every other."""
-    return {
-        "dependentRequired": {
-            member: [other for other in members if other != member]
-            for member in members
-        },
-    }
+        Each member requires every other member of its group (all-or-none). Group
+        memberships are disjoint, so the merged map's connected components recover
+        the original groups on decode.
+        """
+        dependent: dict[str, list[str]] = {}
+        for members in self.inclusive.values():
+            if len(members) > 1:
+                for member in members:
+                    dependent[member] = [other for other in members if other != member]
+        return dependent
 
 
 def _exclusive_constraint(group: _ExclusiveGroup) -> dict[str, Any]:
@@ -425,6 +428,9 @@ def _convert_mapping(
     }
     if required:
         result["required"] = required
+    dependent = groups.dependent_required()
+    if dependent:
+        result["dependentRequired"] = dependent
     constraints = groups.constraints()
     if constraints:
         result["allOf"] = constraints
@@ -1340,7 +1346,9 @@ _UNSUPPORTED_KEYWORDS = frozenset(
         "if",
         "propertyNames",
         "patternProperties",
-        "dependentRequired",
+        # ``dependentRequired`` is not blanket-refused: its symmetric all-or-none
+        # form decodes to an ``Inclusive`` group (see ``_from_object``). The
+        # asymmetric form it cannot honor is refused there instead.
         "dependentSchemas",
         "dependencies",
         # Draft 2019-09/2020-12 keywords probatio does not evaluate; ignoring one
@@ -1729,6 +1737,7 @@ _OBJECT_KEYWORDS = frozenset(
         "additionalProperties",
         "minProperties",
         "maxProperties",
+        "dependentRequired",
     },
 )
 _ARRAY_KEYWORDS = frozenset({"items", "prefixItems", "minItems", "maxItems"})
@@ -1812,6 +1821,125 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
     return constraints
 
 
+def _apply_inclusive_groups(dependent: Any, mapping: dict[Any, Any]) -> None:
+    """Rebuild the ``Inclusive`` groups a symmetric ``dependentRequired`` encodes.
+
+    ``dependentRequired`` is refused in general: its asymmetric form ("a needs b"
+    without the reverse) has no probatio equivalent. The symmetric all-or-none
+    form is exactly an ``Inclusive`` group, so it is honored here: each connected
+    set of mutually dependent optional properties becomes one group. Anything else
+    (asymmetric, a self-dependency, a member that is not a declared optional
+    property) is refused, so the decoder never silently widens.
+    """
+    # An index makes the group id, not the member names joined: a property name
+    # may contain any character, so no join separator is collision-free (``a_b``
+    # plus ``c`` and ``a`` plus ``b_c`` would both read ``a_b_c`` and merge two
+    # unrelated groups). Components are sorted, so the ids are stable.
+    for index, members in enumerate(_symmetric_groups(dependent)):
+        group = f"inclusive_{index}"
+        for name in members:
+            key = _optional_key(mapping, name)
+            replacement = Inclusive(
+                name,
+                group,
+                msg=key.msg,
+                default=key.default,
+                description=key.description,
+            )
+            mapping[replacement] = mapping.pop(key)
+
+
+def _symmetric_groups(dependent: Any) -> list[list[str]]:
+    """Validate a ``dependentRequired`` map and return its all-or-none groups.
+
+    Returns one member list per connected group of two or more (a lone or empty
+    dependency is a no-op and yields no group). A connected, symmetric group is
+    all-or-none: any member present forces its neighbours present, and by
+    connectivity the whole group. Raises ``SchemaError`` for any shape that is not
+    a clean symmetric all-or-none.
+    """
+    if not isinstance(dependent, dict):
+        message = (
+            "JSON Schema 'dependentRequired' must be an object, got "
+            f"{type(dependent).__name__}"
+        )
+        raise SchemaError(message)
+
+    graph: dict[str, set[str]] = {}
+    for name, deps in dependent.items():
+        if not isinstance(name, str):
+            message = "JSON Schema 'dependentRequired' keys must be property names"
+            raise SchemaError(message)
+        if not (isinstance(deps, list) and all(isinstance(dep, str) for dep in deps)):
+            message = (
+                f"JSON Schema 'dependentRequired[{name}]' must be an array of "
+                "property names"
+            )
+            raise SchemaError(message)
+        if name in deps:
+            message = f"JSON Schema 'dependentRequired[{name}]' cannot depend on itself"
+            raise SchemaError(message)
+        graph[name] = {str(dep) for dep in deps}
+
+    _require_symmetric(graph)
+    return _connected_groups(graph)
+
+
+def _require_symmetric(graph: dict[str, set[str]]) -> None:
+    """Refuse an asymmetric ``dependentRequired``: it is not an all-or-none group."""
+    for name, deps in graph.items():
+        for dep in deps:
+            if dep not in graph or name not in graph[dep]:
+                message = (
+                    "asymmetric 'dependentRequired' is not supported (only the "
+                    f"symmetric all-or-none form maps to Inclusive): '{name}' "
+                    f"requires '{dep}' but not the reverse"
+                )
+                raise SchemaError(message)
+
+
+def _connected_groups(graph: dict[str, set[str]]) -> list[list[str]]:
+    """Return the connected components of a symmetric graph, keeping those of size 2+.
+
+    Each component and the list of components are sorted, so the caller's group
+    ids are stable regardless of the input's key order.
+    """
+    seen: set[str] = set()
+    groups: list[list[str]] = []
+    for start in graph:
+        if start in seen:
+            continue
+        stack = [start]
+        component: list[str] = []
+        while stack:
+            member = stack.pop()
+            if member in seen:
+                continue
+            seen.add(member)
+            component.append(member)
+            stack.extend(graph[member] - seen)
+        if len(component) > 1:
+            groups.append(sorted(component))
+    return sorted(groups)
+
+
+def _optional_key(mapping: dict[Any, Any], name: str) -> Optional:
+    """Find the plain ``Optional`` marker for ``name``, or refuse the group.
+
+    An ``Inclusive`` member must be a declared optional property. A name that is
+    required, secret, or undeclared cannot form an all-or-none group, so it is
+    refused rather than silently dropped.
+    """
+    for key in mapping:
+        if type(key) is Optional and key.schema == name:
+            return key
+    message = (
+        f"JSON Schema 'dependentRequired' names '{name}', which is not a declared "
+        "optional property, so it cannot form an Inclusive group"
+    )
+    raise SchemaError(message)
+
+
 def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     """Render a JSON Schema object as a mapping schema."""
     properties = node.get("properties", {})
@@ -1857,6 +1985,9 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
 
     if additional_schema is not None:
         mapping[str] = additional_schema
+
+    if "dependentRequired" in node:
+        _apply_inclusive_groups(node["dependentRequired"], mapping)
 
     base = _object_base(mapping, additional, declared="properties" in node)
     min_props = _item_count(node, "minProperties")
