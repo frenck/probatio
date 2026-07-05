@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, cast
 
+from probatio._compile import recursion_guard
 from probatio.codecs._regex_safety import is_catastrophic
 from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
@@ -48,7 +49,7 @@ from probatio.markers import (
     Undefined,
     resolve_key,
 )
-from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema, recursion_guard
+from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     UUID,
     All,
