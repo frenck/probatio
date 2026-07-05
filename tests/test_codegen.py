@@ -452,6 +452,18 @@ class _Movie(TypedDict):
     year: int
 
 
+@dataclass
+class _Guarded:
+    """A dataclass whose __post_init__ rejects a value the field type accepts."""
+
+    weight: float
+
+    def __post_init__(self) -> None:
+        if self.weight < 0:
+            message = "weight must not be negative"
+            raise ValueError(message)
+
+
 _DC_INPUTS: list[dict[str, object]] = [
     {"name": "ada", "age": 30, "score": 9.5, "nickname": "c"},
     {"name": "ada", "age": 30},
@@ -470,6 +482,22 @@ def test_dataclass_compiled_matches_interpreted(data: dict[str, object]) -> None
     compiled = DataclassSchema(_User, compile=True).compile()
     assert _is_compiled(compiled)
     assert _outcome(interpreted, dict(data)) == _outcome(compiled, dict(data))
+
+
+def test_compiled_dataclass_post_init_error_matches_interpreted() -> None:
+    """A __post_init__ ValueError normalizes identically compiled and interpreted.
+
+    Construction runs outside the field try, so a leaked ValueError would escape the
+    compiled path as itself; it must defer to the interpreted constructor, which
+    reports a ValueInvalid. Regression test for the compiled path leaking a raw
+    __post_init__ error (issue #176); runs in the default gate, not only the
+    ``--compiled`` lane, so CI guards it.
+    """
+    interpreted = DataclassSchema(_Guarded)
+    compiled = DataclassSchema(_Guarded, compile=True).compile()
+    assert _is_compiled(compiled)
+    for data in ({"weight": -1.0}, {"weight": 1.0}):
+        assert _outcome(interpreted, dict(data)) == _outcome(compiled, dict(data))
 
 
 def test_zero_field_dataclass_with_remove_extra_compiles() -> None:
