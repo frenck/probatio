@@ -27,6 +27,8 @@ from probatio import (
     Exclusive,
     Forbidden,
     In,
+    Length,
+    Match,
     MultipleInvalid,
     Optional,
     Range,
@@ -136,6 +138,16 @@ _BUILDERS = {
     "nested_map": lambda **k: Schema(
         {Required("srv"): {Required("host"): str, "port": int}}, **k
     ),
+    # Length inlining: an integer-bounded len check (both bounds, then each single
+    # bound), a no-bounds Length (always passes, so it emits nothing), and a
+    # non-integer bound (unusual for a length, left to the closure). Match inlining:
+    # an anchored regex, hit and miss and a non-string that bails on the TypeError.
+    "length": lambda **k: Schema({"x": All(str, Length(min=2, max=4))}, **k),
+    "length_min_only": lambda **k: Schema({"x": All(str, Length(min=2))}, **k),
+    "length_max_only": lambda **k: Schema({"x": All(str, Length(max=4))}, **k),
+    "length_no_bounds": lambda **k: Schema({"x": All(str, Length())}, **k),
+    "length_float_bound": lambda **k: Schema({"x": Length(min=1.5)}, **k),
+    "match": lambda **k: Schema({"x": Match(r"^[a-z]+$")}, **k),
 }
 
 
@@ -194,6 +206,13 @@ _INPUTS: list[object] = [
     {"x": 200},
     {"x": "hi"},
     {"x": None},
+    # Length/Match: an in-range lowercase hit, an over-length value that still
+    # matches the regex, a zero-length string, and (reusing the cases above) a
+    # too-short "a", an uppercase miss "A", and a non-string 5 that bails on
+    # len/match.
+    {"x": "abc"},
+    {"x": "abcdef"},
+    {"x": ""},
 ]
 
 

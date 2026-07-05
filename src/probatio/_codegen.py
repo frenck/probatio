@@ -51,10 +51,17 @@ if TYPE_CHECKING:
     from probatio.validators.coerce import Coerce
     from probatio.validators.combinators import All
     from probatio.validators.combinators import Any as AnyValidator
-    from probatio.validators.comparison import In, Range
+    from probatio.validators.comparison import In, Length, Range
+    from probatio.validators.strings import Match
 
     _ValidatorTypes = tuple[
-        type[Coerce[Any]], type[Range], type[In], type[AnyValidator], type[All]
+        type[Coerce[Any]],
+        type[Range],
+        type[In],
+        type[AnyValidator],
+        type[All],
+        type[Length],
+        type[Match],
     ]
 
 # A missing key, distinct from any real value (a key whose value is ``None`` is
@@ -188,6 +195,57 @@ def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | Non
     return lines
 
 
+def _inline_length(schema: Any, tag: str) -> list[str] | None:
+    """Inline a ``Length`` with integer bounds; ``_v`` is unchanged.
+
+    With no bound set the value always passes, so nothing is emitted. A value whose
+    ``len`` raises (no ``__len__``, or a user ``__len__`` that raises) bails to the
+    interpreted ``Length``, which reports the real ``LengthInvalid``; an out-of-range
+    length bails there too. A non-integer bound (unusual for a length) is left to the
+    interpreted validator, so its own type handling stays the single source of truth.
+    """
+    low, high = schema.min, schema.max
+    if low is None and high is None:
+        return []
+    if (low is not None and not isinstance(low, int)) or (
+        high is not None and not isinstance(high, int)
+    ):
+        return None
+    name = f"_len{tag}"
+    lines = [
+        "        try:",
+        f"            {name} = len(_v)",
+        # A len that raises is a failure the interpreted Length reports, not a crash;
+        # match its ``except Exception`` so any __len__ blowup defers, never leaks.
+        "        except Exception:",
+        "            raise _Bail",
+    ]
+    if low is not None:
+        lines += [f"        if {name} < {low!r}:", "            raise _Bail"]
+    if high is not None:
+        lines += [f"        if {name} > {high!r}:", "            raise _Bail"]
+    return lines
+
+
+def _inline_match(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | None:
+    """Inline a ``Match`` regular-expression check; ``_v`` is unchanged.
+
+    The compiled pattern is bound live (not re-emitted as source), and ``.match`` is
+    used exactly as the interpreted ``Match`` does (anchored at the start). A value the
+    pattern does not match, or one ``.match`` cannot take (a non-string ``TypeError``),
+    bails to the interpreted ``Match`` for the real ``MatchInvalid``.
+    """
+    name = f"_re{tag}"
+    namespace[name] = schema.pattern
+    return [
+        "        try:",
+        f"            if {name}.match(_v) is None:",
+        "                raise _Bail",
+        "        except TypeError:",
+        "            raise _Bail",
+    ]
+
+
 def _emit_membership(name: str) -> list[str]:
     """Emit a membership bail-check that survives a value ``in`` cannot test.
 
@@ -244,7 +302,7 @@ def _inline_all(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     dominant hot-path composition). ``Range`` and ``In`` leave ``_v`` unchanged,
     so the knowledge survives them; any other branch conservatively resets it.
     """
-    coerce_cls, range_cls, in_cls, _, _ = _validator_types()
+    coerce_cls, range_cls, in_cls, _, _, _, _ = _validator_types()
     chained: list[str] = []
     numeric = False
     for position, sub in enumerate(schema.validators):
@@ -318,23 +376,26 @@ _VALIDATOR_TYPES: _ValidatorTypes | None = None
 
 
 def _validator_types() -> _ValidatorTypes:
-    """Return ``(Coerce, Range, In, AnyValidator, All)``, importing them once."""
+    """Return ``(Coerce, Range, In, AnyValidator, All, Length, Match)``, imported once."""
     global _VALIDATOR_TYPES  # noqa: PLW0603 - a write-once import cache
     if _VALIDATOR_TYPES is None:
         from probatio.validators.coerce import Coerce  # noqa: PLC0415
         from probatio.validators.combinators import All  # noqa: PLC0415
         from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
-        from probatio.validators.comparison import In, Range  # noqa: PLC0415
+        from probatio.validators.comparison import In, Length, Range  # noqa: PLC0415
+        from probatio.validators.strings import Match  # noqa: PLC0415
 
-        _VALIDATOR_TYPES = (Coerce, Range, In, AnyValidator, All)
+        _VALIDATOR_TYPES = (Coerce, Range, In, AnyValidator, All, Length, Match)
     return _VALIDATOR_TYPES
 
 
-def _inline_validator(
+def _inline_validator(  # noqa: PLR0911 - a flat one-per-validator type dispatch
     schema: Any, namespace: dict[str, Any], tag: str
 ) -> list[str] | None:
     """Dispatch a non-type value schema to its inline emitter, or ``None``."""
-    coerce_cls, range_cls, in_cls, any_cls, all_cls = _validator_types()
+    coerce_cls, range_cls, in_cls, any_cls, all_cls, length_cls, match_cls = (
+        _validator_types()
+    )
 
     if isinstance(schema, coerce_cls):
         return _inline_coerce(schema.type)
@@ -346,6 +407,10 @@ def _inline_validator(
         return _inline_any(schema, namespace, tag)
     if isinstance(schema, all_cls):
         return _inline_all(schema, namespace, tag)
+    if isinstance(schema, length_cls):
+        return _inline_length(schema, tag)
+    if isinstance(schema, match_cls):
+        return _inline_match(schema, namespace, tag)
     return None
 
 
