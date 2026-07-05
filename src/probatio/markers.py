@@ -92,6 +92,10 @@ class _Extra:
 
 Extra = _Extra()
 
+# voluptuous exposes the same catch-all marker under a lowercase ``extra`` alias as
+# well; mirror it so a schema written against either name is a drop-in.
+extra = Extra
+
 
 class Object(dict[Any, Any]):
     """A schema that validates an object's attributes instead of dict keys.
