@@ -89,7 +89,11 @@ def _iso_field(raw: str | None) -> float:
 
 
 class Datetime(_SafeValidator):
-    """Validate that a string parses as a datetime in the given format."""
+    """Validate that a string parses as a datetime in the given format.
+
+    Returns the string unchanged (voluptuous's string-in, string-out behavior).
+    Use ``AsDatetime`` for the parsed ``datetime.datetime`` object instead.
+    """
 
     DEFAULT_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
@@ -116,7 +120,10 @@ class Datetime(_SafeValidator):
 
 
 class Date(Datetime):
-    """Validate that a string parses as a date in the given format."""
+    """Validate that a string parses as a date in the given format.
+
+    Returns the string unchanged. Use ``AsDate`` for the parsed ``datetime.date``.
+    """
 
     DEFAULT_FORMAT = "%Y-%m-%d"
 
@@ -138,6 +145,7 @@ class Time(Datetime):
 
     The sibling of ``Date``/``Datetime`` for a wall-clock time (voluptuous issue
     #335). Defaults to ``%H:%M:%S``; pass ``format="%H:%M"`` to drop the seconds.
+    Returns the string unchanged. Use ``AsTime`` for the parsed ``datetime.time``.
     """
 
     DEFAULT_FORMAT = "%H:%M:%S"
@@ -158,12 +166,13 @@ class Time(Datetime):
 class AsDatetime(_SafeValidator):
     """Parse a string into a ``datetime.datetime``.
 
-    Parses ISO 8601 by default, accepting anything ``datetime.fromisoformat``
-    accepts on this Python (the ``T`` or space separator, a ``Z`` or ``+HH:MM``
-    offset, fractional seconds). Pass ``format=`` to parse a specific ``strptime``
-    layout instead. Returns the parsed ``datetime.datetime``, not the original
-    string. Set ``require_timezone`` to reject a naive result (one without
-    ``tzinfo``); the ISO default reads the offset, so this needs no extra format.
+    The object-returning sibling of ``Datetime``: it returns the parsed
+    ``datetime.datetime`` instead of the original string. Parses ISO 8601 by
+    default, accepting anything ``datetime.fromisoformat`` accepts on this Python
+    (the ``T`` or space separator, a ``Z`` or ``+HH:MM`` offset, fractional
+    seconds). Pass ``format=`` to parse a specific ``strptime`` layout instead. Set
+    ``require_timezone`` to reject a naive result (one without ``tzinfo``); the ISO
+    default reads the offset, so this needs no extra format.
 
     Parsing uses the standard library only, on purpose: a faster backend like
     ciso8601 accepts a different set of strings and returns a different ``tzinfo``
