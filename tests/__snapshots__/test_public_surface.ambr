@@ -1,0 +1,1778 @@
+# serializer version: 1
+# name: test_public_surface_snapshot
+  dict({
+    'ALLOW_EXTRA': dict({
+      'kind': 'value',
+    }),
+    'ASCII': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Alias': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'aliases VAR_POSITIONAL required',
+        'accept_canonical KEYWORD_ONLY True',
+        'required KEYWORD_ONLY False',
+        'default KEYWORD_ONLY <Undefined>',
+        'msg KEYWORD_ONLY None',
+        'description KEYWORD_ONLY None',
+      ]),
+    }),
+    'All': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'AllInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'AllOrNone': dict({
+      'kind': 'class',
+      'signature': list([
+        'keys VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'require_mapping KEYWORD_ONLY True',
+      ]),
+    }),
+    'Alpha': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Alphanumeric': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'And': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'Any': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'AnyInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'AsDate': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'AsDatetime': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'require_timezone KEYWORD_ONLY False',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'AsTime': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'AsTimedelta': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'AsTimezone': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'AtLeastOne': dict({
+      'kind': 'class',
+      'signature': list([
+        'keys VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'require_mapping KEYWORD_ONLY True',
+      ]),
+    }),
+    'AtMostOne': dict({
+      'kind': 'class',
+      'signature': list([
+        'keys VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'require_mapping KEYWORD_ONLY True',
+      ]),
+    }),
+    'Base64': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'BlockDeviceInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Boolean': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'BooleanInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'BuildPolicy': dict({
+      'kind': 'class',
+      'signature': list([
+        'values VAR_POSITIONAL required',
+      ]),
+    }),
+    'Byte': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'ByteLength': dict({
+      'kind': 'class',
+      'signature': list([
+        'min POSITIONAL_OR_KEYWORD None',
+        'max POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Capitalize': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'Check': dict({
+      'kind': 'class',
+      'signature': list([
+        'predicate POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'Clamp': dict({
+      'kind': 'class',
+      'signature': list([
+        'min POSITIONAL_OR_KEYWORD None',
+        'max POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Coerce': dict({
+      'kind': 'class',
+      'signature': list([
+        'type POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'CoerceInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'suggest_value KEYWORD_ONLY <object>',
+        'suggest_pool KEYWORD_ONLY <tuple>',
+        'suggest_exclude KEYWORD_ONLY <object>',
+        'suffix KEYWORD_ONLY True',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'CompilePolicy': dict({
+      'kind': 'class',
+      'signature': list([
+        'values VAR_POSITIONAL required',
+      ]),
+    }),
+    'Contains': dict({
+      'kind': 'class',
+      'signature': list([
+        'item POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'ContainsInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'CreditCard': dict({
+      'kind': 'class',
+      'signature': list([
+        'normalize POSITIONAL_OR_KEYWORD True',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'DataURI': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'DataclassSchema': dict({
+      'kind': 'class',
+      'signature': list([
+        'dataclass_type POSITIONAL_OR_KEYWORD required',
+        'additional_constraints POSITIONAL_OR_KEYWORD None',
+        'required KEYWORD_ONLY False',
+        'extra KEYWORD_ONLY 0',
+        'compile KEYWORD_ONLY None',
+      ]),
+    }),
+    'Date': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'DateInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Datetime': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'DatetimeInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'DefaultTo': dict({
+      'kind': 'class',
+      'signature': list([
+        'default POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'DictInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'DirInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Duration': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'DurationInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'E164': dict({
+      'kind': 'class',
+      'signature': list([
+        'normalize POSITIONAL_OR_KEYWORD True',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'Email': dict({
+      'kind': 'function',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'EmailInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'EndsWith': dict({
+      'kind': 'class',
+      'signature': list([
+        'suffix POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'EnsureList': dict({
+      'kind': 'class',
+      'signature': list([
+      ]),
+    }),
+    'EnumInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'EpochInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Equal': dict({
+      'kind': 'class',
+      'signature': list([
+        'target POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Error': dict({
+      'kind': 'class',
+    }),
+    'ExactSequence': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'ExactSequenceInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'ExactlyOne': dict({
+      'kind': 'class',
+      'signature': list([
+        'keys VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'require_mapping KEYWORD_ONLY True',
+      ]),
+    }),
+    'Exclusive': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'group_of_exclusion POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+        'required KEYWORD_ONLY False',
+        'default KEYWORD_ONLY <Undefined>',
+      ]),
+    }),
+    'ExclusiveInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Extra': dict({
+      'kind': 'value',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'ExtraKeysInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'suggest_value KEYWORD_ONLY <object>',
+        'suggest_pool KEYWORD_ONLY <tuple>',
+        'suggest_exclude KEYWORD_ONLY <object>',
+        'suffix KEYWORD_ONLY True',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'FalseInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'FifoInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'FileInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Forbidden': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Fqdn': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'FqdnUrl': dict({
+      'kind': 'function',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'FromEpoch': dict({
+      'kind': 'class',
+      'signature': list([
+        "unit POSITIONAL_OR_KEYWORD 'seconds'",
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'FromJSONString': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'FromPercentage': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Hex': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'HexColor': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'HexInt': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Hostname': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'HostnameInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'IBAN': dict({
+      'kind': 'class',
+      'signature': list([
+        'normalize POSITIONAL_OR_KEYWORD True',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'IPAddress': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IPNetwork': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IPv4Address': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IPv6Address': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Immutable': dict({
+      'kind': 'class',
+      'signature': list([
+        'fields VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'ImmutableInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'In': dict({
+      'kind': 'class',
+      'signature': list([
+        'container POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'fold_case KEYWORD_ONLY False',
+        'space KEYWORD_ONLY None',
+      ]),
+    }),
+    'InInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'suggest_value KEYWORD_ONLY <object>',
+        'suggest_pool KEYWORD_ONLY <tuple>',
+        'suggest_exclude KEYWORD_ONLY <object>',
+        'suffix KEYWORD_ONLY True',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Inclusive': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'group_of_inclusion POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'default POSITIONAL_OR_KEYWORD <Undefined>',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'InclusiveInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Invalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'IpInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'IsBlockDevice': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsDir': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsFalse': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsFifo': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsFile': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsRegex': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsSocket': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsSymlink': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'IsTrue': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'JSONString': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'JsonInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Key': dict({
+      'kind': 'class',
+      'signature': list([
+        'secret POSITIONAL_OR_KEYWORD False',
+        'alias POSITIONAL_OR_KEYWORD None',
+        'accept_canonical POSITIONAL_OR_KEYWORD True',
+        'forbidden POSITIONAL_OR_KEYWORD False',
+        'remove POSITIONAL_OR_KEYWORD False',
+        'inclusive POSITIONAL_OR_KEYWORD None',
+        'exclusive POSITIONAL_OR_KEYWORD None',
+        'required POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Latitude': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Length': dict({
+      'kind': 'class',
+      'signature': list([
+        'min POSITIONAL_OR_KEYWORD None',
+        'max POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'LengthInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Literal': dict({
+      'kind': 'class',
+      'signature': list([
+        'lit POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'LiteralInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Location': dict({
+      'kind': 'class',
+      'signature': list([
+        'line POSITIONAL_OR_KEYWORD required',
+        'column POSITIONAL_OR_KEYWORD required',
+        'file POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Longitude': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Lower': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'MacAddress': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'MacAddressInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Marker': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Match': dict({
+      'kind': 'class',
+      'signature': list([
+        'pattern POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'MatchInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Maybe': dict({
+      'kind': 'class',
+      'signature': list([
+        'validator POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Msg': dict({
+      'kind': 'class',
+      'signature': list([
+        'validator POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD required',
+        'cls POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'MultipleInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'errors POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'MultipleOf': dict({
+      'kind': 'class',
+      'signature': list([
+        'factor POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'MultipleOfInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Negative': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'NoWhitespace': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'NonEmpty': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'NonNegative': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'NormalizeMacAddress': dict({
+      'kind': 'class',
+      'signature': list([
+        'upper KEYWORD_ONLY False',
+        "separator KEYWORD_ONLY ':'",
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'NotEnoughValid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'NotIn': dict({
+      'kind': 'class',
+      'signature': list([
+        'container POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'NotInInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Number': dict({
+      'kind': 'class',
+      'signature': list([
+        'precision POSITIONAL_OR_KEYWORD None',
+        'scale POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'yield_decimal POSITIONAL_OR_KEYWORD False',
+      ]),
+    }),
+    'Object': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'cls POSITIONAL_OR_KEYWORD <Undefined>',
+      ]),
+    }),
+    'ObjectInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Optional': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'default POSITIONAL_OR_KEYWORD <Undefined>',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Or': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'PREVENT_EXTRA': dict({
+      'kind': 'value',
+    }),
+    'PathExists': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'PathInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Percentage': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Port': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Positive': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'PrintableASCII': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'REMOVE_EXTRA': dict({
+      'kind': 'value',
+    }),
+    'Range': dict({
+      'kind': 'class',
+      'signature': list([
+        'min POSITIONAL_OR_KEYWORD None',
+        'max POSITIONAL_OR_KEYWORD None',
+        'min_included POSITIONAL_OR_KEYWORD True',
+        'max_included POSITIONAL_OR_KEYWORD True',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'RangeInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Remove': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Replace': dict({
+      'kind': 'class',
+      'signature': list([
+        'pattern POSITIONAL_OR_KEYWORD required',
+        'substitution POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Required': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'default POSITIONAL_OR_KEYWORD <Undefined>',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'RequiredFieldInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'RequiredIf': dict({
+      'kind': 'class',
+      'signature': list([
+        'conditions POSITIONAL_OR_KEYWORD required',
+        'required VAR_POSITIONAL required',
+        "mode KEYWORD_ONLY 'all'",
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'RequiredWith': dict({
+      'kind': 'class',
+      'signature': list([
+        'trigger POSITIONAL_OR_KEYWORD required',
+        'required VAR_POSITIONAL required',
+        "mode KEYWORD_ONLY 'any'",
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'RequiredWithout': dict({
+      'kind': 'class',
+      'signature': list([
+        'trigger POSITIONAL_OR_KEYWORD required',
+        'required VAR_POSITIONAL required',
+        "mode KEYWORD_ONLY 'any'",
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'ScalarInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Schema': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'required POSITIONAL_OR_KEYWORD False',
+        'extra POSITIONAL_OR_KEYWORD 0',
+        'compile KEYWORD_ONLY None',
+      ]),
+    }),
+    'SchemaError': dict({
+      'kind': 'class',
+    }),
+    'Schemable': dict({
+      'kind': 'value',
+    }),
+    'Secret': dict({
+      'kind': 'class',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'description POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Self': dict({
+      'kind': 'value',
+    }),
+    'SequenceTypeInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Set': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'SetTo': dict({
+      'kind': 'class',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'Slug': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'SlugInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'SmallFloat': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'SocketInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'SomeOf': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators POSITIONAL_OR_KEYWORD required',
+        'min_valid POSITIONAL_OR_KEYWORD None',
+        'max_valid POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'required POSITIONAL_OR_KEYWORD False',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'Sorted': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'StartsWith': dict({
+      'kind': 'class',
+      'signature': list([
+        'prefix POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Strip': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'Switch': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'discriminant KEYWORD_ONLY None',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'SymlinkInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Time': dict({
+      'kind': 'class',
+      'signature': list([
+        'format POSITIONAL_OR_KEYWORD None',
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'TimeInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'TimeZone': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'TimeZoneInfo': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'TimeZoneInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Title': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'TooManyValid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'TrueInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'TypeInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'TypedDictSchema': dict({
+      'kind': 'class',
+      'signature': list([
+        'typeddict_type POSITIONAL_OR_KEYWORD required',
+        'additional_constraints POSITIONAL_OR_KEYWORD None',
+        'extra KEYWORD_ONLY 0',
+        'compile KEYWORD_ONLY None',
+      ]),
+    }),
+    'ULID': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'UNDEFINED': dict({
+      'kind': 'value',
+    }),
+    'UNSUPPORTED': dict({
+      'kind': 'value',
+    }),
+    'UUID': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+        'version POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Undefined': dict({
+      'kind': 'class',
+      'signature': list([
+      ]),
+    }),
+    'Union': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+        'discriminant KEYWORD_ONLY None',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'Unique': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Unordered': dict({
+      'kind': 'class',
+      'signature': list([
+        'validators POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'Upper': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'Url': dict({
+      'kind': 'function',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'UrlInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'UuidInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'ValueInvalid': dict({
+      'kind': 'class',
+      'signature': list([
+        'message POSITIONAL_OR_KEYWORD None',
+        'path POSITIONAL_OR_KEYWORD None',
+        'error_message POSITIONAL_OR_KEYWORD None',
+        'error_type POSITIONAL_OR_KEYWORD None',
+        'code KEYWORD_ONLY None',
+        'context KEYWORD_ONLY None',
+        'translation_key KEYWORD_ONLY None',
+        'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'VirtualPathComponent': dict({
+      'kind': 'class',
+    }),
+    'WriteOnce': dict({
+      'kind': 'class',
+      'signature': list([
+        'fields VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    '__version__': dict({
+      'kind': 'value',
+    }),
+    'create_dataclass_schema': dict({
+      'kind': 'function',
+      'signature': list([
+        'dataclass_type POSITIONAL_OR_KEYWORD required',
+        'additional_constraints POSITIONAL_OR_KEYWORD None',
+        'required KEYWORD_ONLY False',
+        'extra KEYWORD_ONLY 0',
+        '_self_refs KEYWORD_ONLY None',
+      ]),
+    }),
+    'create_typeddict_schema': dict({
+      'kind': 'function',
+      'signature': list([
+        'typeddict_type POSITIONAL_OR_KEYWORD required',
+        'additional_constraints POSITIONAL_OR_KEYWORD None',
+        'extra KEYWORD_ONLY 0',
+        '_self_refs KEYWORD_ONLY None',
+      ]),
+    }),
+    'current_context': dict({
+      'kind': 'function',
+      'signature': list([
+      ]),
+    }),
+    'default_factory': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'extra': dict({
+      'kind': 'value',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'from_json_schema': dict({
+      'kind': 'function',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'from_openapi': dict({
+      'kind': 'function',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'get_build_policy': dict({
+      'kind': 'function',
+      'signature': list([
+      ]),
+    }),
+    'get_compile_policy': dict({
+      'kind': 'function',
+      'signature': list([
+      ]),
+    }),
+    'is_dataclass': dict({
+      'kind': 'function',
+      'signature': list([
+        'obj POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'message': dict({
+      'kind': 'function',
+      'signature': list([
+        'default POSITIONAL_OR_KEYWORD None',
+        'cls POSITIONAL_OR_KEYWORD None',
+        'translation_key KEYWORD_ONLY None',
+      ]),
+    }),
+    'probatio': dict({
+      'kind': 'function',
+      'signature': list([
+        'constraints POSITIONAL_OR_KEYWORD None',
+        'returns POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'raises': dict({
+      'kind': 'function',
+      'signature': list([
+        'exc POSITIONAL_OR_KEYWORD required',
+        'msg POSITIONAL_OR_KEYWORD None',
+        'regex POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'set_build_policy': dict({
+      'kind': 'function',
+      'signature': list([
+        'policy POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'set_compile_policy': dict({
+      'kind': 'function',
+      'signature': list([
+        'policy POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'to_field_list': dict({
+      'kind': 'function',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'custom_serializer KEYWORD_ONLY None',
+      ]),
+    }),
+    'to_json_schema': dict({
+      'kind': 'function',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'strict KEYWORD_ONLY False',
+        'custom_serializer KEYWORD_ONLY None',
+      ]),
+    }),
+    'to_openapi': dict({
+      'kind': 'function',
+      'signature': list([
+        'schema POSITIONAL_OR_KEYWORD required',
+        'custom_serializer KEYWORD_ONLY None',
+        "openapi_version KEYWORD_ONLY '3.0'",
+        'strict KEYWORD_ONLY False',
+      ]),
+    }),
+    'truth': dict({
+      'kind': 'function',
+      'signature': list([
+        'func POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'validate': dict({
+      'kind': 'function',
+      'signature': list([
+        'args VAR_POSITIONAL required',
+        'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+  })
+# ---
