@@ -61,6 +61,7 @@ from typing import Required as RequiredHint
 from typing import Union as TypingUnion
 
 from probatio._codegen import compile_mapping
+from probatio._compile import recursion_guard
 from probatio._engine import _MappingValidator
 from probatio.error import Invalid, MultipleInvalid, SchemaError, ValueInvalid
 from probatio.fields import Key
@@ -82,7 +83,6 @@ from probatio.schema import (
     PREVENT_EXTRA,
     CompiledSchema,
     Schema,
-    recursion_guard,
 )
 from probatio.validators import All, Any, ExactSequence, In, Maybe, Union
 
