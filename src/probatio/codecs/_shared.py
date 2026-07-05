@@ -53,7 +53,7 @@ class _Unsupported:
 
 
 # Returned from a ``custom_serializer`` to mean "I do not handle this node, fall
-# back to the default". Shared by ``serialize`` and ``to_openapi``.
+# back to the default". Shared by ``to_field_list`` and ``to_openapi``.
 UNSUPPORTED = _Unsupported()
 
 

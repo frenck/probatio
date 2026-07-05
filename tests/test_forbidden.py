@@ -17,7 +17,7 @@ from probatio import (
     Required,
     Schema,
 )
-from probatio.codecs.fields import serialize
+from probatio.codecs.fields import to_field_list
 from probatio.codecs.jsonschema import to_json_schema
 
 
@@ -90,7 +90,7 @@ def test_forbidden_exports_a_false_json_schema_property() -> None:
 
 def test_forbidden_is_omitted_from_the_field_list() -> None:
     """serialize leaves a Forbidden key out of the rendered field list."""
-    fields = serialize(Schema({Required("id"): int, Forbidden("password"): object}))
+    fields = to_field_list(Schema({Required("id"): int, Forbidden("password"): object}))
     names = {field["name"] for field in fields}
 
     assert names == {"id"}

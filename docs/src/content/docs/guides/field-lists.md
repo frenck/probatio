@@ -4,8 +4,8 @@ description: Render a Probatio schema as the flat field list config frontends an
 ---
 
 Some tools do not want a schema document, they want a flat list of fields to
-render as a form. `serialize(schema)` produces exactly that. It is exported from
-the top level: `from probatio import serialize`.
+render as a form. `to_field_list(schema)` produces exactly that. It is exported from
+the top level: `from probatio import to_field_list`.
 
 Unlike [JSON Schema](/guides/json-schema/) and [OpenAPI](/guides/openapi/), this is
 not a published standard. It is the shape
@@ -22,7 +22,7 @@ A mapping becomes a list of field dicts, one per key, carrying the type, the nam
 and whether it is required:
 
 ```python
-from probatio import Schema, Required, Optional, In, serialize
+from probatio import Schema, Required, Optional, In, to_field_list
 
 schema = Schema(
     {
@@ -31,7 +31,7 @@ schema = Schema(
         Required("mode"): In(["auto", "manual"]),
     }
 )
-serialize(schema)
+to_field_list(schema)
 # [{'type': 'string', 'name': 'name', 'required': True}, {'type': 'integer', 'name': 'port', 'required': False, 'optional': True, 'default': 8080}, {'type': 'select', 'options': [('auto', 'auto'), ('manual', 'manual')], 'name': 'mode', 'required': True}]
 ```
 
@@ -44,7 +44,7 @@ each value its own label.
 
 ## A custom-serializer hook
 
-`serialize` and `to_openapi` take a `custom_serializer` hook, called first for
+`to_field_list` and `to_openapi` take a `custom_serializer` hook, called first for
 each node. It returns a dict to override that node, or the `UNSUPPORTED` sentinel
 to defer to the default handling. `UNSUPPORTED` is exported from the top level and
 prints as itself:
@@ -61,7 +61,7 @@ renders as a dedicated `port` field type instead of the default bounded
 integer:
 
 ```python
-from probatio import Schema, Required, Port, serialize, UNSUPPORTED
+from probatio import Schema, Required, Port, to_field_list, UNSUPPORTED
 
 
 def render_port(node):
@@ -71,11 +71,11 @@ def render_port(node):
 
 
 schema = Schema({Required("host"): str, Required("port"): Port()})
-serialize(schema, custom_serializer=render_port)
+to_field_list(schema, custom_serializer=render_port)
 # [{'type': 'string', 'name': 'host', 'required': True}, {'type': 'port', 'name': 'port', 'required': True}]
 ```
 
-The hook overrides the value part only; `serialize` still adds the key facets
+The hook overrides the value part only; `to_field_list` still adds the key facets
 (`name`, `required`, `default`) around whatever the hook returns.
 
 :::tip

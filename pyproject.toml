@@ -86,7 +86,7 @@ test = [
   # voluptuous run the same schemas and inputs and their results are compared.
   # It is never a runtime dependency and no code is copied from it.
   "voluptuous==0.16.0",
-  # voluptuous-serialize is a dev-only oracle: probatio.serialize is compared
+  # voluptuous-serialize is a dev-only oracle: probatio.to_field_list is compared
   # against it on equivalent schemas. Never a runtime dependency.
   "voluptuous-serialize==2.7.0",
   # voluptuous-openapi is a dev-only oracle: probatio.to_openapi is compared
