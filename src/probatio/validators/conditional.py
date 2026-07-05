@@ -246,6 +246,11 @@ class Check(_SafeValidator):
     a predicate that raises (a missing key, a type error), is reported with the
     message, so the value never leaks a raw exception. Use it after a dict schema
     with ``All`` for a cross-field rule the markers cannot express.
+
+    Unlike other validators, ``msg`` is required rather than optional. A bare
+    predicate (often a lambda) has no meaningful default message, so without one a
+    failed check could only report ``not a valid value``, which says nothing about
+    the rule that broke. Requiring the message keeps the error readable.
     """
 
     def __init__(
