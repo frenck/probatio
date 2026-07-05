@@ -21,6 +21,15 @@ Every validator is importable straight from `probatio`, for example
 `from probatio import Range, Coerce`.
 :::
 
+Two naming conventions run through the toolbox, so a name tells you what it does
+with the value. A validator named `As<Type>` (`AsDatetime`, `AsTimedelta`)
+validates the input and returns a real object of that type; its plain sibling
+(`Datetime`, `Duration`) checks the same input but returns it unchanged,
+string-in string-out, for voluptuous compatibility. A validator named
+`From<Source>` (`FromEpoch`, `FromPercentage`, `FromJSONString`) builds a value
+from that source form. So `As` names the type you get out, `From` names the shape
+that goes in.
+
 ## Type and value
 
 These check what a value is, or what it equals.
