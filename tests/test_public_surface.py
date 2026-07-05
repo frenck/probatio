@@ -21,8 +21,10 @@ import probatio
 
 # Defaults whose ``repr`` is stable across runs and Python versions. Anything else
 # (a factory, a sentinel object, a marker) is recorded by type name instead, so a
-# memory-address repr can never make the snapshot flap.
-_STABLE_DEFAULT = (type(None), bool, int, float, str, bytes, frozenset)
+# memory-address repr can never make the snapshot flap. A set or frozenset is left
+# out on purpose: its repr order depends on ``PYTHONHASHSEED``, so it would flap
+# between runs; such a default falls back to the stable ``<frozenset>`` token.
+_STABLE_DEFAULT = (type(None), bool, int, float, str, bytes)
 
 
 def _default(param: inspect.Parameter) -> str:
