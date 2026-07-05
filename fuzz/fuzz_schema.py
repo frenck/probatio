@@ -4,8 +4,8 @@ This drives the core promise of the library. A schema is built from a grammar of
 probatio types, validators, combinators, and markers, then a fuzzed value is run
 through it: the safe-validator contract says only ``Invalid`` (a ``MultipleInvalid``
 from the engine) may escape, on *any* input. The same schema is then run through
-``to_json_schema``, ``to_openapi``, and ``serialize``, which must never crash (an
-unrecognized node falls back to an open schema; ``serialize`` may raise a
+``to_json_schema``, ``to_openapi``, and ``to_field_list``, which must never crash (an
+unrecognized node falls back to an open schema; ``to_field_list`` may raise a
 documented ``ValueError``). Any other escaping exception is a crash.
 
 Run locally (needs the ``atheris`` package):
@@ -19,7 +19,7 @@ import atheris
 with atheris.instrument_imports():
     import probatio as p
     from probatio import Invalid, MultipleInvalid, Schema
-    from probatio.codecs import serialize, to_json_schema, to_openapi
+    from probatio.codecs import to_field_list, to_json_schema, to_openapi
 
 
 def _leaf(fdp):
@@ -167,11 +167,11 @@ def TestOneInput(data: bytes) -> None:  # noqa: N802 (atheris entry point)
     except (Invalid, MultipleInvalid, RecursionError):
         pass  # Rejection and depth-guarded recursion are correct.
 
-    # The encoders must not crash; serialize may raise a documented ValueError.
+    # The encoders must not crash; to_field_list may raise a documented ValueError.
     to_json_schema(schema)
     to_openapi(schema)
     try:
-        serialize(schema)
+        to_field_list(schema)
     except (ValueError, TypeError):
         pass
 
