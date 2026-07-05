@@ -645,7 +645,20 @@ def compile_mapping(
         # ``pass`` keeps the block valid and still bails on a non-dict.
         body.append("        pass")
 
-    tail = f"    return _Type({', '.join(kwargs)})" if construct else "    return out"
+    if construct:
+        # Construction runs outside the field try. A dataclass constructor (its
+        # ``__post_init__``) can raise ``ValueError`` or ``Invalid`` on a value the
+        # field checks let through; the interpreted constructor turns those into a
+        # ``ValueInvalid`` / ``MultipleInvalid``. Defer to it so the compiled path
+        # reports the identical error instead of leaking the raw exception. Any other
+        # exception (a genuine constructor ``TypeError``) propagates in both paths.
+        tail = [
+            f"    try:\n        return _Type({', '.join(kwargs)})",
+            "    except (ValueError, _Invalid):",
+            "        return _interpreted(data)",
+        ]
+    else:
+        tail = ["    return out"]
     lines = [
         "def _validate(data):",
         *prologue,
@@ -653,9 +666,7 @@ def compile_mapping(
         *body,
         "    except _Bail:",
         "        return _interpreted(data)",
-        # Construction (if any) runs outside the try, so a dataclass __init__ error
-        # propagates as itself, exactly as the interpreted constructor lets it.
-        tail,
+        *tail,
     ]
 
     exec(_compile_source("\n".join(lines)), namespace)  # noqa: S102 - trusted schema
