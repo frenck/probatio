@@ -19,20 +19,47 @@ The order of work follows from that. Match voluptuous first, then iterate.
 
 ## What stable means here
 
-Two different things, and the distinction matters.
+Three things, and the distinction matters.
 
-The public API tracks voluptuous and is meant to stay stable. The names and
-signatures (`Schema`, `Required`, `All`, `Any`, `Coerce`, `Invalid`, and the
-rest) are what your code depends on, so they do not move without a documented
-reason.
+**The voluptuous-compatible surface** is the contract, and it tracks voluptuous.
+The names and signatures every voluptuous user already depends on (`Schema`,
+`Required`, `All`, `Any`, `Coerce`, `Invalid`, and the rest) do not move without a
+documented reason, and when they do it is to sit closer to voluptuous, not further
+from it.
 
-The internals are not promised. Before 1.0 they may change while the project
-gathers production feedback and the implementation settles. If you reach past
-the public API into private modules, that is on you.
+**The Probatio-only surface** is public too, and there is a lot of it: the parts
+voluptuous never had. Schemas built from your own types (`DataclassSchema`,
+`TypedDictSchema`), the extra validators and markers (`AsDatetime`, `Slug`,
+`Secret`, `Alias`, the cross-field rules, and more), the codecs (`to_json_schema`
+and `to_openapi` with their `from_*` inverses, plus the output-only
+`to_field_list`), and the build and compile policies. Anything importable straight
+from `probatio` and listed in `__all__` is part of this surface. Before 1.0 it may
+still shift as it settles under real use; at 1.0 it is frozen under semantic
+versioning like the rest, and a public-surface snapshot test in the suite covers
+the whole of it, so a change can only be deliberate.
+
+**The error model** gets its own line, because it is the largest thing Probatio
+adds over voluptuous. The error classes (`Invalid` and its subclasses) and the
+structured data they carry, the `path` to the offending value, the
+machine-readable `code`, the `context`, and the `translation_key`, are the
+contract: catch them by type, read those fields, and rely on them. The
+`translation_key` names the exact sentence of each message, and with its
+`placeholders` it is what a translation keys on, so renaming or removing one is a
+breaking change ([ADR-015](https://github.com/frenck/probatio/blob/main/adr/015-structured-errors-and-localization.md);
+the [translation keys](/reference/translation-keys/) reference lists them all).
+The one thing not frozen is the rendered English text: a custom `msg=` overrides
+it, and a default may be reworded to read better, but the key stays put, so a
+translation follows the key, not the words.
+
+**The internals are not promised.** Before 1.0 they may change while the project
+gathers production feedback and the implementation settles. If you reach past the
+public API into private modules (anything with a leading underscore), that is on
+you.
 
 :::caution[Pre-1.0]
-Some internals may still change before 1.0. The public API is the contract; the
-internals are not.
+The Probatio-only surface may still shift before 1.0 as production feedback comes
+in. The voluptuous-compatible surface is already the contract; the internals never
+are.
 :::
 
 ## Versioning
