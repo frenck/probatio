@@ -636,6 +636,9 @@ def _compile_nested_schema(schema: Any) -> CompiledSchema | None:
     for a ``Self``-using inner, whose ``__call__`` records the active root that
     ``Self`` resolves against.
     """
+    # A lazily-deferred inner must build now: its ``_uses_self`` and engine are read
+    # here to decide the delegation, so a half-built one cannot be reasoned about.
+    schema._ensure_built()  # noqa: SLF001
     if _COMPILING_FOR_COMBINATOR.get() or schema._uses_self:  # noqa: SLF001
         return None
     # An armed schema parks its engine in ``_interpreted`` (``_compiled`` is the
