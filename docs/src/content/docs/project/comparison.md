@@ -13,22 +13,27 @@ and it is pure Python with no native extension.
 That shapes where it fits. Probatio is at home when your data is free-form dicts
 and lists (config files, request bodies, payloads from another system) and you
 want the schema to stay data you can build, pass around, and compose at runtime.
-It is not trying to give you typed model objects. For that, other tools do a
-better job, and this page says where.
+It can also hand back a typed object: point `DataclassSchema` or
+`TypedDictSchema` at a dataclass or `TypedDict` you already own, and you get a
+validated, statically typed result. What it is not is a model _framework_: no
+base class your types inherit, and validation is all it does, with no bundled
+serialization or settings. For that, other tools do a better job, and this page
+says where.
 
 ## The short answer
 
-| Pick this when                                              | Reach for                     |
-| ----------------------------------------------------------- | ----------------------------- |
-| You use voluptuous today and want a maintained replacement  | Probatio                      |
-| Your data is plain dicts and lists, schema as data          | Probatio                      |
-| You want typed model objects with editor and type support   | pydantic                      |
-| You want declarative schema classes with load and dump      | marshmallow                   |
-| Your schemas are cerberus rule dicts                        | cerberus, or port to Probatio |
-| Your contract is a JSON Schema document                     | jsonschema                    |
-| You are (de)serializing your own classes                    | attrs / cattrs                |
-| You (de)serialize dataclasses fast, in a known format       | mashumaro                     |
-| You just need a dict turned into a dataclass, no validation | dacite                        |
+| Pick this when                                                                | Reach for                     |
+| ----------------------------------------------------------------------------- | ----------------------------- |
+| You use voluptuous today and want a maintained replacement                    | Probatio                      |
+| Your data is plain dicts and lists, schema as data                            | Probatio                      |
+| You want validated, typed results from your own dataclasses or TypedDicts     | Probatio                      |
+| You want a model framework: one class for validation, serialization, settings | pydantic                      |
+| You want declarative schema classes with load and dump                        | marshmallow                   |
+| Your schemas are cerberus rule dicts                                          | cerberus, or port to Probatio |
+| Your contract is a JSON Schema document                                       | jsonschema                    |
+| You are (de)serializing your own classes                                      | attrs / cattrs                |
+| You (de)serialize dataclasses fast, in a known format                         | mashumaro                     |
+| You just need a dict turned into a dataclass, no validation                   | dacite                        |
 
 ## voluptuous
 
@@ -52,18 +57,24 @@ schema({"name": "Frenck", "age": 40})
 ## pydantic
 
 Pydantic models your data as classes built on Python type hints, with a native
-(Rust) core and strong editor and type-checker support. You declare a model
-class, and you get typed objects back, with autocompletion and static checking
-that follow from the hints.
+(Rust) core and strong editor and type-checker support. You declare a model class
+that inherits from pydantic's `BaseModel`, and that one class is your schema, your
+type, your validator, and your serializer: typed objects back, with
+autocompletion, static checking, coercion, and `.model_dump()` all following from
+the hints.
 
-That is a real strength, and it is the better choice when you want typed model
-objects to carry through your code and you want your editor and type checker in
-on the deal.
-
-Probatio is the better fit when your data is plain dicts and lists, when you want
-the schema to be data you build and compose at runtime rather than a class you
-declare, or when you are replacing voluptuous. Different shape of problem, not a
-better or worse one.
+Probatio hands back typed objects too, which is newer than its reputation
+suggests: `DataclassSchema` and `TypedDictSchema` validate into a dataclass or
+`TypedDict` you already own, and both are generic, so the result is statically
+typed (a `Config`, not `Any`), editor and checker included. The difference is the
+framework. Pydantic asks your types to be pydantic types, the `BaseModel` base
+class, and bundles serialization and settings on top; Probatio validates
+free-form data, or validates into the plain types you already have, and does
+validation only, you own the serialization. So it is the better fit when your
+data is plain dicts and lists, when the schema should be data you build and
+compose at runtime rather than a class you declare, when you want to validate into
+your own dataclasses without adopting a model framework, or when you are replacing
+voluptuous.
 
 On raw speed the Rust core is genuinely fast, but the advantage is not uniform, and
 it is worth being precise about where it comes from. It is largest on heavy coercion
@@ -79,8 +90,10 @@ parsing-heavy regime, not everywhere, and Probatio stays pure Python with no nat
 extension to build or install.
 
 :::note
-The two can live side by side. Use pydantic where you want typed models, use
-Probatio where you validate free-form data. Picking per use case is fine.
+The two can live side by side. Reach for pydantic when you want its model
+framework, serialization, and settings on a `BaseModel`; reach for Probatio to
+validate free-form data, or to validate into your own plain dataclasses and
+TypedDicts. Picking per use case is fine.
 :::
 
 ## marshmallow

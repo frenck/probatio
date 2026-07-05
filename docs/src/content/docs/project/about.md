@@ -37,11 +37,14 @@ Reaching for validation in Python tends to mean one of a few trades:
   in Probatio are borrowed from it with credit (see the architecture decision
   records). It is a codec library more than a free-form validator, though, so the
   schema-is-data model is not the problem it set out to solve.
-- **pydantic** is the heavyweight, class-first choice. It is fast and capable,
-  but it asks you to describe data as typed models, which is a different mental
-  model and a migration, not a drop-in. It has also broken backward compatibility
-  and reshaped its API substantially in the past (the v1 to v2 rewrite), which is
-  not a foundation this project wants to stand on.
+- **pydantic** is the heavyweight, framework choice: a `BaseModel` class that is
+  your schema, type, validator, and serializer at once. It is fast and capable,
+  but it asks you to describe data as pydantic model classes, a different mental
+  model and a migration, not a drop-in. (Probatio also returns typed objects, from
+  your own dataclasses and TypedDicts, without a base class; the
+  [comparison page](/project/comparison/) draws the line.) It has also broken
+  backward compatibility and reshaped its API substantially in the past (the v1 to
+  v2 rewrite), which is not a foundation this project wants to stand on.
 - **marshmallow** validates and (de)serializes through declarative schema
   classes with explicit field objects, built around the load and dump cycle. A
   solid model, but a class you declare, not data you compose.
