@@ -8,8 +8,9 @@ voluptuous parity), so these tests opt in per case and restore it after.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
@@ -30,9 +31,12 @@ from probatio import (
 )
 from probatio.error import MultipleInvalid, SchemaError
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 
 @pytest.fixture
-def lazy() -> object:
+def lazy() -> Iterator[None]:
     """Run a test under the LAZY build policy, restoring EAGER afterwards."""
     set_build_policy(BuildPolicy.LAZY)
     try:
@@ -184,3 +188,33 @@ def test_ensure_built_is_idempotent() -> None:
     engine = schema._compiled
     schema({"a": 2})
     assert schema._compiled is engine
+
+
+@pytest.mark.usefixtures("lazy")
+def test_concurrent_first_validation_of_a_recursive_combinator_self_is_safe() -> None:
+    """Racing the first validation of a lazy recursive combinator-Self schema is safe.
+
+    ``__call__`` dispatches on ``_uses_self``, which a deferred build sets. If the
+    build were not serialized before that dispatch, a thread could read a stale
+    ``_uses_self`` and skip the active-root setup a combinator-deferred ``Self``
+    needs, raising instead of validating. Building in ``__call__`` closes that.
+    """
+    data = {"next": {"next": None}}
+    errors: list[Exception] = []
+    for _ in range(25):  # fresh instances widen the one-time first-call window
+        schema = Schema({Optional("next"): Any(Self, None)})
+        barrier = threading.Barrier(8)
+
+        def run(schema: Schema = schema, barrier: threading.Barrier = barrier) -> None:
+            barrier.wait()  # release all threads into the first call together
+            try:
+                assert schema(data) == data
+            except Exception as exc:  # noqa: BLE001 - any raise is the failure mode
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    assert not errors, errors

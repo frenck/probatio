@@ -156,6 +156,17 @@ _BOOTSTRAP_LOCK = threading.Lock()
 _BUILD_LOCK = threading.RLock()
 
 
+def _not_built(data: Any) -> Any:  # noqa: ARG001  # pragma: no cover
+    """Stand in as a deferred schema's validator until it builds, and refuse to run.
+
+    Never called: ``__call__`` builds before dispatching, and every site that reads
+    ``_compiled`` directly forces a build first. It exists so a stray read is a loud
+    error, not a silent wrong answer.
+    """
+    message = "internal: a deferred schema's validator was read before it built"
+    raise SchemaError(message)
+
+
 class Schema:
     """A compiled, callable schema.
 
@@ -216,7 +227,10 @@ class Schema:
             and not _INTERNAL_BUILD.get()
             and get_build_policy() is BuildPolicy.LAZY
         ):
-            self._compiled = self._lazy_build
+            # Deferred: ``__call__`` builds on first validation, and the sites that
+            # read the compiled form directly force a build first. ``_compiled`` is a
+            # sentinel until then, so a stray read fails loudly instead of silently.
+            self._compiled = _not_built
         else:
             self._build()
 
@@ -254,16 +268,6 @@ class Schema:
                 if not self._built:  # pragma: no branch
                     self._build()
 
-    def _lazy_build(self, data: Any) -> Any:
-        """First-call stub for a lazy schema: build, then validate through the real path.
-
-        Re-enters ``self`` once the real validator is installed and ``_uses_self`` is
-        known, so recursion and error wrapping take the correct path; the active
-        context, if any, is still set on the enclosing frame and inherited here.
-        """
-        self._ensure_built()
-        return self(data)
-
     def __call__(self, data: Any, *, context: Any = _INHERIT_CONTEXT) -> Any:
         """Validate ``data``, returning the result or raising ``MultipleInvalid``.
 
@@ -274,6 +278,14 @@ class Schema:
         ``schema(data, context=None)`` clears an inherited context, where omitting
         it keeps it.
         """
+        # A deferred (LAZY) schema builds here, before anything reads ``_uses_self``
+        # or ``_compiled``, so the two stay consistent even when several threads race
+        # the first validation (the build is serialized by ``_BUILD_LOCK``). Under the
+        # default EAGER policy ``_built`` is already true, so this is one attribute
+        # read and costs nothing on the validation hot path.
+        if not self._built:
+            self._ensure_built()
+
         if context is not _INHERIT_CONTEXT:
             return self._call_with_context(data, context)
 
