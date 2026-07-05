@@ -207,10 +207,12 @@ _INPUTS: list[object] = [
     {"x": "hi"},
     {"x": None},
     # Length/Match: an in-range lowercase hit, an over-length value that still
-    # matches the regex, and (reusing the cases above) a too-short "a", an uppercase
-    # miss "A", an empty "", and a non-string 5 that bails on len/match.
+    # matches the regex, a zero-length string, and (reusing the cases above) a
+    # too-short "a", an uppercase miss "A", and a non-string 5 that bails on
+    # len/match.
     {"x": "abc"},
     {"x": "abcdef"},
+    {"x": ""},
 ]
 
 
