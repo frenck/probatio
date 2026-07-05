@@ -382,17 +382,17 @@ decides what an absent context means. It is async- and thread-safe, and a plain
 
 ## Validating function arguments
 
-`validate` is a decorator that checks a function's arguments (and, with the
-`__return__` key, its return value) against schemas, the same way a `Schema`
-checks data. A bad argument raises, so the body only runs on valid input. For the
-annotation-driven, async-capable version that reads the schemas from the
-signature, see [the probatio decorator](/guides/probatio-decorator/).
+The `probatio` decorator checks a function's arguments against its type
+annotations, the same way a `Schema` checks data: it reads the signature, infers
+a validator for each annotated parameter, and validates (and coerces) the call
+before the body runs. A bad argument raises, so the body only ever sees valid
+input.
 
 ```python
-from probatio import validate, MultipleInvalid
+from probatio import probatio, MultipleInvalid
 
-@validate(width=int, height=int, __return__=int)
-def area(width, height):
+@probatio
+def area(width: int, height: int) -> int:
     return width * height
 
 area(3, 4)  # 12
@@ -402,6 +402,26 @@ try:
 except MultipleInvalid as err:
     print(err)  # expected int at 'width'
 ```
+
+Layer extra rules with a `constraints` map, and validate the result against the
+`-> R` annotation with `returns=True`:
+
+```python
+from probatio import probatio, Length
+
+@probatio({"name": Length(min=2)}, returns=True)
+def greet(name: str) -> str:
+    return "hi " + name
+
+greet("ada")  # 'hi ada'
+```
+
+An unannotated parameter (`self`, `cls`, a bare `*args`) is left alone, and a
+coroutine function is validated the same way, awaiting the call before the result
+schema runs. See [the probatio decorator](/guides/probatio-decorator/) for the
+full picture. The voluptuous-style `validate` decorator, which names a schema per
+argument (`@validate(width=int, __return__=int)`), stays available for drop-in
+compatibility.
 
 The companion `raises` context manager asserts that a block raises a given
 error, optionally matching the message. It is a test helper, so it lives with
