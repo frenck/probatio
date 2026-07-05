@@ -453,6 +453,19 @@ that process-wide (see [Compiled schemas](/guides/compiled-schemas/)):
 - `get_compile_policy()`: return the active policy.
 - `set_compile_policy(policy)`: set the process-wide policy.
 
+## Build policy
+
+Whether a schema compiles its declaration at construction or defers it to first
+validation; these names control that process-wide (see [Lazy
+building](/guides/lazy-building/)):
+
+- `BuildPolicy`: the policy enum: `EAGER` (the default, compile at construction,
+  matching voluptuous) and `LAZY` (defer to first validation, so a schema built but
+  never validated never compiles). Under `LAZY` a definition error raises at first
+  use rather than at construction.
+- `get_build_policy()`: return the active policy.
+- `set_build_policy(policy)`: set the process-wide policy.
+
 ## Loading and dumping
 
 Probatio validates parsed Python objects; parsing and serialization stay with the

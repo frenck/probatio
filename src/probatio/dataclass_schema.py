@@ -119,6 +119,7 @@ class _RecursiveSchemaRef:
 
     def bind(self, schema: Schema) -> None:
         """Point the reference at the finished schema's compiled engine."""
+        schema._ensure_built()  # noqa: SLF001 - force a lazily-deferred inner to build
         self._validate = schema._compiled  # noqa: SLF001
 
     def __call__(self, data: TypingAny) -> TypingAny:
@@ -787,6 +788,9 @@ def _install_fused_interpreted(schema: Schema) -> None:
     ``_interpreted`` when the schema armed for lazy compilation (it then also
     becomes the generated code's bail-out fallback), else in ``_compiled``.
     """
+    # Force a lazily-deferred wrapper to build first, so its arming and engine are
+    # in place before the fused engine replaces the interpreted one.
+    schema._ensure_built()  # noqa: SLF001
     inner, constructor = schema.schema.validators
     if inner._uses_self:  # noqa: SLF001
         return

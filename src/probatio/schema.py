@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from probatio import _compile as _compile_module
+from probatio._build_policy import BuildPolicy, get_build_policy
 from probatio._codegen import compile_mapping, compile_sequence
 from probatio._compile import (
     _ACTIVE_ROOT,
@@ -58,6 +59,15 @@ from probatio.markers import (
 _VALIDATION_CONTEXT: ContextVar[Any] = ContextVar(
     "probatio_validation_context",
     default=None,
+)
+
+# True while an internal builder (a combinator branch through ``compile_schema``, a
+# dataclass/TypedDict inner) constructs a ``Schema`` whose compiled form it reads
+# immediately. Such a schema must build eagerly even under the LAZY policy, so the
+# deferral applies only to a top-level user schema.
+_INTERNAL_BUILD: ContextVar[bool] = ContextVar(
+    "probatio_internal_build",
+    default=False,
 )
 
 
@@ -139,6 +149,23 @@ _AUTO_COMPILE_THRESHOLD = 50
 # their own. Concurrency is documented on the Performance page.
 _BOOTSTRAP_LOCK = threading.Lock()
 
+# Serializes a lazy schema's first build across threads. Reentrant, because building
+# one schema recursively forces any lazily-deferred nested schema to build (a nested
+# mapping reused as a value), which re-enters on the same thread; a plain lock would
+# deadlock there. Held only for the one-time build, never for validation.
+_BUILD_LOCK = threading.RLock()
+
+
+def _not_built(data: Any) -> Any:  # noqa: ARG001  # pragma: no cover
+    """Stand in as a deferred schema's validator until it builds, and refuse to run.
+
+    Never called: ``__call__`` builds before dispatching, and every site that reads
+    ``_compiled`` directly forces a build first. It exists so a stray read is a loud
+    error, not a silent wrong answer.
+    """
+    message = "internal: a deferred schema's validator was read before it built"
+    raise SchemaError(message)
+
 
 class Schema:
     """A compiled, callable schema.
@@ -146,6 +173,11 @@ class Schema:
     Build it from a type, a literal, a callable, or a nested ``Schema``, then
     call it with a value to validate that value.
     """
+
+    # The active validator: the compiled engine, the compile bootstrap, or, under
+    # the LAZY policy before first use, the ``_lazy_build`` stub (all callables of a
+    # value). Declared so every assignment site checks against the one type.
+    _compiled: CompiledSchema
 
     def __init__(
         self,
@@ -180,19 +212,61 @@ class Schema:
         # records an active root when validated, a contextvar that is not free, so
         # a non-recursive schema, the common case, skips that cost entirely.
         self._uses_self = False
-        # Mark self as the root while compiling, so a ``Self`` inside this schema
-        # resolves here. Tokens nest correctly, so a nested Schema restores the
-        # outer root on exit. The walk lives in ``_compile`` as free functions (so it
-        # can be accelerated on its own); a small context carries the two policies it
-        # reads and reports back whether a ``Self`` was seen.
-        ctx = CompileCtx(extra, required)
+        self._built = False
+        # Under the LAZY build policy a top-level user schema defers its compile walk
+        # to first validation, so one that is built but never validated (an unused
+        # service, trigger, or websocket schema registered at startup) never pays to
+        # build and never holds its validator tree. The default stays EAGER, so the
+        # drop-in promise holds: a malformed schema still raises where it is defined.
+        # Only a plain top-level schema defers; a combinator branch, a dataclass or
+        # TypedDict inner (``_INTERNAL_BUILD``), a subclass, or an explicit
+        # ``compile=`` request builds now, since their compiled form is read at once.
+        if (
+            type(self) is Schema
+            and compile is None
+            and not _INTERNAL_BUILD.get()
+            and get_build_policy() is BuildPolicy.LAZY
+        ):
+            # Deferred: ``__call__`` builds on first validation, and the sites that
+            # read the compiled form directly force a build first. ``_compiled`` is a
+            # sentinel until then, so a stray read fails loudly instead of silently.
+            self._compiled = _not_built
+        else:
+            self._build()
+
+    def _build(self) -> None:
+        """Compile the declaration into the validator engine.
+
+        Split from ``__init__`` so the LAZY policy can defer it to first use. Marks
+        ``self`` the root while compiling, so a ``Self`` inside resolves here; tokens
+        nest, so a nested Schema restores the outer root on exit. The walk lives in
+        ``_compile`` as free functions; a small context carries the policies it reads
+        and reports back whether a ``Self`` was seen.
+        """
+        ctx = CompileCtx(self.extra, self.required)
         token = _COMPILING_ROOT.set(self)
         try:
-            self._compiled = compile_node(schema, ctx)
+            self._compiled = compile_node(self.schema, ctx)
         finally:
             _COMPILING_ROOT.reset(token)
         self._uses_self = ctx.uses_self
+        self._built = True
         self._arm_compile()
+
+    def _ensure_built(self) -> None:
+        """Force a lazily-deferred schema to build now; a no-op once built.
+
+        Called wherever the compiled form is needed directly (a nested schema being
+        compiled into a parent, ``compile()``), so laziness never leaks a half-built
+        schema. The lock serializes concurrent first-touches, like the compile
+        bootstrap; the double check keeps the built steady state lock-free.
+        """
+        if not self._built:
+            with _BUILD_LOCK:
+                # The re-check's false edge (another thread built it between the
+                # lock-free check and the lock) is reachable only under contention.
+                if not self._built:  # pragma: no branch
+                    self._build()
 
     def __call__(self, data: Any, *, context: Any = _INHERIT_CONTEXT) -> Any:
         """Validate ``data``, returning the result or raising ``MultipleInvalid``.
@@ -204,6 +278,14 @@ class Schema:
         ``schema(data, context=None)`` clears an inherited context, where omitting
         it keeps it.
         """
+        # A deferred (LAZY) schema builds here, before anything reads ``_uses_self``
+        # or ``_compiled``, so the two stay consistent even when several threads race
+        # the first validation (the build is serialized by ``_BUILD_LOCK``). Under the
+        # default EAGER policy ``_built`` is already true, so this is one attribute
+        # read and costs nothing on the validation hot path.
+        if not self._built:
+            self._ensure_built()
+
         if context is not _INHERIT_CONTEXT:
             return self._call_with_context(data, context)
 
@@ -264,6 +346,8 @@ class Schema:
         stays interpreted (and identical); only the speedup is lost.
         """
         self._compile_requested = True
+        # A lazily-deferred schema must build before it can be compiled from.
+        self._ensure_built()
         # Resolve now. A schema armed for lazy compilation keeps the interpreted
         # validator in ``_interpreted``; otherwise ``_compiled`` is still it. The
         # swap lands before ``_interpreted`` is dropped: a combinator holding the
@@ -568,11 +652,15 @@ def compile_schema(
     """
     # Flag the compile so a ``Self`` wrapped here (``Any(Self, ...)``) is deferred
     # to validation time rather than rejected as a bare ``Schema(Self)`` would be.
+    # ``_INTERNAL_BUILD`` forces the branch eager under the LAZY policy: the
+    # combinator reads its ``_compiled`` here and now, so it cannot be deferred.
     token = _COMPILING_FOR_COMBINATOR.set(True)
+    internal = _INTERNAL_BUILD.set(True)
     try:
         return Schema(schema, required=required, extra=extra)._compiled  # noqa: SLF001
     finally:
         _COMPILING_FOR_COMBINATOR.reset(token)
+        _INTERNAL_BUILD.reset(internal)
 
 
 # Register ``Schema`` with the compile walk, which lives in ``_compile`` and needs

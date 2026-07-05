@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from probatio._build_policy import (
+    BuildPolicy,
+    get_build_policy,
+    set_build_policy,
+)
 from probatio._compile_policy import (
     CompilePolicy,
     get_compile_policy,
@@ -319,6 +324,7 @@ __all__ = [
     "BlockDeviceInvalid",
     "Boolean",
     "BooleanInvalid",
+    "BuildPolicy",
     "Byte",
     "ByteLength",
     "Capitalize",
@@ -486,12 +492,14 @@ __all__ = [
     "default_factory",
     "from_json_schema",
     "from_openapi",
+    "get_build_policy",
     "get_compile_policy",
     "is_dataclass",
     "message",
     "probatio",
     "raises",
     "serialize",
+    "set_build_policy",
     "set_compile_policy",
     "to_json_schema",
     "to_openapi",

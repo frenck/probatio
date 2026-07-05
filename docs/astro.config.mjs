@@ -118,6 +118,7 @@ export default defineConfig({
             },
             { label: "Recursive schemas", slug: "guides/recursive-schemas" },
             { label: "Compiled schemas", slug: "guides/compiled-schemas" },
+            { label: "Lazy building", slug: "guides/lazy-building" },
             { label: "Schemas from dataclasses", slug: "guides/dataclasses" },
             { label: "Schemas from TypedDicts", slug: "guides/typeddict" },
             { label: "JSON Schema", slug: "guides/json-schema" },
