@@ -117,7 +117,7 @@ renders as a plain array).
 
 ## Customizing the output
 
-`to_openapi` takes a `custom_serializer` hook, the same one `serialize` uses, to
+`to_openapi` takes a `custom_serializer` hook, the same one `to_field_list` uses, to
 override how individual nodes render. It is documented with the field-list codec
 in [Field lists](/guides/field-lists/#a-custom-serializer-hook), since both codecs
 share it.

@@ -1,6 +1,6 @@
-"""Property-based differential fuzzing of ``serialize`` against its oracle.
+"""Property-based differential fuzzing of ``to_field_list`` against its oracle.
 
-``serialize`` is compared to voluptuous-serialize's ``convert`` on the same
+``to_field_list`` is compared to voluptuous-serialize's ``convert`` on the same
 generated schema built in each library. When the oracle itself raises (it has
 bugs probatio does not), the example is skipped rather than counted against
 probatio.
@@ -62,5 +62,5 @@ def test_serialize_matches_oracle(fields: dict[str, Any]) -> None:
     except Exception:  # noqa: BLE001
         assume(False)
         return
-    actual = probatio.serialize(probatio.Schema(strategies.build(spec, probatio)))
+    actual = probatio.to_field_list(probatio.Schema(strategies.build(spec, probatio)))
     assert actual == expected

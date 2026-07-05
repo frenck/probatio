@@ -10,7 +10,7 @@ from probatio import (
     CreditCard,
     DataURI,
     Schema,
-    serialize,
+    to_field_list,
     to_json_schema,
 )
 from probatio.error import MultipleInvalid
@@ -148,7 +148,7 @@ def test_e164_normalize_false_rejects_grouped_input() -> None:
 def test_format_validators_serialize_as_strings() -> None:
     """The codecs render the format validators as a plain string field."""
     for validator in (CreditCard(), IBAN(), DataURI(), E164()):
-        assert serialize(Schema(validator)) == {"type": "string"}
+        assert to_field_list(Schema(validator)) == {"type": "string"}
         assert to_json_schema(Schema(validator)) == {"type": "string"}
 
 

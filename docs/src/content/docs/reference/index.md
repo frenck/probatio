@@ -408,11 +408,11 @@ Importable straight from `probatio` (it lives in `probatio.error`, not
 Probatio converts schemas to and from JSON Schema and OpenAPI, for the
 constructs that map cleanly (see the [JSON Schema
 guide](/guides/json-schema/) for the supported keywords, and [Field
-lists](/guides/field-lists/) for the `serialize` shape):
+lists](/guides/field-lists/) for the `to_field_list` shape):
 
 - `to_json_schema(schema)` / `from_json_schema(dict)`
 - `to_openapi(schema, *, custom_serializer=None, openapi_version="3.0")` / `from_openapi(dict)`
-- `serialize(schema, *, custom_serializer=None)`: render a schema as a plain field list. A `custom_serializer` is a callable that returns a node, or `UNSUPPORTED` to defer to the built-in handling.
+- `to_field_list(schema, *, custom_serializer=None)`: render a schema as a plain field list (no inverse; the format is one-way). A `custom_serializer` is a callable that returns a node, or `UNSUPPORTED` to defer to the built-in handling.
 - `UNSUPPORTED`: the sentinel a `custom_serializer` returns to defer.
 
 `from_json_schema` treats its input as untrusted: it refuses a catastrophically

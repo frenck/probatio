@@ -1,12 +1,13 @@
-"""Field-list codec: ``serialize`` (the voluptuous-serialize shape).
+"""Field-list codec: ``to_field_list`` (the voluptuous-serialize shape).
 
-``serialize`` renders a mapping as the field-list shape voluptuous-serialize
+``to_field_list`` renders a mapping as the field-list shape voluptuous-serialize
 produces (what config-flow frontends and LLM tool exporters consume), so those
 consumers work on probatio schemas. It takes the same ``custom_serializer`` hook,
 which returns a dict to override a node or ``UNSUPPORTED`` to defer.
 
-The format is output-only: voluptuous-serialize has no inverse, so neither does
-this codec.
+The format is output-only: the field list drops detail a schema cannot be rebuilt
+from, so there is no ``from_field_list`` inverse (voluptuous-serialize has none
+either).
 """
 
 from __future__ import annotations
@@ -186,7 +187,7 @@ def _allow_none(field: dict[str, Any]) -> dict[str, Any]:
 _Serialized = dict[str, Any] | list[dict[str, Any]]
 
 
-def serialize(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
+def to_field_list(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
     """Render a schema as the field-list shape voluptuous-serialize produces.
 
     A mapping becomes a list of field dicts (``name``, ``type``, ``required``,
