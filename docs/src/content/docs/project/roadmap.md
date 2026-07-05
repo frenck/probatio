@@ -19,20 +19,45 @@ The order of work follows from that. Match voluptuous first, then iterate.
 
 ## What stable means here
 
-Two different things, and the distinction matters.
+Three things, and the distinction matters.
 
-The public API tracks voluptuous and is meant to stay stable. The names and
-signatures (`Schema`, `Required`, `All`, `Any`, `Coerce`, `Invalid`, and the
-rest) are what your code depends on, so they do not move without a documented
-reason.
+**The voluptuous-compatible surface** is the contract, and it tracks voluptuous.
+The names and signatures every voluptuous user already depends on (`Schema`,
+`Required`, `All`, `Any`, `Coerce`, `Invalid`, and the rest) do not move without a
+documented reason, and when they do it is to sit closer to voluptuous, not further
+from it.
 
-The internals are not promised. Before 1.0 they may change while the project
-gathers production feedback and the implementation settles. If you reach past
-the public API into private modules, that is on you.
+**The probatio-only surface** is public too, and there is a lot of it: the parts
+voluptuous never had. Schemas built from your own types (`DataclassSchema`,
+`TypedDictSchema`), the extra validators and markers (`AsDatetime`, `Slug`,
+`Secret`, `Alias`, the cross-field rules, and more), the codecs (`to_json_schema`,
+`to_openapi`, `to_field_list`, and their inverses), and the build and compile
+policies. Anything importable straight from `probatio` and listed in `__all__` is
+part of this surface. Before 1.0 it may still shift as it settles under real use;
+at 1.0 it is frozen under semantic versioning like the rest, and a
+[snapshot test](https://github.com/frenck/probatio/blob/main/tests/test_public_surface.py)
+covers the whole of it, so a change can only be deliberate.
+
+**The error model** gets its own line, because it is the largest thing probatio
+adds over voluptuous. The error classes (`Invalid` and its subclasses) and the
+structured data they carry, the `path` to the offending value, the
+machine-readable `code`, and the `context`, are API: catch them by type, read
+those fields, and rely on them. The human-readable message text is not frozen; it
+can be reworded to read better, the same latitude voluptuous takes with its own
+messages. The `translation_key` behind each message is finer-grained than `code`
+and tracks the message catalog, which is still settling, so treat it as a
+rendering detail rather than a frozen contract: key your own logic and any
+localization on `code`, which is stable.
+
+**The internals are not promised.** Before 1.0 they may change while the project
+gathers production feedback and the implementation settles. If you reach past the
+public API into private modules (anything with a leading underscore), that is on
+you.
 
 :::caution[Pre-1.0]
-Some internals may still change before 1.0. The public API is the contract; the
-internals are not.
+The probatio-only surface may still shift before 1.0 as production feedback comes
+in. The voluptuous-compatible surface is already the contract; the internals never
+are.
 :::
 
 ## Versioning
