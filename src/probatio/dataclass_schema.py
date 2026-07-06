@@ -743,6 +743,12 @@ def _fuse_validate_and_construct(
 ) -> CompiledSchema:
     """Return one closure that validates the mapping and constructs the instance.
 
+    An input that is already an instance of the dataclass passes straight through,
+    untouched. That makes an instance-valued default idiomatic (a field typed
+    ``T`` with ``default_factory=T`` fills in a ``T()`` when the key is absent, and
+    the default is not re-validated as a mapping), and it lets a caller hand in a
+    built instance. Only a mapping is validated and constructed.
+
     The public schema shape stays ``Schema(All(inner, _Constructor))``; this is
     only a faster interpreted engine for it. Called generically, that ``All``
     tower is five frames of pure delegation per validation (the callable guard,
@@ -778,6 +784,8 @@ def _fuse_validate_and_construct(
 
         def validate(data: TypingAny) -> TypingAny:
             """Validate the mapping, then construct through the filter."""
+            if isinstance(data, dataclass_type):
+                return data
             validated = validate_mapping(data)
             try:
                 return construct(validated)
@@ -793,6 +801,8 @@ def _fuse_validate_and_construct(
 
     def validate_splat(data: TypingAny) -> TypingAny:
         """Validate the mapping, then splat it straight into the constructor."""
+        if isinstance(data, dataclass_type):
+            return data
         validated = validate_mapping(data)
         try:
             return dataclass_type(**validated)

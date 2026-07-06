@@ -251,6 +251,12 @@ One boundary to know, on which defaults pass through the schema:
   field, an unselected `exclusive` member) takes the dataclass's own default
   exactly as declared: no validation, no coercion.
 
+A nested dataclass field can default to a built instance, the idiomatic
+"always-present, defensive empty object": `inner: Inner = field(default_factory=Inner)`.
+When the key is absent, the `Inner()` fills in as-is; it is not re-validated as a
+mapping. A caller may also hand in an already-built instance for such a field, and
+it passes through untouched; only a mapping is validated and constructed.
+
 The schema validates input, and that second group's values are not input, so
 write an already-typed default for such a field; a wrong-typed one is a type
 error your type-checker flags. See
