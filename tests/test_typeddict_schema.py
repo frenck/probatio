@@ -316,22 +316,30 @@ def test_required_qualifier_inside_annotated_is_honored() -> None:
     assert req({"x": 5}) == {"x": 5}
 
 
-# --- extra propagates into nested schemas (handoff: nested extra recursion) ---
+# --- the extra-key policy propagates into nested schemas ----------------------
 
 
 class _XTDInner(TypedDict):
+    """A nested TypedDict, to prove the policy reaches one level down."""
+
     a: int
 
 
 class _XTDOuter(TypedDict):
+    """A TypedDict holding a nested TypedDict."""
+
     inner: _XTDInner
 
 
 class _XTDStrictInner(TypedDict):
+    """A TypedDict pinned strict by a Key(extra=...) on its field."""
+
     b: int
 
 
 class _XTDMixed(TypedDict):
+    """A loose schema with one field pinned strict via Key(extra=PREVENT_EXTRA)."""
+
     loose: _XTDInner
     strict: Annotated[_XTDStrictInner, Key(extra=PREVENT_EXTRA)]
 

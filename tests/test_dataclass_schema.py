@@ -1453,68 +1453,92 @@ def test_self_constraint_keeps_the_tower_and_still_validates() -> None:
     assert error.path == ["child", "name"]
 
 
-# --- extra propagates into nested schemas (handoff: nested extra recursion) ---
+# --- the extra-key policy propagates into nested schemas ----------------------
 
 
 @dataclass
 class _XInner:
+    """A nested dataclass, to prove the policy reaches one level down."""
+
     a: int = 0
 
 
 @dataclass
 class _XOuter:
+    """A dataclass holding a nested dataclass and a scalar."""
+
     inner: _XInner = field(default_factory=_XInner)
     x: int = 0
 
 
 @dataclass
 class _XItem:
+    """An element type for a list of dataclasses."""
+
     id: int = 0
 
 
 @dataclass
 class _XColl:
+    """A dataclass holding a list of dataclasses."""
+
     items: list[_XItem] = field(default_factory=list)
 
 
 @dataclass
 class _XEco:
+    """A dataclass nested inside an optional field."""
+
     enabled: bool = False
 
 
 @dataclass
 class _XCtrl:
+    """A dataclass with an ``X | None`` nested dataclass."""
+
     eco: _XEco | None = None
 
 
 @dataclass
 class _XL3:
+    """The deepest level of a three-deep nesting."""
+
     v: int = 0
 
 
 @dataclass
 class _XL2:
+    """The middle level of a three-deep nesting."""
+
     three: _XL3 = field(default_factory=_XL3)
 
 
 @dataclass
 class _XL1:
+    """The top level of a three-deep nesting."""
+
     two: _XL2 = field(default_factory=_XL2)
 
 
 @dataclass
 class _XNode:
+    """A self-referential dataclass, for the policy on a recursive edge."""
+
     name: str = ""
     child: _XNode | None = None
 
 
 @dataclass
 class _XStrict:
+    """A dataclass pinned strict by a Key(extra=...) on its field."""
+
     b: int = 0
 
 
 @dataclass
 class _XMixed:
+    """A loose schema with one field pinned strict via Key(extra=PREVENT_EXTRA)."""
+
     loose: _XInner = field(default_factory=_XInner)
     strict: Annotated[_XStrict, Key(extra=PREVENT_EXTRA)] = field(
         default_factory=_XStrict
@@ -1523,6 +1547,8 @@ class _XMixed:
 
 @dataclass
 class _XLoosenedOuter:
+    """A strict schema with one field pinned loose via Key(extra=REMOVE_EXTRA)."""
+
     loose: Annotated[_XInner, Key(extra=REMOVE_EXTRA)] = field(default_factory=_XInner)
 
 
