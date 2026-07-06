@@ -424,6 +424,37 @@ coerces a raw string and `Annotated[datetime | None, Coerce(FromEpoch())]` turns
 timestamp into a `datetime`, keeping the field's real `int | None` /
 `datetime | None` type instead of falling back to `Any`.
 
+Reach for a built-in coercer before writing a lambda. `AsTimedelta` reads a
+count of seconds, a `H:MM:SS` string, or an ISO 8601 duration into a `timedelta`,
+and `Maybe(Coerce(float))` coerces a value while letting `None` through. Both
+compose straight onto a field, so a "seconds or a `timedelta`" field is
+`Annotated[timedelta, AsTimedelta()]` and an "optional, coerce if present" field
+is `Annotated[float | None, Maybe(Coerce(float))]`, with no coercer of your own to
+write or test:
+
+```python
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Annotated
+
+from probatio import AsTimedelta, Coerce, DataclassSchema, Maybe
+
+
+@dataclass
+class Job:
+    timeout: Annotated[timedelta, AsTimedelta()] = timedelta()
+    ratio: Annotated[float | None, Maybe(Coerce(float))] = None
+
+
+DataclassSchema(Job)({"timeout": 90, "ratio": "0.5"})
+# Job(timeout=datetime.timedelta(seconds=90), ratio=0.5)
+```
+
+The `As*` coercers return their native type unchanged (`AsTimedelta` on a
+`timedelta`, `AsDatetime` on a `datetime`), so they are idempotent in the sense
+above: one sits on a defaulted field without re-converting the default when it
+flows back through the schema.
+
 ## Recursive dataclasses
 
 A dataclass whose field refers back to itself (a tree node, a linked list) is

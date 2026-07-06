@@ -135,6 +135,17 @@ Schema(Maybe(int))(5)                     # 5
 Schema(EnsureList())("one")               # ['one']
 ```
 
+`Maybe` composes with a coercer for the "optional, coerce if present" field:
+`Maybe(Coerce(float))` leaves `None` alone and coerces anything else, so there is
+no null check to hand-write:
+
+```python
+from probatio import Schema, Maybe, Coerce
+
+Schema(Maybe(Coerce(float)))(None)    # None
+Schema(Maybe(Coerce(float)))("0.5")   # 0.5
+```
+
 `Sorted` requires a collection to already be in order (it does not reorder):
 
 ```python
