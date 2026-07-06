@@ -28,6 +28,7 @@ from probatio import (
     AsDatetime,
     Coerce,
     DataclassSchema,
+    FromEpoch,
     In,
     Invalid,
     Key,
@@ -38,6 +39,7 @@ from probatio import (
     Self,
     create_dataclass_schema,
     is_dataclass,
+    to_json_schema,
 )
 from probatio import Any as AnyOf
 from probatio.dataclass_schema import _build_discriminant, _literal_tags
@@ -1615,6 +1617,106 @@ def test_key_extra_pins_a_loose_subtree_inside_a_strict_schema() -> None:
     """Key(extra=REMOVE_EXTRA) loosens one field while the schema stays strict."""
     result = DataclassSchema(_XLoosenedOuter)({"loose": {"a": 5, "junk": 9}})
     assert result == _XLoosenedOuter(loose=_XInner(a=5))
+
+
+# --- a coercer runs before a nullable/union base (ADR-008 for unions) ----------
+
+
+def _opt_int(value: object) -> int | None:
+    """Coerce to int, mapping the -1 sentinel to None."""
+    number = int(value)  # type: ignore[arg-type]
+    return None if number == -1 else number
+
+
+@dataclass
+class _UCInt:
+    """A nullable int field that coerces its raw input first."""
+
+    v: Annotated[int | None, Coerce(_opt_int)] = None
+
+
+@dataclass
+class _UCDatetime:
+    """A nullable datetime field coerced from a Unix timestamp."""
+
+    ts: Annotated[datetime.datetime | None, Coerce(FromEpoch())] = None
+
+
+@dataclass
+class _UCWide:
+    """A wider union coerced first (str-or-int narrowed to int)."""
+
+    v: Annotated[int | str, Coerce(_opt_int)] = 0
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(7, 7), (-1, None), ("5", 5), ("-1", None)],
+)
+def test_coerce_runs_before_a_nullable_int_base(
+    raw: object, expected: int | None
+) -> None:
+    """Annotated[int | None, Coerce(...)] coerces the raw value, then the base confirms."""
+    assert DataclassSchema(_UCInt)({"v": raw}).v == expected
+
+
+def test_coerce_from_epoch_into_a_nullable_datetime() -> None:
+    """A raw timestamp coerces into datetime | None instead of being rejected first."""
+    result = DataclassSchema(_UCDatetime)({"ts": 1719571800}).ts
+    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+
+
+def test_coerce_into_a_nullable_base_under_compilation() -> None:
+    """The compiled engine orders the coercer ahead of the base the same way."""
+    interpreted = DataclassSchema(_UCInt)
+    compiled = DataclassSchema(_UCInt, compile=True).compile()
+    assert interpreted({"v": "5"}).v == compiled({"v": "5"}).v == 5
+
+
+def test_coerce_runs_before_a_wider_union_base() -> None:
+    """A coercer runs before an X | Y base too, not only a nullable one."""
+    assert DataclassSchema(_UCWide)({"v": "8"}).v == 8
+
+
+def test_non_union_coerce_is_unchanged() -> None:
+    """A bare-type base still coerces first, then confirms (ADR-008, no regression)."""
+
+    @dataclass
+    class Plain:
+        ts: Annotated[datetime.datetime, FromEpoch()] = None  # type: ignore[assignment]
+
+    result = DataclassSchema(Plain)({"ts": 1719571800}).ts
+    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+
+
+def test_codec_of_a_coerced_nullable_field_renders() -> None:
+    """to_json_schema of a coerced nullable field renders without error."""
+    assert "properties" in to_json_schema(DataclassSchema(_UCInt))
+
+
+def _nonempty_street(addr: Address) -> Address:
+    """Reject a constructed Address whose street is empty."""
+    if not addr.street:
+        message = "street must not be empty"
+        raise Invalid(message)
+    return addr
+
+
+@dataclass
+class _AnnProducerBase:
+    """A field whose Annotated base produces (a nested dataclass), with an extra check."""
+
+    addr: Annotated[Address, _nonempty_street]
+
+
+def test_annotated_producer_base_runs_before_the_extra() -> None:
+    """A nested-dataclass base validates and constructs first, then the extra runs on it."""
+    result = DataclassSchema(_AnnProducerBase)(
+        {"addr": {"street": "Main", "number": 5}}
+    )
+    assert result.addr == Address(street="Main", number=5)
+    with pytest.raises(MultipleInvalid):
+        DataclassSchema(_AnnProducerBase)({"addr": {"street": "", "number": 5}})
 
 
 # --- an instance-valued default is not re-validated as a mapping --------------
