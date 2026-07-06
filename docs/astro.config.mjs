@@ -2,6 +2,7 @@
 import { defineConfig } from "astro/config";
 import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
+import starlightLlmsTxt from "starlight-llms-txt";
 
 import rehypeProbatio from "./src/plugins/rehype-probatio.mjs";
 
@@ -19,6 +20,76 @@ export default defineConfig({
     starlight({
       title: "Probatio",
       description: "A modern Python data validation library.",
+      plugins: [
+        // Generate /llms.txt, /llms-full.txt, and /llms-small.txt from the docs,
+        // so an LLM implementing against Probatio can read the whole manual in one
+        // fetch instead of crawling pages. https://llmstxt.org
+        starlightLlmsTxt({
+          projectName: "Probatio",
+          description:
+            "A modern, maintained Python data validation library, and a drop-in " +
+            "replacement for voluptuous.",
+          details: [
+            "Probatio validates arbitrary Python data against a schema that is " +
+              "itself data: plain types, dicts, lists, and callables. It is a " +
+              "clean-room reimplementation of voluptuous with the same public API, " +
+              "so changing `import voluptuous` to `import probatio` keeps existing " +
+              "schemas working, and it is pure Python with no native extension.",
+            "Beyond voluptuous it adds schemas built from your own dataclasses and " +
+              "TypedDicts (with statically typed results), JSON Schema, OpenAPI, and " +
+              "field-list codecs, a structured error model with stable translation " +
+              "keys, and an opt-in compiled engine.",
+            "Everything public is importable straight from the `probatio` package.",
+          ].join("\n\n"),
+          // Topic-split files, so an LLM can fetch just the part it needs: the
+          // how-to guides, the task recipes, or the API reference, instead of the
+          // whole manual.
+          customSets: [
+            {
+              label: "Guides",
+              description:
+                "How-to walkthroughs: the validation model, dict and sequence " +
+                "schemas, combinators, the built-in validators, error handling, " +
+                "custom validators, the probatio decorator, recursive, compiled, " +
+                "and lazy schemas, dataclass and TypedDict schemas, and the JSON " +
+                "Schema, OpenAPI, and field-list codecs.",
+              paths: ["guides/**"],
+            },
+            {
+              label: "Recipes",
+              description:
+                "End-to-end task recipes: validating Home Assistant config, a " +
+                "config file, and web API requests, LLM tool calling and MCP, and " +
+                "a cookbook of smaller patterns.",
+              paths: ["recipes/**"],
+            },
+            {
+              label: "API reference",
+              description:
+                "Reference material: the API surface, built-ins by role, the error " +
+                "classes and their translation keys, voluptuous compatibility, " +
+                "typing, and performance.",
+              paths: ["reference/**"],
+            },
+            {
+              label: "Project",
+              description:
+                "About the project: why it exists, the architecture, the security " +
+                "model, the comparison to alternatives, who uses it, the stability " +
+                "and 1.0 policy, credits, and the license.",
+              paths: ["project/**"],
+            },
+          ],
+          // The small variant targets tight context windows: drop the project and
+          // meta pages that do not help someone write code against the API.
+          exclude: [
+            "project/about",
+            "project/credits",
+            "project/license",
+            "project/projects",
+          ],
+        }),
+      ],
       head: [
         {
           tag: "meta",
