@@ -154,12 +154,26 @@ def _base_asserts_the_result(base_schema: TypingAny) -> bool:
     ``__probatio_validate__`` protocol (ADR-007) are bare types too, but they *coerce* a
     raw value into the validated form when compiled, so they are producers and run first
     (like a registry coercer, a nested schema, or a container).
+
+    A ``Maybe`` (from ``X | None``) or a union (from ``X | Y``) asserts when every
+    branch does: it only checks that the raw value is ``None`` or one of the member
+    types. So a coercer in the metadata runs first and the ``Maybe``/union confirms
+    the result, extending the ADR-008 rule from a bare type to a nullable or union
+    base (``Annotated[int | None, Coerce(...)]``). A ``Maybe``/union that wraps a
+    producer (a nested dataclass, a container) is itself a producer and keeps
+    running first.
     """
-    return (
-        isinstance(base_schema, type)
-        and not issubclass(base_schema, enum.Enum)
-        and not callable(getattr(base_schema, "__probatio_validate__", None))
-    )
+    if isinstance(base_schema, type):
+        return not issubclass(base_schema, enum.Enum) and not callable(
+            getattr(base_schema, "__probatio_validate__", None)
+        )
+    if isinstance(base_schema, Maybe):
+        return _base_asserts_the_result(base_schema.validator)
+    if isinstance(base_schema, (Any, Union)):
+        return all(
+            _base_asserts_the_result(member) for member in base_schema.validators
+        )
+    return False
 
 
 def _annotation_to_schema(  # noqa: PLR0911, PLR0912

@@ -374,6 +374,12 @@ table](#annotations-drive-the-validators)). This works the same way in a nested
 dataclass field, and `additional_constraints` still layers on top. The
 hand-written `Schema(datetime)` path is never affected.
 
+It holds for a nullable or union field too: the coercer runs before the
+`X | None` (or `X | Y`) base confirms the result, so `Annotated[int | None, Coerce(...)]`
+coerces a raw string and `Annotated[datetime | None, Coerce(FromEpoch())]` turns a
+timestamp into a `datetime`, keeping the field's real `int | None` /
+`datetime | None` type instead of falling back to `Any`.
+
 ## Recursive dataclasses
 
 A dataclass whose field refers back to itself (a tree node, a linked list) is
