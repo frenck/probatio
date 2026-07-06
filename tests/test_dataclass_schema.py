@@ -1615,3 +1615,80 @@ def test_key_extra_pins_a_loose_subtree_inside_a_strict_schema() -> None:
     """Key(extra=REMOVE_EXTRA) loosens one field while the schema stays strict."""
     result = DataclassSchema(_XLoosenedOuter)({"loose": {"a": 5, "junk": 9}})
     assert result == _XLoosenedOuter(loose=_XInner(a=5))
+
+
+# --- an instance-valued default is not re-validated as a mapping --------------
+
+
+@dataclass(frozen=True)
+class _IDInner:
+    """A nested dataclass with an all-defaulted field (frozen, so it can be a default)."""
+
+    a: int = 0
+
+
+@dataclass
+class _IDOuter:
+    """A dataclass whose nested field defaults to a constructed instance."""
+
+    inner: _IDInner = field(default_factory=_IDInner)
+    x: int = 0
+
+
+@dataclass
+class _IDLiteral:
+    """A dataclass whose nested field default is a literal instance."""
+
+    inner: _IDInner = _IDInner(a=3)
+
+
+@dataclass
+class _IDMid:
+    """The middle level of a two-deep instance-default nesting."""
+
+    inner: _IDInner = field(default_factory=_IDInner)
+
+
+@dataclass
+class _IDTop:
+    """The top level of a two-deep instance-default nesting."""
+
+    mid: _IDMid = field(default_factory=_IDMid)
+
+
+@pytest.mark.parametrize("extra", [PREVENT_EXTRA, REMOVE_EXTRA, ALLOW_EXTRA])
+def test_instance_default_factory_fills_in_when_absent(extra: int) -> None:
+    """An absent field with default_factory=T constructs the default, not an error."""
+    result = DataclassSchema(_IDOuter, extra=extra)({"x": 5})
+    assert result == _IDOuter(inner=_IDInner(a=0), x=5)
+
+
+def test_literal_instance_default_fills_in_when_absent() -> None:
+    """An absent field with a literal instance default takes that instance."""
+    assert DataclassSchema(_IDLiteral)({}) == _IDLiteral(inner=_IDInner(a=3))
+
+
+def test_instance_default_under_compilation() -> None:
+    """The compiled engine fills an instance default the same as interpreted."""
+    interpreted = DataclassSchema(_IDOuter)
+    compiled = DataclassSchema(_IDOuter, compile=True).compile()
+    assert interpreted({"x": 5}) == compiled({"x": 5}) == _IDOuter(_IDInner(0), 5)
+
+
+def test_a_built_instance_passes_through_as_input() -> None:
+    """A caller may hand in an already-built nested instance; it is not re-validated."""
+    result = DataclassSchema(_IDOuter)({"x": 5, "inner": _IDInner(a=7)})
+    assert result == _IDOuter(inner=_IDInner(a=7), x=5)
+
+
+def test_instance_defaults_fill_in_two_levels_deep() -> None:
+    """Instance defaults fill in at each absent level of a nesting."""
+    assert DataclassSchema(_IDTop)({}) == _IDTop(mid=_IDMid(inner=_IDInner(a=0)))
+
+
+def test_a_present_mapping_still_validates_and_constructs() -> None:
+    """Supplying the key still validates the mapping and constructs (no passthrough)."""
+    result = DataclassSchema(_IDOuter)({"x": 5, "inner": {"a": 9}})
+    assert result == _IDOuter(inner=_IDInner(a=9), x=5)
+    with pytest.raises(MultipleInvalid):
+        DataclassSchema(_IDOuter)({"x": 5, "inner": {"a": "bad"}})
