@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import gc
+import weakref
+from dataclasses import dataclass, field, make_dataclass
 from typing import Annotated
 
 import pytest
@@ -108,7 +110,9 @@ def test_schema_is_built_once_and_reused() -> None:
 
 def test_the_nested_fixes_flow_through_from_dict() -> None:
     """Nested extra, an instance default, and a union coercer all apply via from_dict."""
-    result = Outer.from_dict({"inner": {"a": 9, "innerjunk": 1}, "label": "5", "top": 2})
+    result = Outer.from_dict(
+        {"inner": {"a": 9, "innerjunk": 1}, "label": "5", "top": 2}
+    )
     assert result == Outer(inner=Inner(a=9), label=5)
     assert Outer.from_dict({}) == Outer(inner=Inner(a=0), label=None)
 
@@ -121,3 +125,13 @@ def test_a_non_dataclass_subclass_raises() -> None:
 
     with pytest.raises(SchemaError):
         NotADataclass.from_dict({})
+
+
+def test_the_cached_schema_does_not_pin_a_throwaway_class() -> None:
+    """A dynamically created model is collectible after use; the cache dies with it."""
+    tmp = make_dataclass("Tmp", [("v", int)], bases=(SchemaMixin,))
+    tmp.from_dict({"v": 5})  # builds and caches the schema on the class
+    ref = weakref.ref(tmp)
+    del tmp
+    gc.collect()
+    assert ref() is None
