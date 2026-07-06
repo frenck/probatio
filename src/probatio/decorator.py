@@ -16,7 +16,7 @@ from functools import wraps
 
 from probatio.dataclass_schema import _annotation_to_schema
 from probatio.error import SchemaError
-from probatio.schema import ALLOW_EXTRA, Schema
+from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, Schema
 from probatio.validators import All
 
 # ``probatio`` preserves the decorated callable's signature for callers: the
@@ -148,7 +148,7 @@ def _parameter_schema(
         if parameter.kind not in _VALIDATED_KINDS:
             continue
         if name in hints:
-            inferred = _annotation_to_schema(hints[name], {})
+            inferred = _annotation_to_schema(hints[name], {}, PREVENT_EXTRA)
             _reject_validator_annotation(
                 func, f"parameter {name!r}", hints[name], inferred
             )
@@ -182,7 +182,7 @@ def _return_schema(
                 f"probatio: returns=True needs a return annotation on {_name(func)!r}"
             )
             raise SchemaError(message)
-        inferred = _annotation_to_schema(hints[_RETURN], {})
+        inferred = _annotation_to_schema(hints[_RETURN], {}, PREVENT_EXTRA)
         _reject_validator_annotation(func, "the return", hints[_RETURN], inferred)
         return Schema(inferred)
     return Schema(returns)

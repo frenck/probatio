@@ -165,6 +165,7 @@ def _base_asserts_the_result(base_schema: TypingAny) -> bool:
 def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     annotation: TypingAny,
     self_refs: dict[type, _RecursiveSchemaRef],
+    extra: int,
 ) -> TypingAny:
     """Map a single type annotation to a probatio schema fragment.
 
@@ -172,6 +173,11 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     deferred reference. A field whose type is one of them (a self-referential or
     mutually recursive dataclass) becomes that reference instead of recursing
     forever, and the reference resolves once its schema is built.
+
+    ``extra`` is the enclosing schema's extra-key policy, threaded into every
+    nested dataclass, TypedDict, and container so the policy applies all the way
+    down. A ``Key(extra=...)`` in a field's ``Annotated`` metadata overrides it for
+    that field's subtree.
     """
     if annotation is TypingAny:
         return object
@@ -180,13 +186,16 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
 
     if hasattr(annotation, "__supertype__"):
         # A ``NewType`` is a thin alias; validate against the type it wraps.
-        return _annotation_to_schema(annotation.__supertype__, self_refs)
+        return _annotation_to_schema(annotation.__supertype__, self_refs, extra)
 
     if get_origin(annotation) is Annotated:
         # Callable Annotated metadata are extra validators; other metadata is for
-        # other tools and is ignored here.
+        # other tools and is ignored here. A ``Key(extra=...)`` pins the extra-key
+        # policy for this field's subtree, overriding the inherited one.
         base, *meta = get_args(annotation)
-        base_schema = _annotation_to_schema(base, self_refs)
+        key = next((item for item in meta if isinstance(item, Key)), None)
+        field_extra = key.extra if key is not None and key.extra is not None else extra
+        base_schema = _annotation_to_schema(base, self_refs, field_extra)
         extras = [item for item in meta if callable(item)]
         if not extras:
             return base_schema
@@ -206,14 +215,14 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     if _is_dataclass_type(annotation):
         if annotation in self_refs:
             return self_refs[annotation]
-        return create_dataclass_schema(annotation, _self_refs=self_refs)
+        return create_dataclass_schema(annotation, extra=extra, _self_refs=self_refs)
 
     if is_typeddict(annotation):
         # A nested TypedDict validates as its own mapping schema (it cannot be an
         # ``isinstance`` check, since a TypedDict has no runtime type).
         if annotation in self_refs:
             return self_refs[annotation]
-        return create_typeddict_schema(annotation, _self_refs=self_refs)
+        return create_typeddict_schema(annotation, extra=extra, _self_refs=self_refs)
 
     origin = get_origin(annotation)
     if origin is None:
@@ -223,7 +232,7 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
 
     args = get_args(annotation)
     if origin in (TypingUnion, types.UnionType):
-        return _union_to_schema(args, self_refs)
+        return _union_to_schema(args, self_refs, extra)
     if origin is Literal:
         return In(list(args))
     if not args:
@@ -231,30 +240,31 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         # to descend into, so validate the container type itself.
         return origin
     if origin is list:
-        return [_annotation_to_schema(args[0], self_refs)]
+        return [_annotation_to_schema(args[0], self_refs, extra)]
     if origin is set:
-        return {_annotation_to_schema(args[0], self_refs)}
+        return {_annotation_to_schema(args[0], self_refs, extra)}
     if origin is frozenset:
-        return frozenset([_annotation_to_schema(args[0], self_refs)])
+        return frozenset([_annotation_to_schema(args[0], self_refs, extra)])
     if origin is dict:
         return {
-            _annotation_to_schema(args[0], self_refs): _annotation_to_schema(
+            _annotation_to_schema(args[0], self_refs, extra): _annotation_to_schema(
                 args[1],
                 self_refs,
+                extra,
             ),
         }
     if origin is tuple:
-        return _tuple_to_schema(args, self_refs)
+        return _tuple_to_schema(args, self_refs, extra)
     if origin in (Sequence, MutableSequence):
         # An abstract sequence validates element-wise like a list; config data
         # arrives as a list, and a str (also a Sequence) is correctly not one.
-        return [_annotation_to_schema(args[0], self_refs)]
+        return [_annotation_to_schema(args[0], self_refs, extra)]
     if origin in (AbstractSet, MutableSet):
-        return {_annotation_to_schema(args[0], self_refs)}
+        return {_annotation_to_schema(args[0], self_refs, extra)}
     if origin in (Mapping, MutableMapping):
         return {
-            _annotation_to_schema(args[0], self_refs): _annotation_to_schema(
-                args[1], self_refs
+            _annotation_to_schema(args[0], self_refs, extra): _annotation_to_schema(
+                args[1], self_refs, extra
             ),
         }
     # For other generics, validate the container type instead of accepting
@@ -263,7 +273,9 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
 
 
 def _union_to_schema(
-    args: tuple[TypingAny, ...], self_refs: dict[type, _RecursiveSchemaRef]
+    args: tuple[TypingAny, ...],
+    self_refs: dict[type, _RecursiveSchemaRef],
+    extra: int,
 ) -> TypingAny:
     """Map a union: ``X | None`` becomes ``Maybe(X)``, a wider union becomes ``Any``.
 
@@ -274,7 +286,7 @@ def _union_to_schema(
     """
     has_none = type(None) in args
     member_types = [a for a in args if a is not type(None)]
-    members = [_annotation_to_schema(a, self_refs) for a in member_types]
+    members = [_annotation_to_schema(a, self_refs, extra) for a in member_types]
 
     if len(members) == 1:
         inner: TypingAny = members[0]
@@ -354,7 +366,9 @@ def _make_discriminant(
 
 
 def _tuple_to_schema(
-    args: tuple[TypingAny, ...], self_refs: dict[type, _RecursiveSchemaRef]
+    args: tuple[TypingAny, ...],
+    self_refs: dict[type, _RecursiveSchemaRef],
+    extra: int,
 ) -> TypingAny:
     """Map a tuple: ``tuple[X, ...]`` is homogeneous, ``tuple[X, Y]`` is positional.
 
@@ -362,9 +376,9 @@ def _tuple_to_schema(
     and preserve whichever was given (the value is not coerced between them).
     """
     if len(args) == 2 and args[1] is Ellipsis:
-        element = _annotation_to_schema(args[0], self_refs)
+        element = _annotation_to_schema(args[0], self_refs, extra)
         return Any([element], (element,))
-    return ExactSequence([_annotation_to_schema(a, self_refs) for a in args])
+    return ExactSequence([_annotation_to_schema(a, self_refs, extra) for a in args])
 
 
 def _constant(value: TypingAny) -> TypingAny:
@@ -561,6 +575,7 @@ def _field_mapping(
     dataclass_type: type,
     constraints: dict[str, TypingAny],
     self_refs: dict[type, _RecursiveSchemaRef],
+    extra: int,
 ) -> dict[TypingAny, TypingAny]:
     """Build the mapping schema for a dataclass's constructor fields."""
     try:
@@ -574,7 +589,7 @@ def _field_mapping(
     mapping: dict[TypingAny, TypingAny] = {}
     for field in _iter_init_fields(dataclass_type):
         annotation = _field_annotation(hints.get(field.name, TypingAny))
-        value_schema = _annotation_to_schema(annotation, self_refs)
+        value_schema = _annotation_to_schema(annotation, self_refs, extra)
         if field.name in constraints:
             value_schema = All(value_schema, constraints[field.name])
 
@@ -680,7 +695,9 @@ def create_dataclass_schema(
     self_refs = dict(_self_refs or {})
     ref = _RecursiveSchemaRef()
     self_refs[dataclass_type] = ref
-    mapping = _field_mapping(dataclass_type, additional_constraints or {}, self_refs)
+    mapping = _field_mapping(
+        dataclass_type, additional_constraints or {}, self_refs, extra
+    )
 
     # DataclassSchema compiles mapping validation and construction together, so it
     # needs an interpreted inner mapping to read from.
@@ -1123,6 +1140,7 @@ def _typeddict_mapping(
     typeddict_type: TypingAny,
     constraints: dict[str, TypingAny],
     self_refs: dict[type, _RecursiveSchemaRef],
+    extra: int,
 ) -> dict[TypingAny, TypingAny]:
     """Build the mapping schema for a TypedDict's fields."""
     try:
@@ -1146,7 +1164,7 @@ def _typeddict_mapping(
         required, field_type = _typeddict_presence(
             annotation, default_required=name in required_keys
         )
-        value_schema = _annotation_to_schema(field_type, self_refs)
+        value_schema = _annotation_to_schema(field_type, self_refs, extra)
         if name in constraints:
             value_schema = All(value_schema, constraints[name])
 
@@ -1195,7 +1213,7 @@ def create_typeddict_schema(
     ref = _RecursiveSchemaRef()
     self_refs[typeddict_type] = ref
     mapping = _typeddict_mapping(
-        typeddict_type, additional_constraints or {}, self_refs
+        typeddict_type, additional_constraints or {}, self_refs, extra
     )
 
     inner = Schema(mapping, extra=extra)

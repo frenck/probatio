@@ -23,6 +23,8 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    PREVENT_EXTRA,
+    REMOVE_EXTRA,
     AsDatetime,
     Coerce,
     DataclassSchema,
@@ -1449,3 +1451,141 @@ def test_self_constraint_keeps_the_tower_and_still_validates() -> None:
         schema({"name": "a", "child": {"name": 1, "child": None}})
     (error,) = caught.value.errors
     assert error.path == ["child", "name"]
+
+
+# --- extra propagates into nested schemas (handoff: nested extra recursion) ---
+
+
+@dataclass
+class _XInner:
+    a: int = 0
+
+
+@dataclass
+class _XOuter:
+    inner: _XInner = field(default_factory=_XInner)
+    x: int = 0
+
+
+@dataclass
+class _XItem:
+    id: int = 0
+
+
+@dataclass
+class _XColl:
+    items: list[_XItem] = field(default_factory=list)
+
+
+@dataclass
+class _XEco:
+    enabled: bool = False
+
+
+@dataclass
+class _XCtrl:
+    eco: _XEco | None = None
+
+
+@dataclass
+class _XL3:
+    v: int = 0
+
+
+@dataclass
+class _XL2:
+    three: _XL3 = field(default_factory=_XL3)
+
+
+@dataclass
+class _XL1:
+    two: _XL2 = field(default_factory=_XL2)
+
+
+@dataclass
+class _XNode:
+    name: str = ""
+    child: _XNode | None = None
+
+
+@dataclass
+class _XStrict:
+    b: int = 0
+
+
+@dataclass
+class _XMixed:
+    loose: _XInner = field(default_factory=_XInner)
+    strict: Annotated[_XStrict, Key(extra=PREVENT_EXTRA)] = field(
+        default_factory=_XStrict
+    )
+
+
+@dataclass
+class _XLoosenedOuter:
+    loose: Annotated[_XInner, Key(extra=REMOVE_EXTRA)] = field(default_factory=_XInner)
+
+
+@pytest.mark.parametrize("extra", [REMOVE_EXTRA, ALLOW_EXTRA])
+def test_extra_recurses_into_a_nested_dataclass(extra: int) -> None:
+    """REMOVE_EXTRA and ALLOW_EXTRA drop an unknown key one level down too."""
+    data = {"x": 1, "junk": 9, "inner": {"a": 2, "innerjunk": 3}}
+    assert DataclassSchema(_XOuter, extra=extra)(data) == _XOuter(_XInner(a=2), x=1)
+
+
+def test_nested_extra_default_still_rejects() -> None:
+    """The default (PREVENT_EXTRA) still raises on a nested unknown key."""
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(_XOuter)({"inner": {"a": 2, "innerjunk": 3}})
+    (error,) = caught.value.errors
+    assert error.path == ["inner", "innerjunk"]
+
+
+def test_extra_recurses_under_compilation() -> None:
+    """The compiled engine inherits the propagated nested policy (issue parity)."""
+    data = {"x": 1, "junk": 9, "inner": {"a": 2, "innerjunk": 3}}
+    interpreted = DataclassSchema(_XOuter, extra=REMOVE_EXTRA)
+    compiled = DataclassSchema(_XOuter, extra=REMOVE_EXTRA, compile=True).compile()
+    assert interpreted(dict(data)) == compiled(dict(data)) == _XOuter(_XInner(2), 1)
+
+
+def test_extra_recurses_into_a_list_of_dataclasses() -> None:
+    """A junk key inside a list element is dropped under REMOVE_EXTRA."""
+    result = DataclassSchema(_XColl, extra=REMOVE_EXTRA)({"items": [{"id": 1, "j": 2}]})
+    assert result == _XColl(items=[_XItem(id=1)])
+
+
+def test_extra_recurses_into_an_optional_nested_dataclass() -> None:
+    """A junk key inside an ``X | None`` nested dataclass is dropped."""
+    result = DataclassSchema(_XCtrl, extra=REMOVE_EXTRA)(
+        {"eco": {"enabled": True, "j": 1}}
+    )
+    assert result == _XCtrl(eco=_XEco(enabled=True))
+
+
+def test_extra_recurses_all_the_way_down() -> None:
+    """The policy holds three levels deep."""
+    data = {"two": {"three": {"v": 1, "junk": 2}}}
+    assert DataclassSchema(_XL1, extra=REMOVE_EXTRA)(data) == _XL1(_XL2(_XL3(1)))
+
+
+def test_extra_recurses_across_a_recursive_edge() -> None:
+    """A self-referential tree keeps the policy at depth two and beyond."""
+    data = {"name": "a", "junk": 1, "child": {"name": "b", "junk": 2, "child": None}}
+    result = DataclassSchema(_XNode, extra=REMOVE_EXTRA)(data)
+    assert result == _XNode(name="a", child=_XNode(name="b", child=None))
+
+
+def test_key_extra_pins_a_strict_subtree_inside_a_loose_schema() -> None:
+    """Key(extra=PREVENT_EXTRA) keeps one field strict while the rest is loose."""
+    data = {"loose": {"a": 1, "j": 2}, "strict": {"b": 1, "j": 3}}
+    with pytest.raises(MultipleInvalid) as caught:
+        DataclassSchema(_XMixed, extra=REMOVE_EXTRA)(data)
+    (error,) = caught.value.errors
+    assert error.path == ["strict", "j"]
+
+
+def test_key_extra_pins_a_loose_subtree_inside_a_strict_schema() -> None:
+    """Key(extra=REMOVE_EXTRA) loosens one field while the schema stays strict."""
+    result = DataclassSchema(_XLoosenedOuter)({"loose": {"a": 5, "junk": 9}})
+    assert result == _XLoosenedOuter(loose=_XInner(a=5))
