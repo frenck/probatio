@@ -110,6 +110,7 @@ from probatio.markers import (
     default_factory,
     extra,
 )
+from probatio.model import SchemaMixin
 from probatio.schema import (
     ALLOW_EXTRA,
     PREVENT_EXTRA,
@@ -451,6 +452,7 @@ __all__ = [
     "ScalarInvalid",
     "Schema",
     "SchemaError",
+    "SchemaMixin",
     "Schemable",
     "Secret",
     "Self",

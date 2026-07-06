@@ -1298,6 +1298,11 @@
     'SchemaError': dict({
       'kind': 'class',
     }),
+    'SchemaMixin': dict({
+      'kind': 'class',
+      'signature': list([
+      ]),
+    }),
     'Schemable': dict({
       'kind': 'value',
     }),

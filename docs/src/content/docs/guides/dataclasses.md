@@ -288,6 +288,44 @@ is_dataclass(User)  # True
 create_dataclass_schema(User)({"name": "ada"})  # User(name='ada')
 ```
 
+## A `from_dict` mixin
+
+Parsing an API payload into a dataclass tree is the common shape: a
+`DataclassSchema` built once, then called, usually behind a `from_dict`
+classmethod. `SchemaMixin` bundles that into the class. Inherit it, pass the
+extra-key policy as a class argument, and the dataclass gets a cached, validating
+`from_dict`, with no separate module-level schema and no hand-written classmethod.
+
+```python
+from dataclasses import dataclass
+
+from probatio import REMOVE_EXTRA, SchemaMixin
+
+
+@dataclass
+class Server(SchemaMixin, extra=REMOVE_EXTRA):
+    host: str = ""
+    port: int = 80
+
+
+Server.from_dict({"host": "nas", "port": 8080, "unmodeled": 1})
+# Server(host='nas', port=8080)
+```
+
+`from_dict` returns an instance of the class, typed as such, so your editor and
+type-checker know the result. The `DataclassSchema` is built on the first call and
+reused after, and `extra` is inherited: a subclass that sets none keeps the parent's
+policy. The class stays an ordinary dataclass; the mixin adds `from_dict` and records
+`extra`, and leaves the fields alone. A `TypedDict` cannot carry methods, so it keeps
+using `TypedDictSchema` directly.
+
+:::note
+Because a default flows back through the schema when its key is absent, a `Coerce`
+on a defaulted field must be idempotent: it has to take its own already-final default
+(a `datetime`, a `None`) and return it unchanged, rather than convert it a second
+time.
+:::
+
 ## Extra keys, all the way down
 
 `extra` propagates. Set `extra=REMOVE_EXTRA` (or `ALLOW_EXTRA`) and the policy
