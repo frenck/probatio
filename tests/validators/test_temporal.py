@@ -435,6 +435,13 @@ def test_epoch_accepts_a_float() -> None:
     assert result.microsecond == 500000
 
 
+def test_epoch_passes_a_datetime_through_unchanged() -> None:
+    """A datetime is returned as-is, so FromEpoch is idempotent on its own output."""
+    once = Schema(FromEpoch())(1719571800)
+    twice = Schema(FromEpoch())(once)
+    assert twice is once
+
+
 @pytest.mark.parametrize(
     "value", [True, "1719571800", float("nan"), float("inf"), 10**30]
 )
