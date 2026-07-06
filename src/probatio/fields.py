@@ -33,9 +33,16 @@ class Key:
     ``required`` overrides the presence a dataclass default (or a TypedDict's
     ``total``) would imply. ``description`` and ``msg`` pass through to the marker.
 
+    ``extra`` pins the extra-key policy for this field's own subtree, overriding
+    the one the enclosing schema propagates. Set it (to ``PREVENT_EXTRA``,
+    ``ALLOW_EXTRA``, or ``REMOVE_EXTRA``) on a field whose type is a nested
+    dataclass, TypedDict, or a container of them, to keep that subtree strict while
+    the rest of the schema is loose, or the reverse. On a leaf field (a plain type)
+    it has nothing to apply to and is ignored.
+
     The facets that define the key's role (``alias``, ``forbidden``, ``remove``,
     ``inclusive``, ``exclusive``) are mutually exclusive; ``secret`` layers on top
-    of any of them.
+    of any of them, and ``extra`` is orthogonal to all of them.
     """
 
     secret: bool = False
@@ -48,3 +55,4 @@ class Key:
     required: bool | None = None
     description: Any = None
     msg: str | None = None
+    extra: int | None = None

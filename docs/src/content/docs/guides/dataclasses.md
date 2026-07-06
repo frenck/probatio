@@ -282,6 +282,69 @@ is_dataclass(User)  # True
 create_dataclass_schema(User)({"name": "ada"})  # User(name='ada')
 ```
 
+## Extra keys, all the way down
+
+`extra` propagates. Set `extra=REMOVE_EXTRA` (or `ALLOW_EXTRA`) and the policy
+applies at every level: nested dataclasses, nested TypedDicts, and dataclasses
+inside a `list`, `dict`, `tuple`, or union all follow it. This is the case for
+parsing a third-party API response into a tree of dataclasses while dropping the
+fields you do not model, one flag, not a wrapper per level.
+
+```python
+from dataclasses import dataclass, field
+
+from probatio import DataclassSchema, REMOVE_EXTRA
+
+
+@dataclass
+class Server:
+    host: str = ""
+
+
+@dataclass
+class Config:
+    server: Server = field(default_factory=Server)
+
+
+data = {"server": {"host": "nas", "unmodeled": 9}, "toplevel_junk": 1}
+DataclassSchema(Config, extra=REMOVE_EXTRA)(data)  # Config(server=Server(host='nas'))
+```
+
+To pin a different policy for one field's subtree, put `Key(extra=...)` in its
+`Annotated` metadata. It overrides the inherited policy for that field only, so
+you can keep one noisy sub-object loose while the rest stays strict, or the
+reverse:
+
+```python
+from dataclasses import dataclass, field
+from typing import Annotated
+
+from probatio import DataclassSchema, Key, PREVENT_EXTRA
+
+
+@dataclass
+class Strict:
+    id: int = 0
+
+
+@dataclass
+class Doc:
+    meta: Annotated[Strict, Key(extra=PREVENT_EXTRA)] = field(default_factory=Strict)
+```
+
+The schema is loose, but `meta` stays strict and rejects the unknown key:
+
+<!-- verify: raises MultipleInvalid -->
+
+```python
+DataclassSchema(Doc, extra=REMOVE_EXTRA)({"meta": {"id": 1, "typo": 2}})
+# MultipleInvalid: not a valid option at 'meta.typo'
+```
+
+The default (`PREVENT_EXTRA`) is unchanged: an unknown key, at any level, is
+rejected. `Key(extra=...)` on a plain (leaf) field has nothing to apply to and is
+ignored.
+
 ## Coercing a field's type
 
 A field annotated with `datetime` validates by `isinstance`, so a string from

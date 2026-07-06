@@ -867,6 +867,7 @@
         'required POSITIONAL_OR_KEYWORD None',
         'description POSITIONAL_OR_KEYWORD None',
         'msg POSITIONAL_OR_KEYWORD None',
+        'extra POSITIONAL_OR_KEYWORD None',
       ]),
     }),
     'Latitude': dict({

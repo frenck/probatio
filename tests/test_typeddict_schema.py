@@ -14,6 +14,8 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    PREVENT_EXTRA,
+    REMOVE_EXTRA,
     Key,
     Range,
     TypedDictSchema,
@@ -312,3 +314,54 @@ def test_required_qualifier_inside_annotated_is_honored() -> None:
     with pytest.raises(MultipleInvalid):
         req({})  # Required honored inside Annotated, in a total=False TypedDict
     assert req({"x": 5}) == {"x": 5}
+
+
+# --- the extra-key policy propagates into nested schemas ----------------------
+
+
+class _XTDInner(TypedDict):
+    """A nested TypedDict, to prove the policy reaches one level down."""
+
+    a: int
+
+
+class _XTDOuter(TypedDict):
+    """A TypedDict holding a nested TypedDict."""
+
+    inner: _XTDInner
+
+
+class _XTDStrictInner(TypedDict):
+    """A TypedDict pinned strict by a Key(extra=...) on its field."""
+
+    b: int
+
+
+class _XTDMixed(TypedDict):
+    """A loose schema with one field pinned strict via Key(extra=PREVENT_EXTRA)."""
+
+    loose: _XTDInner
+    strict: Annotated[_XTDStrictInner, Key(extra=PREVENT_EXTRA)]
+
+
+def test_extra_recurses_into_a_nested_typeddict() -> None:
+    """REMOVE_EXTRA drops an unknown key inside a nested TypedDict."""
+    result = TypedDictSchema(_XTDOuter, extra=REMOVE_EXTRA)({"inner": {"a": 1, "j": 2}})
+    assert result == {"inner": {"a": 1}}
+
+
+def test_nested_typeddict_extra_default_still_rejects() -> None:
+    """The default (PREVENT_EXTRA) still raises on a nested unknown key."""
+    with pytest.raises(MultipleInvalid) as caught:
+        TypedDictSchema(_XTDOuter)({"inner": {"a": 1, "j": 2}})
+    (error,) = caught.value.errors
+    assert error.path == ["inner", "j"]
+
+
+def test_key_extra_pins_a_strict_nested_typeddict() -> None:
+    """Key(extra=PREVENT_EXTRA) keeps one nested TypedDict strict under a loose parent."""
+    data = {"loose": {"a": 1, "j": 2}, "strict": {"b": 1, "j": 3}}
+    with pytest.raises(MultipleInvalid) as caught:
+        TypedDictSchema(_XTDMixed, extra=REMOVE_EXTRA)(data)
+    (error,) = caught.value.errors
+    assert error.path == ["strict", "j"]

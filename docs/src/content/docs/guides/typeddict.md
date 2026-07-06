@@ -198,6 +198,9 @@ guide](/guides/dataclasses/) covers the rest, and it all behaves the same with a
 - [Key facets on fields](/guides/dataclasses/#key-facets-on-fields): `Key(...)` in
   the `Annotated` metadata to redact, alias, group, forbid, or override the presence
   of a field.
+- [Extra keys propagating into nested schemas](/guides/dataclasses/#extra-keys-all-the-way-down):
+  `extra` applies at every level, including a nested `TypedDict`, and `Key(extra=...)`
+  pins a different policy for one field's subtree.
 
 The one difference is the result: a dataclass schema constructs an instance, a
 TypedDict schema returns the validated dict. Because nothing is constructed, a
