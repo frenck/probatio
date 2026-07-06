@@ -435,11 +435,27 @@ def test_epoch_accepts_a_float() -> None:
     assert result.microsecond == 500000
 
 
-def test_epoch_passes_a_datetime_through_unchanged() -> None:
-    """A datetime is returned as-is, so FromEpoch is idempotent on its own output."""
+def test_epoch_passes_an_aware_utc_datetime_through_unchanged() -> None:
+    """An aware UTC datetime is returned as-is, so FromEpoch is idempotent on its output."""
     once = Schema(FromEpoch())(1719571800)
     twice = Schema(FromEpoch())(once)
     assert twice is once
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        datetime.datetime(2024, 6, 28, 10, 50),  # naive
+        datetime.datetime(
+            2024, 6, 28, 10, 50, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+        ),  # aware, non-UTC
+    ],
+)
+def test_epoch_rejects_a_naive_or_non_utc_datetime(value: datetime.datetime) -> None:
+    """A naive or non-UTC datetime is rejected, keeping the always-aware-UTC guarantee."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(FromEpoch())(value)
+    assert isinstance(caught.value.errors[0], EpochInvalid)
 
 
 @pytest.mark.parametrize(
