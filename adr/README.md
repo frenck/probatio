@@ -19,3 +19,4 @@ Each record captures what was chosen, the alternatives considered, and why.
 | [ADR-014](014-annotation-driven-argument-decorator.md)      | An annotation-driven argument-validation decorator             |
 | [ADR-015](015-structured-errors-and-localization.md)        | Structured errors, human-first messages, and localization      |
 | [ADR-016](016-remove-serde-loaders-and-dumpers.md)          | Remove the serde loaders and dumpers                           |
+| [ADR-017](017-numeric-tower-for-float.md)                   | Honor the numeric tower for a bare `float`                     |

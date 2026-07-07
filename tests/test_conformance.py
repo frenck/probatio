@@ -77,7 +77,9 @@ def mixed_key(lib: Any) -> Any:
 
 def two_type_keys(lib: Any) -> Any:
     """Two type keys, so a key failing both reports the first key validator."""
-    return lib.Schema({int: str, float: str})
+    # Both must stay bare ``isinstance`` keys: ``float`` honors the numeric tower
+    # (ADR-017), which would coerce an int key instead of inlining the check.
+    return lib.Schema({int: str, bytes: str})
 
 
 def callable_key(lib: Any) -> Any:

@@ -286,7 +286,25 @@ def _inline_in(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | 
 
 
 def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str] | None:
-    """Inline an isinstance check for a plain (non-Enum) type; ``_v`` is unchanged."""
+    """Inline an isinstance check for a plain (non-Enum) type; ``_v`` is unchanged.
+
+    ``float`` is the exception: it honors the numeric tower (ADR-017), so an ``int``
+    is coerced to ``float`` rather than rejected. A ``float`` subclass or a ``bool``
+    bails to the interpreted ``_FloatCheck``, which decides them, so compiled and
+    interpreted agree.
+    """
+    if schema is float:
+        return [
+            "        if type(_v) is float:",
+            "            pass",
+            "        elif type(_v) is int:",
+            "            try:",
+            "                _v = float(_v)",
+            "            except OverflowError:",
+            "                raise _Bail",
+            "        else:",
+            "            raise _Bail",
+        ]
     if issubclass(schema, Enum):
         return None
     namespace[f"_ty{tag}"] = schema

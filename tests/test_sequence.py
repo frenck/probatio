@@ -57,7 +57,7 @@ def test_remove_drops_matching_list_items_by_value() -> None:
 
 def test_remove_drops_matching_list_items_by_type() -> None:
     """A Remove element matching by type drops those items, order respected."""
-    assert Schema([1.0, Remove(float), int])([1, 2, 1.0, 2.0, 3.0, 4]) == [1, 2, 1.0, 4]
+    assert Schema([Remove(str), int])([1, "a", 2, "b", 3]) == [1, 2, 3]
 
 
 def test_namedtuple_data_round_trips_through_a_tuple_schema() -> None:

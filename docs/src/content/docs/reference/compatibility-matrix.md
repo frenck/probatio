@@ -258,6 +258,15 @@ improvement over a sharp edge, not a regression.
 Each entry reads the same way: the behavior, then what voluptuous does, then what
 Probatio does.
 
+- **An `int` in a `float` schema (`Schema(float)(5)`, ADR-017).** voluptuous
+  validates `float` by `isinstance`, so an `int` is rejected. Probatio honors the
+  PEP 484 numeric tower: an `int` is a valid `float` value, so it is accepted and
+  normalized to `float` (`5` becomes `5.0`), while `bool`, a string, and `None` are
+  still rejected. This aligns the validator with the `{"type": "number"}` that
+  `to_json_schema` already emits. A strict widening: only a value voluptuous would
+  have rejected is affected, and a `float` matcher now matches an `int` too (so
+  `Remove(float)` in a list drops ints, and a `{float: ...}` type key matches an int
+  key).
 - **The rendered error string, `str(error)` (ADR-015).** voluptuous renders
   `expected int for dictionary value @ data['server']['port']`. Probatio renders
   the same error as `expected int at 'server.port'`: the path is a dotted trail
