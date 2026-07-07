@@ -205,16 +205,54 @@ class _TypeCheck:
         return data
 
 
+class _FloatCheck:
+    """Validate ``float`` honoring the PEP 484 numeric tower: an ``int`` is accepted.
+
+    A bare ``float`` accepts a ``float`` unchanged and an ``int`` normalized to
+    ``float``, and rejects everything else (a ``str``, ``None``, and ``bool``, which
+    is an ``int`` subclass but not a number a ``float`` field should hold). This is a
+    deliberate deviation from voluptuous, whose ``isinstance`` rejects an ``int``
+    here (ADR-017): ``5`` genuinely is a valid ``float`` value, and probatio's own
+    ``to_json_schema`` already emits ``{"type": "number"}``, which accepts integers.
+
+    It accepts *and coerces* rather than passing the ``int`` through, so a ``float``
+    field never ends up holding an ``int`` and the "the type is true" invariant
+    holds. Unlike ``_TypeCheck`` it exposes no ``checked_type``, so the mapping and
+    sequence engines never inline it as a bare ``isinstance`` (which cannot coerce)
+    and always call it, keeping the normalized value.
+    """
+
+    __slots__ = ()
+
+    def __call__(self, data: Any) -> Any:
+        """Return a ``float`` unchanged, an ``int`` as ``float``, else raise."""
+        if isinstance(data, float):
+            return data
+        if isinstance(data, int) and not isinstance(data, bool):
+            return float(data)
+        raise TypeInvalid(
+            context={"expected": "float"},
+            translation_key="expected_type",
+            placeholders={"expected": "float"},
+        )
+
+
+# One shared, immutable ``_FloatCheck``: like the ``_TypeCheck`` instances below it
+# carries no per-schema state, so every ``float`` schema holds the same one.
+_FLOAT_CHECK = _FloatCheck()
+
+
 # One shared ``_TypeCheck`` per builtin type: these are by far the most common
 # type schemas, they cannot grow a ``__probatio_validate__`` (builtins reject
 # setattr), and a ``_TypeCheck`` is immutable (slots, never written after init),
 # so every schema can hold the same instance instead of allocating its own.
+# ``float`` is intentionally absent: it maps to ``_FLOAT_CHECK`` (the numeric
+# tower, ADR-017), not a bare ``isinstance``.
 _BUILTIN_TYPE_CHECKS: dict[type, _TypeCheck] = {
     builtin: _TypeCheck(builtin)
     for builtin in (
         str,
         int,
-        float,
         bool,
         bytes,
         bytearray,
@@ -561,6 +599,10 @@ def _compile_type(schema: type) -> CompiledSchema:
     read to inline the ``isinstance`` into their loops and skip a call per
     value. Called directly (when not inlined) it behaves like the closure.
     """
+    # ``float`` honors the numeric tower (an ``int`` is accepted and normalized),
+    # a deliberate deviation from voluptuous's bare ``isinstance`` (ADR-017).
+    if schema is float:
+        return _FLOAT_CHECK
     # ``type(schema) is type`` excludes metaclass instances, whose custom
     # ``__eq__``/``__hash__`` could otherwise spoof a builtin in the lookup.
     if (

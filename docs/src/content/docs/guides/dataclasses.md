@@ -88,22 +88,28 @@ schema({"name": "ada", "tags": ["x"], "home": {"street": "Main", "number": 5}})
 
 The full set of mappings:
 
-| Annotation                 | Schema                               |
-| -------------------------- | ------------------------------------ |
-| `int`, `str`, a plain type | the type (an `isinstance` check)     |
-| `list[T]`                  | `[T]` (element type validated)       |
-| `set[T]`, `frozenset[T]`   | `{T}` / `frozenset([T])`             |
-| `dict[K, V]`               | `{K: V}` (key and value validated)   |
-| `tuple[X, Y]`              | `ExactSequence([X, Y])` (positional) |
-| `tuple[X, ...]`            | a homogeneous sequence of `X`        |
-| `X \| None`                | `Maybe(X)`                           |
-| `X \| Y`                   | `Any(X, Y)`                          |
-| `Literal["a", "b"]`        | `In(["a", "b"])`                     |
-| a nested dataclass         | its own generated schema             |
-| `Any`                      | accepts any value                    |
+| Annotation                 | Schema                                    |
+| -------------------------- | ----------------------------------------- |
+| `int`, `str`, a plain type | the type (an `isinstance` check)          |
+| `float`                    | the numeric tower (`int` in, `float` out) |
+| `list[T]`                  | `[T]` (element type validated)            |
+| `set[T]`, `frozenset[T]`   | `{T}` / `frozenset([T])`                  |
+| `dict[K, V]`               | `{K: V}` (key and value validated)        |
+| `tuple[X, Y]`              | `ExactSequence([X, Y])` (positional)      |
+| `tuple[X, ...]`            | a homogeneous sequence of `X`             |
+| `X \| None`                | `Maybe(X)`                                |
+| `X \| Y`                   | `Any(X, Y)`                               |
+| `Literal["a", "b"]`        | `In(["a", "b"])`                          |
+| a nested dataclass         | its own generated schema                  |
+| `Any`                      | accepts any value                         |
 
 A tuple field accepts a list or a tuple, since a sequence arrives as a list from
 JSON, and keeps whichever you gave it.
+
+A `float` field is the one plain type that is not a bare `isinstance`. It honors
+the PEP 484 numeric tower: an `int` is a valid `float` value, so `5` is accepted
+and normalized to `5.0`, while `bool`, a string, and `None` are still rejected. See
+[ADR-017](https://github.com/frenck/probatio/blob/main/adr/017-numeric-tower-for-float.md).
 
 ## Layering extra rules
 

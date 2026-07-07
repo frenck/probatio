@@ -35,6 +35,11 @@ Each kind of object means something:
 Because a schema is just data, schemas compose: a dict can hold lists of nested
 dicts, and any value position can be a validator like `All` or `Coerce`.
 
+One type is not a bare `isinstance`: `float` honors the PEP 484 numeric tower, so
+`Schema(float)(5)` accepts the `int` and returns `5.0` (`bool` excluded). This is a
+deliberate deviation from voluptuous, which rejects it. See
+[ADR-017](https://github.com/frenck/probatio/blob/main/adr/017-numeric-tower-for-float.md).
+
 ## Compile once, validate many
 
 `Schema(...)` does its analysis up front. Building the schema is the expensive
