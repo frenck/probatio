@@ -10,6 +10,7 @@ from probatio import (
     Byte,
     Clamp,
     Contains,
+    Divide,
     Equal,
     FromPercentage,
     In,
@@ -19,13 +20,18 @@ from probatio import (
     Longitude,
     MultipleInvalid,
     MultipleOf,
+    Multiply,
     Negative,
     NonEmpty,
     NonNegative,
     NotIn,
+    Offset,
     Percentage,
     Positive,
     Range,
+    Remap,
+    Round,
+    Scale,
     Schema,
     SchemaError,
     SmallFloat,
@@ -39,6 +45,7 @@ from probatio.error import (
     MultipleOfInvalid,
     NotInInvalid,
     RangeInvalid,
+    ValueInvalid,
 )
 
 
@@ -448,6 +455,140 @@ def test_latitude_and_longitude_bounds() -> None:
         Schema(Latitude())(100)
     with pytest.raises(MultipleInvalid):
         Schema(Longitude())(200)
+
+
+def test_scale_divides_and_yields_a_float() -> None:
+    """A divisor rescales the value, producing a float (5000 milliunits to 5.0)."""
+    assert Schema(Scale(divisor=1000))(5000) == 5.0
+
+
+def test_scale_integer_multiply_keeps_an_int() -> None:
+    """A pure integer factor on an int keeps Python's int result."""
+    result = Schema(Scale(10))(5)
+    assert result == 50
+    assert type(result) is int
+
+
+def test_scale_byte_to_percentage_with_rounding() -> None:
+    """A 0..255 byte scales to a rounded percentage (128 to 50.2)."""
+    assert Schema(Scale(100, divisor=255, round=1))(128) == 50.2
+
+
+def test_scale_applies_an_offset() -> None:
+    """An offset shifts the value (Kelvin 300 to 26.85 Celsius, rounded)."""
+    assert Schema(Scale(offset=-273.15, round=2))(300) == 26.85
+
+
+@pytest.mark.parametrize("value", [True, False, "5", None])
+def test_scale_rejects_a_non_number(value: object) -> None:
+    """A bool, a string, or None is not a number to rescale, so it is rejected."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Scale(divisor=10))(value)
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_scale_contains_an_overflow() -> None:
+    """A huge int that overflows the float division is reported cleanly, not leaked."""
+    with pytest.raises(MultipleInvalid):
+        Schema(Scale(divisor=1000))(10**400)
+
+
+def test_scale_rejects_a_bad_configuration_at_build_time() -> None:
+    """A zero divisor or a non-integer round is a schema error, raised when built."""
+    with pytest.raises(SchemaError):
+        Scale(divisor=0)
+    with pytest.raises(SchemaError):
+        Scale(round=1.5)
+
+
+def test_scale_repr() -> None:
+    """Scale renders as a constructor call showing the transform."""
+    assert repr(Scale(100, divisor=255, round=1)) == (
+        "Scale(factor=100, divisor=255, offset=0, round=1)"
+    )
+
+
+def test_multiply_scales_a_number() -> None:
+    """Multiply applies a factor; an integer factor on an int keeps an int."""
+    assert Schema(Multiply(0.1))(50) == 5.0
+    kept = Schema(Multiply(3))(4)
+    assert kept == 12
+    assert type(kept) is int
+
+
+def test_divide_yields_a_float_and_rejects_zero_divisor() -> None:
+    """Divide converts milliunits to units; a zero divisor is a build-time error."""
+    assert Schema(Divide(1000))(5000) == 5.0
+    with pytest.raises(SchemaError):
+        Divide(0)
+
+
+def test_offset_shifts_a_number() -> None:
+    """Offset adds an amount (negative to subtract), keeping an int when it can."""
+    assert Schema(Offset(-273.15))(300) == pytest.approx(26.85)
+    kept = Schema(Offset(5))(10)
+    assert kept == 15
+    assert type(kept) is int
+
+
+def test_round_to_decimals_and_to_integer() -> None:
+    """Round keeps decimals with ndigits, or rounds to the nearest int by default."""
+    assert Schema(Round(2))(5.126) == 5.13
+    assert Schema(Round())(5.6) == 6
+    with pytest.raises(SchemaError):
+        Round(1.5)
+
+
+def test_arithmetic_mutator_reprs() -> None:
+    """Each mutator renders as a constructor call for introspection."""
+    assert repr(Multiply(0.1)) == "Multiply(0.1)"
+    assert repr(Divide(1000)) == "Divide(1000)"
+    assert repr(Offset(-273.15)) == "Offset(-273.15)"
+    assert repr(Round(2)) == "Round(2)"
+    assert repr(Remap(0, 1023, 0, 100)) == (
+        "Remap(in_low=0, in_high=1023, out_low=0, out_high=100)"
+    )
+
+
+def test_remap_maps_between_ranges() -> None:
+    """Remap linearly maps a value from an input range onto an output range."""
+    assert Schema(Remap(0, 1023, 0, 100))(1023) == 100.0
+    assert Schema(Remap(0, 10, 0, 100))(5) == 50.0
+
+
+def test_remap_rejects_a_zero_width_input_range() -> None:
+    """A zero-width input range would divide by zero, so it is a build-time error."""
+    with pytest.raises(SchemaError):
+        Remap(5, 5, 0, 100)
+
+
+@pytest.mark.parametrize(
+    "mutator", [Multiply(2), Divide(2), Offset(2), Round(), Remap(0, 1, 0, 1)]
+)
+def test_arithmetic_mutators_reject_a_non_number(mutator: object) -> None:
+    """Every arithmetic mutator rejects a string rather than mishandling it."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(mutator)("x")
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "value"),
+    [
+        (Multiply(1.0), 10**400),
+        (Divide(2), 10**400),
+        (Offset(1.0), 10**400),
+        (Round(), float("inf")),
+        (Remap(0, 1, 0, 1), 10**400),
+    ],
+)
+def test_arithmetic_mutators_contain_an_overflow(
+    mutator: object, value: object
+) -> None:
+    """A value that overflows the float arithmetic is reported cleanly, not leaked."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(mutator)(value)
+    assert isinstance(caught.value.errors[0], ValueInvalid)
 
 
 def test_membership_and_equality_reject_signaling_nan() -> None:

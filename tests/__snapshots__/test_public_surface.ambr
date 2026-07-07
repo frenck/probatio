@@ -370,6 +370,13 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'Divide': dict({
+      'kind': 'class',
+      'signature': list([
+        'divisor POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Duration': dict({
       'kind': 'class',
       'signature': list([
@@ -1024,6 +1031,13 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'Multiply': dict({
+      'kind': 'class',
+      'signature': list([
+        'factor POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Negative': dict({
       'kind': 'class',
       'signature': list([
@@ -1118,6 +1132,13 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'Offset': dict({
+      'kind': 'class',
+      'signature': list([
+        'amount POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Optional': dict({
       'kind': 'class',
       'signature': list([
@@ -1208,6 +1229,16 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'Remap': dict({
+      'kind': 'class',
+      'signature': list([
+        'in_low POSITIONAL_OR_KEYWORD required',
+        'in_high POSITIONAL_OR_KEYWORD required',
+        'out_low POSITIONAL_OR_KEYWORD required',
+        'out_high POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Remove': dict({
       'kind': 'class',
       'signature': list([
@@ -1273,6 +1304,13 @@
         'msg KEYWORD_ONLY None',
       ]),
     }),
+    'Round': dict({
+      'kind': 'class',
+      'signature': list([
+        'ndigits POSITIONAL_OR_KEYWORD None',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'ScalarInvalid': dict({
       'kind': 'class',
       'signature': list([
@@ -1284,6 +1322,16 @@
         'context KEYWORD_ONLY None',
         'translation_key KEYWORD_ONLY None',
         'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Scale': dict({
+      'kind': 'class',
+      'signature': list([
+        'factor POSITIONAL_OR_KEYWORD 1',
+        'divisor KEYWORD_ONLY 1',
+        'offset KEYWORD_ONLY 0',
+        'round KEYWORD_ONLY None',
+        'msg KEYWORD_ONLY None',
       ]),
     }),
     'Schema': dict({

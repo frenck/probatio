@@ -217,19 +217,25 @@ The type changes.
 
 The type stays; the value is cleaned.
 
-| Name                  | Result                                         |
-| --------------------- | ---------------------------------------------- |
-| `Lower`               | Lowercase.                                     |
-| `Upper`               | Uppercase.                                     |
-| `Capitalize`          | Capitalized.                                   |
-| `Title`               | Title-cased.                                   |
-| `Strip`               | Whitespace trimmed.                            |
-| `Replace`             | Regular-expression replace.                    |
-| `Clamp`               | A number pinned into a range.                  |
-| `NormalizeMacAddress` | A MAC address in canonical form.               |
-| `CreditCard`          | A card number (Luhn), stripped to bare digits. |
-| `IBAN`                | An IBAN (mod-97), compacted and upper-cased.   |
-| `E164`                | An E.164 phone number, grouping stripped.      |
+| Name                  | Result                                           |
+| --------------------- | ------------------------------------------------ |
+| `Lower`               | Lowercase.                                       |
+| `Upper`               | Uppercase.                                       |
+| `Capitalize`          | Capitalized.                                     |
+| `Title`               | Title-cased.                                     |
+| `Strip`               | Whitespace trimmed.                              |
+| `Replace`             | Regular-expression replace.                      |
+| `Clamp`               | A number pinned into a range.                    |
+| `Multiply`            | A number times a factor.                         |
+| `Divide`              | A number divided by a divisor.                   |
+| `Offset`              | A number plus an amount.                         |
+| `Round`               | A number rounded to decimals or an integer.      |
+| `Remap`               | A number mapped from one range onto another.     |
+| `Scale`               | A number rescaled (`factor`/`divisor`/`offset`). |
+| `NormalizeMacAddress` | A MAC address in canonical form.                 |
+| `CreditCard`          | A card number (Luhn), stripped to bare digits.   |
+| `IBAN`                | An IBAN (mod-97), compacted and upper-cased.     |
+| `E164`                | An E.164 phone number, grouping stripped.        |
 
 `CreditCard`, `IBAN`, and `E164` normalize by default; pass `normalize=False`
 to validate and return the value unchanged.
