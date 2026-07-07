@@ -13,8 +13,10 @@ from dataclasses import dataclass
 import pytest
 
 from probatio import (
+    Any,
     DataclassSchema,
     MultipleInvalid,
+    Remove,
     Schema,
     to_json_schema,
 )
@@ -98,6 +100,43 @@ def test_runtime_agrees_with_the_emitted_json_schema() -> None:
     """to_json_schema emits {'type': 'number'}, which accepts an int, and now so does the validator."""
     assert to_json_schema(Schema(float)) == {"type": "number"}
     assert Schema(float)(5) == 5.0
+
+
+def test_an_integer_too_large_for_a_float_is_rejected_cleanly() -> None:
+    """A huge int (10**400 overflows float()) raises Invalid, not a raw OverflowError."""
+    with pytest.raises(MultipleInvalid):
+        Schema(float)(10**400)
+    with pytest.raises(MultipleInvalid):
+        Schema([float])([10**400])
+
+
+def test_a_float_matcher_drops_matching_ints() -> None:
+    """Remove(float) in a list drops ints too, since an int is now a valid float match."""
+    assert Schema([Remove(float), str])([1, 2.0, "keep"]) == ["keep"]
+
+
+def test_an_any_of_types_and_float_keeps_branch_order() -> None:
+    """In an Any, the first matching branch wins, so int-before-float keeps the int."""
+    assert Schema(Any(float, int))(5) == 5.0  # float first: coerced
+    assert type(Schema(Any(float, int))(5)) is float
+    assert Schema(Any(int, float))(5) == 5  # int first: unchanged
+    assert type(Schema(Any(int, float))(5)) is int
+
+
+def test_an_any_of_types_and_float_coerces_or_misses() -> None:
+    """A float branch in an Any coerces an int, excludes bool, and misses cleanly."""
+    assert Schema(Any(float, str))(5) == 5.0
+    with pytest.raises(MultipleInvalid):
+        Schema(Any(float, str))(True)
+    with pytest.raises(MultipleInvalid):
+        Schema(Any(int, float, str))(None)
+
+
+def test_a_custom_msg_is_used_on_a_float_any_miss() -> None:
+    """A custom msg on an Any with a float branch is raised on the fast miss path."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Any(int, float, str, msg="nope"))(None)
+    assert caught.value.errors[0].error_message == "nope"
 
 
 def test_complex_does_not_yet_honor_the_tower() -> None:

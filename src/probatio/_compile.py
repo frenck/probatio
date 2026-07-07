@@ -224,12 +224,23 @@ class _FloatCheck:
 
     __slots__ = ()
 
+    # Read by the ``Any``/``Union`` fast path to recognize the float tower without a
+    # circular import: its accept set is a ``float`` or an ``int`` (never a ``bool``).
+    is_float_tower = True
+
     def __call__(self, data: Any) -> Any:
         """Return a ``float`` unchanged, an ``int`` as ``float``, else raise."""
         if isinstance(data, float):
             return data
         if isinstance(data, int) and not isinstance(data, bool):
-            return float(data)
+            try:
+                return float(data)
+            except OverflowError:
+                # An integer too large to represent as a float (``10**400``, which
+                # JSON can decode from untrusted input) is rejected cleanly rather
+                # than leaking the ``OverflowError`` a leaf validator must never
+                # raise, like ``Coerce`` guards the same conversion.
+                pass
         raise TypeInvalid(
             context={"expected": "float"},
             translation_key="expected_type",

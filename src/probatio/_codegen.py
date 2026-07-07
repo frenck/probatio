@@ -298,7 +298,10 @@ def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str]
             "        if type(_v) is float:",
             "            pass",
             "        elif type(_v) is int:",
-            "            _v = float(_v)",
+            "            try:",
+            "                _v = float(_v)",
+            "            except OverflowError:",
+            "                raise _Bail",
             "        else:",
             "            raise _Bail",
         ]

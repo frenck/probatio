@@ -267,6 +267,45 @@ def _type_tuple(
     return tuple(types), allow_none
 
 
+def _float_superset(
+    validators: list[typing.Any], compiled: list[typing.Any]
+) -> tuple[tuple[type, ...], bool] | None:
+    """Return ``(accept_types, allow_none)`` for an ``Any`` of types plus a float tower.
+
+    Only for a branch set that is otherwise all bare types or ``None`` but for the
+    float tower (ADR-017), which coerces an ``int`` and so has no ``checked_type`` to
+    inline. The tower cannot fold into the single ``isinstance`` ``_type_tuple`` uses
+    (a match may coerce, and branch order decides the result), so this gives the
+    weaker but cheap signal ``__call__`` needs: the *superset* of types any branch
+    could accept, ``float`` and ``int`` standing in for the tower. A value outside it
+    cannot match any branch, so a miss is rejected with one ``isinstance``; a value
+    inside it defers to the ordered, coercing ``_run_any``. ``None`` if a branch is
+    neither a type, ``None``, nor the float tower, or if no float tower is present.
+    """
+    types: list[type] = []
+    allow_none = False
+    has_float_tower = False
+    for raw, branch in zip(validators, compiled, strict=True):
+        if raw is None:
+            allow_none = True
+            continue
+        if getattr(branch, "is_float_tower", False):
+            has_float_tower = True
+            # The tower accepts a float or an int (coerced); a bool is excluded by
+            # the tower itself, so let it into the ordered path to be rejected there.
+            types.append(float)
+            types.append(int)
+            continue
+        checked_type = getattr(branch, "checked_type", None)
+        if checked_type is None:
+            return None
+        types.append(checked_type)
+
+    if not has_float_tower:
+        return None
+    return tuple(types), allow_none
+
+
 def _run_typed_any(
     types: tuple[type, ...],
     allow_none: bool,
@@ -293,6 +332,36 @@ def _run_typed_any(
         )
     # The typed path always labels (every branch is a type), so this fallback
     # is unreachable; it keeps the type checker honest without a cast.
+    raise AnyInvalid(translation_key="no_valid_value")  # pragma: no cover
+
+
+def _run_float_superset_any(
+    superset: tuple[tuple[type, ...], bool],
+    candidates: list[typing.Any],
+    value: typing.Any,
+    msg: str | None,
+    miss_label: str | None,
+) -> typing.Any:
+    """Resolve a types-plus-float-tower ``Any``, rejecting a miss with one isinstance.
+
+    A value outside the accept superset cannot match any branch, so it is rejected
+    without running one (the common error path). A value inside it might match, and a
+    float branch may coerce, so it defers to the ordered ``_run_any`` which decides
+    correctly. The tower keeps its fast rejection without giving up branch order or
+    coercion on a hit.
+    """
+    accept_types, allow_none = superset
+    if (allow_none and value is None) or isinstance(value, accept_types):
+        return _run_any(candidates, value, msg, miss_label)
+    if msg is not None:
+        raise AnyInvalid(msg)
+    if miss_label is not None:
+        raise AnyInvalid(
+            translation_key="expected_type",
+            placeholders={"expected": miss_label},
+        )
+    # A float tower always labels (float and every other branch is a type), so this
+    # fallback is unreachable; kept to satisfy the type checker without a cast.
     raise AnyInvalid(translation_key="no_valid_value")  # pragma: no cover
 
 
@@ -330,6 +399,13 @@ class Any(_Combinator):
             for validator in self.validators
         ]
         self._types = _type_tuple(self.validators, self._compiled)
+        # When a float tower blocks the single-isinstance path, keep a cheap miss
+        # rejection via the accept superset (ADR-017). Only computed when needed.
+        self._float_superset = (
+            _float_superset(self.validators, self._compiled)
+            if self._types is None
+            else None
+        )
         # Prebuilt so a miss does not re-derive a label that only depends on the
         # branch labels, which are fixed here; the sentence itself renders lazily
         # from the "expected_type" catalog template.
@@ -340,6 +416,10 @@ class Any(_Combinator):
         # All-type (or None) branches resolve by one isinstance, on match and miss.
         if self._types is not None:
             return _run_typed_any(*self._types, value, self.msg, self._expected)
+        if self._float_superset is not None:
+            return _run_float_superset_any(
+                self._float_superset, self._compiled, value, self.msg, self._expected
+            )
         return _run_any(self._compiled, value, self.msg, self._expected)
 
     def __repr__(self) -> str:
