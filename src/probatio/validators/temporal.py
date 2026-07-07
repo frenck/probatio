@@ -578,6 +578,12 @@ class FromEpoch(_SafeValidator):
     aware and in UTC: a naive, local result would depend on the host's time zone,
     so the same input would validate to different moments on different machines. A
     ``bool``, a string, or an out-of-range or NaN value is rejected.
+
+    An aware UTC ``datetime`` (what this validator itself produces) is returned
+    unchanged, so the validator is idempotent: it sits on a field whose default is
+    such a ``datetime`` without re-converting it when the default flows back through
+    the schema. A naive or non-UTC ``datetime`` is rejected, not silently passed on,
+    so the always-aware-and-UTC guarantee holds for every result.
     """
 
     def __init__(self, unit: str = "seconds", msg: str | None = None) -> None:
@@ -595,6 +601,15 @@ class FromEpoch(_SafeValidator):
 
     def __call__(self, value: typing.Any) -> datetime.datetime:
         """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""
+        if isinstance(value, datetime.datetime):
+            # Pass through only a value this validator could have produced: an aware
+            # UTC datetime. A naive or non-UTC one would break the always-UTC
+            # guarantee and reintroduce host-timezone dependence, so reject it like
+            # any other bad value. A zero UTC offset is the UTC test; it is ``None``
+            # for a naive datetime, which never equals the zero timedelta.
+            if value.utcoffset() == datetime.timedelta(0):
+                return value
+            raise EpochInvalid(self.msg, translation_key="expected_unix_timestamp")
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise EpochInvalid(self.msg, translation_key="expected_unix_timestamp")
 
