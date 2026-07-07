@@ -319,6 +319,14 @@ policy. The class stays an ordinary dataclass; the mixin adds `from_dict` and re
 `extra`, and leaves the fields alone. A `TypedDict` cannot carry methods, so it keeps
 using `TypedDictSchema` directly.
 
+`from_dict` is the validation boundary, not the class. Coming from pydantic, this
+is the one thing to know: `SchemaMixin` does not make the dataclass validate itself.
+Constructing one directly (`Server(host="nas", port="no")`) runs no validation, the
+same as any plain dataclass, and a type-checker already flags the wrong type there.
+Validate untrusted input at the edge with `from_dict`, and treat an instance you
+already hold as trusted. The schema stays separate from the data, so the same
+dataclass keeps working with probatio nowhere in sight.
+
 :::note
 Because a default flows back through the schema when its key is absent, a `Coerce`
 on a defaulted field must be idempotent: it has to take its own already-final default
