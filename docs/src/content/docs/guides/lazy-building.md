@@ -45,6 +45,15 @@ set_build_policy(BuildPolicy.LAZY)   # defer every eligible schema to first use
 set_build_policy(BuildPolicy.EAGER)  # the default: compile at construction
 ```
 
+:::caution[Applications set this, not libraries]
+`set_build_policy` is a single process-wide switch, so only an application (the
+process that owns the run) should call it. A library that sets it changes how every
+schema in the process builds, the application's own and those of unrelated
+dependencies included, which is not a library's call to make. And unlike the compile
+policy, the build policy has no per-schema form, so a library cannot scope it to its
+own schemas either. Leave it to the application and rely on the `EAGER` default.
+:::
+
 After `set_build_policy(BuildPolicy.LAZY)`, a schema you build does not compile
 until its first validation. A schema you build and never call never compiles at
 all, and never allocates its validator tree.

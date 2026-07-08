@@ -45,10 +45,19 @@ _policy = _DEFAULT_POLICY
 def set_compile_policy(policy: CompilePolicy) -> None:
     """Set the process-wide compile policy.
 
-    Call it once, early, from deliberate startup code. A per-schema ``compile``
-    flag still overrides it in either direction. Raises ``TypeError`` for anything
-    that is not a ``CompilePolicy``, so a stray string like ``"off"`` fails loudly
-    rather than being stored and silently breaking every later compile decision.
+    This is a single process-wide switch for an application (the process owner) to
+    set, once, early, from deliberate startup code. A library must not call it: it
+    would change compilation for every schema in the process, the application's own
+    and those of unrelated dependencies included. A library that wants a specific
+    schema compiled (or not) sets the per-schema ``compile`` flag instead
+    (``Schema(..., compile=True)`` / ``compile=False``), and sparingly, since whether
+    compilation pays depends on how the application uses the schema, so the ``AUTO``
+    default is usually the right call.
+
+    A per-schema ``compile`` flag still overrides this in either direction. Raises
+    ``TypeError`` for anything that is not a ``CompilePolicy``, so a stray string like
+    ``"off"`` fails loudly rather than being stored and silently breaking every later
+    compile decision.
     """
     if not isinstance(policy, CompilePolicy):
         message = f"compile policy must be a CompilePolicy, got {type(policy).__name__}"
