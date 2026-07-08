@@ -251,5 +251,20 @@ fractional operand yields a `float` (`Divide` and `Remap` always do).
 | `Remap`     | A number mapped from one range onto another.     |
 | `Scale`     | A number rescaled (`factor`/`divisor`/`offset`). |
 
+### Collections
+
+Reshape a list rather than validate it. `Sort` and `Dedupe` are the doing siblings
+of the `Sorted` and `Unique` validators.
+
+| Name      | Result                                            |
+| --------- | ------------------------------------------------- |
+| `Split`   | A delimited string into a list.                   |
+| `Join`    | A list into a delimited string.                   |
+| `Sort`    | A list ordered (a new list).                      |
+| `Dedupe`  | A list without duplicates, first-seen order kept. |
+| `First`   | The first item of a sequence.                     |
+| `Last`    | The last item of a sequence.                      |
+| `Without` | A list without the listed values.                 |
+
 `CreditCard`, `IBAN`, and `E164` normalize by default; pass `normalize=False`
 to validate and return the value unchanged.

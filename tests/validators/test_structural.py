@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from decimal import Decimal
 from typing import Self
 
 import pytest
 
 from probatio import (
+    Dedupe,
     EnsureList,
     ExactSequence,
+    First,
+    Join,
+    Last,
     Maybe,
     Msg,
     MultipleInvalid,
     Schema,
+    SchemaError,
     Set,
+    Sort,
     Sorted,
+    Split,
     Unique,
     Unordered,
+    Without,
 )
 from probatio.error import ExactSequenceInvalid, Invalid, TypeInvalid, ValueInvalid
 
@@ -241,3 +250,109 @@ def test_sorted_rejects_an_unsortable_value() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Sorted())(5)
     assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_split_divides_a_string() -> None:
+    """Split cuts a delimited string, stripping pieces and dropping empties by default."""
+    assert Schema(Split(","))("a, b ,c") == ["a", "b", "c"]
+    assert Schema(Split(",", drop_empty=False))("a,,c") == ["a", "", "c"]
+    assert Schema(Split(",", strip=False))(" a , b ") == [" a ", " b "]
+
+
+def test_split_rejects_a_non_string() -> None:
+    """A non-string cannot be split, so it is rejected."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Split())(5)
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_join_builds_a_string() -> None:
+    """Join renders each element and joins them with the separator."""
+    assert Schema(Join(","))([1, 2, 3]) == "1,2,3"
+    assert Schema(Join("-"))(["a", "b"]) == "a-b"
+
+
+def test_split_and_join_reject_a_bad_separator_at_build_time() -> None:
+    """A non-string (or, for Split, empty) separator is a schema error, raised early.
+
+    Split and Join are called directly (safe validators), so a bad separator would
+    otherwise leak a raw ValueError/TypeError from str.split/str.join at call time.
+    """
+    with pytest.raises(SchemaError):
+        Split("")
+    with pytest.raises(SchemaError):
+        Split(5)  # type: ignore[arg-type]
+    with pytest.raises(SchemaError):
+        Join(5)  # type: ignore[arg-type]
+
+
+def test_sort_orders_the_sequence() -> None:
+    """Sort returns a new ordered list, ascending by default and descending on request."""
+    assert Schema(Sort())([3, 1, 2]) == [1, 2, 3]
+    assert Schema(Sort(reverse=True))([1, 3, 2]) == [3, 2, 1]
+
+
+def test_sort_rejects_incomparable_items() -> None:
+    """Items that cannot be ordered are reported cleanly, not leaked as a TypeError."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Sort())([1, "a"])
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_dedupe_drops_repeats_keeping_order() -> None:
+    """Dedupe removes duplicates, keeping the first-seen order."""
+    assert Schema(Dedupe())([1, 2, 1, 3, 2]) == [1, 2, 3]
+
+
+def test_dedupe_rejects_an_unhashable_item() -> None:
+    """An unhashable item cannot be deduplicated, so it is reported cleanly."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Dedupe())([[1], [1]])
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_first_and_last_pick_an_element() -> None:
+    """First returns value[0] and Last returns value[-1]."""
+    assert Schema(First())([1, 2, 3]) == 1
+    assert Schema(Last())([1, 2, 3]) == 3
+
+
+def test_first_rejects_an_empty_sequence() -> None:
+    """An empty sequence has no first item, so it is rejected."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(First())([])
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_without_drops_the_listed_values() -> None:
+    """Without removes every element equal to one of the given values."""
+    assert Schema(Without(None, 0))([1, None, 0, 2]) == [1, 2]
+    assert Schema(Without(None))([1, None, 2]) == [1, 2]
+
+
+def test_without_contains_a_hostile_comparison() -> None:
+    """An item whose equality raises (a signaling Decimal) is reported cleanly."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Without(0))([Decimal("sNaN")])
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+@pytest.mark.parametrize(
+    "shaper", [Join(), Sort(), Dedupe(), First(), Last(), Without(0)]
+)
+def test_collection_shapers_reject_a_non_sequence(shaper: object) -> None:
+    """A value that is not a list or tuple is rejected rather than mishandled."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(shaper)("not a sequence")
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_collection_shaper_reprs() -> None:
+    """Each collection shaper renders as a constructor call for introspection."""
+    assert repr(Split(";")) == "Split(sep=';', strip=True, drop_empty=True)"
+    assert repr(Join("-")) == "Join('-')"
+    assert repr(Sort(reverse=True)) == "Sort(reverse=True)"
+    assert repr(Dedupe()) == "Dedupe()"
+    assert repr(First()) == "First()"
+    assert repr(Last()) == "Last()"
+    assert repr(Without(None, 0)) == "Without(None, 0)"

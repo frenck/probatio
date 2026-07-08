@@ -212,6 +212,24 @@ from probatio import Schema, Sorted
 Schema(Sorted())([1, 2, 3])  # [1, 2, 3]
 ```
 
+A handful of shapers rewrite a list instead of validating it. `Split` cuts a
+delimited string into a list (stripping pieces and dropping empties by default), and
+`Join` is its inverse. `Sort` orders a list and `Dedupe` drops repeats, keeping
+first-seen order, the transformer siblings of `Sorted` and `Unique`. `First` and
+`Last` pick an element, and `Without` prunes listed values, so `Without(None)` clears
+the holes.
+
+```python
+from probatio import Schema, Split, Join, Sort, Dedupe, First, Without
+
+Schema(Split(","))("a, b ,c")        # ['a', 'b', 'c']
+Schema(Join(","))([1, 2, 3])         # '1,2,3'
+Schema(Sort())([3, 1, 2])            # [1, 2, 3]
+Schema(Dedupe())([1, 2, 1, 3])       # [1, 2, 3]
+Schema(First())([1, 2, 3])           # 1
+Schema(Without(None, 0))([1, None, 0, 2])  # [1, 2]
+```
+
 `Set` returns a real set, so its repr ordering is not stable:
 
 ```python
