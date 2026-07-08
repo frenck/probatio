@@ -4,9 +4,8 @@ description: Where Probatio stands today, and what stable means before 1.0.
 ---
 
 Probatio is pre-1.0. Honest status: it works, it is tested, and it is young.
-The current release line is 0.5, with v0.5.4 the latest at the time of writing;
-the [release notes on GitHub](https://github.com/frenck/probatio/releases)
-track what each release changed.
+It is on the 0.x line; the [release notes on GitHub](https://github.com/frenck/probatio/releases)
+track the latest release and what each one changed.
 
 ## The goal
 

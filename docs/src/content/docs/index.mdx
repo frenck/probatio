@@ -58,7 +58,7 @@ change before 1.0 while the project gathers production feedback.
   </Card>
   <Card title="Typed and modern" icon="setting">
     Ships `py.typed`, checked under mypy and ty, pure Python with no native
-    build. Loads JSON, YAML, and TOML, and exports JSON Schema and OpenAPI.
+    build. Exports JSON Schema and OpenAPI from a schema, and reads them back in.
   </Card>
 </CardGrid>
 
@@ -102,8 +102,8 @@ except Invalid as err:
 
 ## Why trust it
 
-It is a config-loading library, so the bar is whether you would hand it untrusted
-input. The evidence, not the adjectives:
+It validates untrusted input, config, an API body, a device response, so the bar
+is whether you would hand it exactly that. The evidence, not the adjectives:
 
 - **voluptuous 0.16.0 test suite:** runs against Probatio, with every divergence
   a deliberate, documented deviation. voluptuous's own authors' notion of the
