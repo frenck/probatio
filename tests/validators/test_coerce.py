@@ -8,7 +8,18 @@ from decimal import Decimal
 import pytest
 import voluptuous
 
-from probatio import Boolean, Coerce, DefaultTo, MultipleInvalid, Number, Schema, SetTo
+from probatio import (
+    Boolean,
+    Coerce,
+    DefaultTo,
+    EmptyToNone,
+    Map,
+    MultipleInvalid,
+    Number,
+    Schema,
+    SchemaError,
+    SetTo,
+)
 from probatio.error import BooleanInvalid, CoerceInvalid, Invalid
 
 
@@ -227,3 +238,61 @@ def test_coerce_int_fails_cleanly_on_infinity() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Coerce(int))(float("inf"))
     assert isinstance(caught.value.errors[0], CoerceInvalid)
+
+
+def test_map_translates_a_known_value() -> None:
+    """Map returns the mapped value for a key it knows."""
+    status = Map({0: "off", 1: "on", 2: "auto"})
+    assert Schema(status)(0) == "off"
+    assert Schema(status)(2) == "auto"
+
+
+def test_map_rejects_an_unknown_value() -> None:
+    """A value not in the mapping is rejected when no default is set."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(Map({0: "off", 1: "on"}))(9)
+    assert isinstance(caught.value.errors[0], Invalid)
+
+
+def test_map_uses_a_default_on_a_miss() -> None:
+    """With a default, an unknown value returns the default instead of failing."""
+    assert Schema(Map({0: "off"}, default="unknown"))(9) == "unknown"
+
+
+def test_map_treats_an_unhashable_value_as_a_miss() -> None:
+    """An unhashable value cannot be a mapping key, so it is a miss."""
+    with pytest.raises(MultipleInvalid):
+        Schema(Map({0: "off"}))([1, 2])
+    assert Schema(Map({0: "off"}, default=None))([1, 2]) is None
+
+
+def test_map_rejects_a_non_dict_mapping_at_build_time() -> None:
+    """A mapping that is not a dict is a schema error, raised when the validator is built."""
+    with pytest.raises(SchemaError):
+        Map([1, 2, 3])  # type: ignore[arg-type]
+
+
+def test_map_repr() -> None:
+    """Map renders as a constructor call showing the mapping."""
+    assert repr(Map({1: "a"})) == "Map({1: 'a'})"
+
+
+def test_empty_to_none_replaces_empties() -> None:
+    """An empty string or container becomes None; other values pass through."""
+    assert Schema(EmptyToNone())("") is None
+    assert Schema(EmptyToNone())([]) is None
+    assert Schema(EmptyToNone())({}) is None
+    assert Schema(EmptyToNone())("x") == "x"
+    assert Schema(EmptyToNone())([1]) == [1]
+
+
+def test_empty_to_none_leaves_a_falsy_scalar_alone() -> None:
+    """0, False, and None are values, not empties, so they pass through unchanged."""
+    assert Schema(EmptyToNone())(0) == 0
+    assert Schema(EmptyToNone())(False) is False
+    assert Schema(EmptyToNone())(None) is None
+
+
+def test_empty_to_none_repr() -> None:
+    """EmptyToNone renders as a constructor call."""
+    assert repr(EmptyToNone()) == "EmptyToNone()"

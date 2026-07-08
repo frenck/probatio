@@ -211,6 +211,8 @@ The type changes.
 | `HexInt`         | A hex string to an `int`.                 |
 | `FromJSONString` | A JSON string to the decoded value.       |
 | `DefaultTo`      | `None` to a default (substitution).       |
+| `EmptyToNone`    | An empty string or container to `None`.   |
+| `Map`            | A value to its entry in a lookup table.   |
 | `SetTo`          | Anything to a fixed value (substitution). |
 
 ### Normalizers

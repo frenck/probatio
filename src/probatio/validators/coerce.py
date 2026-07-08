@@ -6,12 +6,16 @@ import enum
 import typing
 from decimal import Decimal, InvalidOperation
 
-from probatio.error import BooleanInvalid, CoerceInvalid, Invalid
+from probatio.error import BooleanInvalid, CoerceInvalid, Invalid, SchemaError
+from probatio.markers import UNDEFINED
 from probatio.validators._base import _SafeValidator
 from probatio.validators.decorators import message
 
 _TRUE_STRINGS = frozenset({"1", "true", "yes", "on", "enable"})
 _FALSE_STRINGS = frozenset({"0", "false", "no", "off", "disable"})
+# The empty values ``EmptyToNone`` maps to ``None``: a string or a container with no
+# items. A falsy scalar (``0``, ``False``) is a value, not an absence, so it is left.
+_EMPTY_CONTAINERS = (str, bytes, list, tuple, dict, set, frozenset)
 
 
 class Coerce[T](_SafeValidator):
@@ -217,4 +221,75 @@ class DefaultTo(_SafeValidator):
         """Return the default when the value is None, else the value."""
         if value is None:
             return self.default
+        return value
+
+
+class Map(_SafeValidator):
+    """Translate a value through a mapping, like a status code to a name.
+
+    ``Map({0: "off", 1: "on", 2: "auto"})`` returns the mapped value for a key it
+    knows. This is the bring-your-own-table generalization of a domain converter:
+    probatio does not pick the mapping, you do, so a disputed or app-specific lookup
+    (an RSSI bucket, a vendor status code) stays yours. A value not in the mapping is
+    rejected, unless a ``default`` is given, in which case the default is returned. An
+    unhashable value, which cannot be a mapping key, is treated as a miss.
+    """
+
+    def __init__(
+        self,
+        mapping: typing.Any,
+        *,
+        default: typing.Any = UNDEFINED,
+        msg: str | None = None,
+    ) -> None:
+        """Store the mapping and optional default; reject a non-dict mapping at build."""
+        if not isinstance(mapping, dict):
+            message = "Map mapping must be a dict"
+            raise SchemaError(message)
+        self.mapping = mapping
+        self.default = default
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the mapping."""
+        return f"Map({self.mapping!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the mapped value, the default on a miss, else raise Invalid."""
+        try:
+            return self.mapping[value]
+        except Exception as exc:
+            # A miss (KeyError), an unhashable value (TypeError), or a hostile
+            # ``__hash__``/``__eq__``: none is a valid key. Fall back to the default
+            # if one was given, otherwise report the allowed keys.
+            if self.default is not UNDEFINED:
+                return self.default
+            raise Invalid(
+                self.msg,
+                translation_key="value_one_of",
+                placeholders={"values": list(self.mapping)},
+            ) from exc
+
+
+class EmptyToNone(_SafeValidator):
+    """Replace an empty string or container with ``None``, leaving other values alone.
+
+    ``EmptyToNone()`` turns ``""``, ``[]``, and ``{}`` into ``None``, the common
+    "empty means unset" normalization from config and forms. A non-empty value passes
+    through, and so does a falsy scalar like ``0`` or ``False`` (``0`` is a value, not
+    an absence). It is the reverse of ``DefaultTo``, which fills a ``None``.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "EmptyToNone()"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return None for an empty string or container, else the value unchanged."""
+        if isinstance(value, _EMPTY_CONTAINERS) and len(value) == 0:
+            return None
         return value

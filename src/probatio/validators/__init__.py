@@ -6,7 +6,15 @@ internal organization detail.
 
 from __future__ import annotations
 
-from probatio.validators.coerce import Boolean, Coerce, DefaultTo, Number, SetTo
+from probatio.validators.coerce import (
+    Boolean,
+    Coerce,
+    DefaultTo,
+    EmptyToNone,
+    Map,
+    Number,
+    SetTo,
+)
 from probatio.validators.combinators import (
     All,
     And,
@@ -192,6 +200,7 @@ __all__ = [
     "Divide",
     "Duration",
     "Email",
+    "EmptyToNone",
     "EndsWith",
     "EnsureList",
     "Equal",
@@ -231,6 +240,7 @@ __all__ = [
     "Longitude",
     "Lower",
     "MacAddress",
+    "Map",
     "Match",
     "Maybe",
     "Modulo",
