@@ -173,6 +173,50 @@ schema({"name": "app", "debug": True, "retries": 3})
 
 Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
 
+## Validating dynamic keys
+
+When the keys themselves are data (device slugs, entity ids, translation keys, a
+status code), put a validator in the key position. It runs on every key: a format
+check rejects a bad key pointing at the key, and a coercer or normalizer rewrites the
+key into the result. This is the same idea as a type key, with any validator.
+
+```python
+from probatio import Schema, Slug, Match, Coerce, In
+
+# Keys must be slugs (area or device maps keyed by name).
+Schema({Slug(): int})({"living-room": 1, "kitchen": 2})
+# {'living-room': 1, 'kitchen': 2}
+
+# Keys must match a pattern (an entity id, a translation key: [a-z0-9_-]).
+Schema({Match(r"^[a-z0-9_-]+$"): str})({"already_running": "In progress"})
+# {'already_running': 'In progress'}
+
+# Coerce the key: JSON object keys are always strings, take integer ids back.
+Schema({Coerce(int): str})({"1": "on", "2": "off"})
+# {1: 'on', 2: 'off'}
+
+# Restrict the key to a known set.
+Schema({In(["celsius", "fahrenheit"]): float})({"celsius": 21.5})
+# {'celsius': 21.5}
+```
+
+A bad key is reported at that key, not swallowed as an unexpected extra:
+
+<!-- verify: raises MultipleInvalid -->
+
+```python
+from probatio import Schema, Slug
+
+Schema({Slug(): int})({"Not A Slug": 1})  # expected a slug at 'Not A Slug'
+```
+
+Coming from Home Assistant, this is the direct form of `cv.schema_with_slug_keys`:
+`{Slug(): value_schema}` (or your own key validator, `{key_validator: value_schema}`)
+validates each key and then the values, no wrapper needed. Normalizing keys works the
+same way, `{Lower: value_schema}` folds the case of every key.
+
+Deep dive: [Dict schemas and markers](/guides/dict-schemas-and-markers/).
+
 ## Nested optional sections with defaults
 
 A whole config section can be optional, holding a nested schema with its own
