@@ -984,7 +984,7 @@ bench-world = [
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "syrupy", specifier = "==5.5.1" },
+    { name = "syrupy", specifier = "==5.5.2" },
     { name = "voluptuous", specifier = "==0.16.0" },
     { name = "voluptuous-openapi", specifier = "==0.4.1" },
     { name = "voluptuous-serialize", specifier = "==2.7.0" },
@@ -999,7 +999,7 @@ codspeed = [
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-codspeed", specifier = "==5.0.3" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "syrupy", specifier = "==5.5.1" },
+    { name = "syrupy", specifier = "==5.5.2" },
     { name = "voluptuous", specifier = "==0.16.0" },
     { name = "voluptuous-openapi", specifier = "==0.4.1" },
     { name = "voluptuous-serialize", specifier = "==2.7.0" },
@@ -1017,7 +1017,7 @@ dev = [
     { name = "pytest-cov", specifier = "==7.1.0" },
     { name = "ruff", specifier = "==0.15.20" },
     { name = "rust-just", specifier = "==1.55.1" },
-    { name = "syrupy", specifier = "==5.5.1" },
+    { name = "syrupy", specifier = "==5.5.2" },
     { name = "ty", specifier = "==0.0.56" },
     { name = "voluptuous", specifier = "==0.16.0" },
     { name = "voluptuous-openapi", specifier = "==0.4.1" },
@@ -1038,7 +1038,7 @@ test = [
     { name = "openapi-schema-validator", specifier = "==0.9.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "syrupy", specifier = "==5.5.1" },
+    { name = "syrupy", specifier = "==5.5.2" },
     { name = "voluptuous", specifier = "==0.16.0" },
     { name = "voluptuous-openapi", specifier = "==0.4.1" },
     { name = "voluptuous-serialize", specifier = "==2.7.0" },
@@ -1471,14 +1471,14 @@ wheels = [
 
 [[package]]
 name = "syrupy"
-version = "5.5.1"
+version = "5.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6c/2c/3fde828d4c54e2ae796b46abb18e248751f1f342ad40166c4d36665bf8d1/syrupy-5.5.1.tar.gz", hash = "sha256:835f316acad500717942988afbfb6893e21976d31710cc2701bd69f39299941a", size = 91493, upload-time = "2026-07-06T20:17:18.023Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/5b/b8108815b88e0fe25f62cc0ec6f17717ed04fb69663e0fc3c8e3824d4b5d/syrupy-5.5.2.tar.gz", hash = "sha256:42fca95ebf5cc376095b4eb5dd142b10146f08731ed676c3f3b7c9421bf56804", size = 91632, upload-time = "2026-07-08T07:45:32.088Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9b/03/7b54d2eb7763c238fd3d4ffe2a01713c076e34897345ef3345ac3e2775ed/syrupy-5.5.1-py3-none-any.whl", hash = "sha256:9270b9772e43dde8081a94507e6ea16ce6ef13c979a65bae7b9d43f7adcdd368", size = 54955, upload-time = "2026-07-06T20:17:16.729Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/e0/2cba9f06de53b5f4ed4b9433694fe0b8e50d91cdce12371f2e9ae03129e3/syrupy-5.5.2-py3-none-any.whl", hash = "sha256:0856d5c1de82a3b47196e100357acab82ece733385d379e8f253478a9d28f76c", size = 54971, upload-time = "2026-07-08T07:45:30.717Z" },
 ]
 
 [[package]]
