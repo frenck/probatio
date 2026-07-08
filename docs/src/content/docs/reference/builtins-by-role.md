@@ -237,14 +237,19 @@ Compute a new number from the input. The result follows Python's own arithmetic
 type, so an integer operation on an `int` stays an `int`, while a divisor or a
 fractional operand yields a `float` (`Divide` and `Remap` always do).
 
-| Name       | Result                                           |
-| ---------- | ------------------------------------------------ |
-| `Multiply` | A number times a factor.                         |
-| `Divide`   | A number divided by a divisor.                   |
-| `Offset`   | A number plus an amount.                         |
-| `Round`    | A number rounded to decimals, or to an integer.  |
-| `Remap`    | A number mapped from one range onto another.     |
-| `Scale`    | A number rescaled (`factor`/`divisor`/`offset`). |
+| Name        | Result                                           |
+| ----------- | ------------------------------------------------ |
+| `Multiply`  | A number times a factor.                         |
+| `Divide`    | A number divided by a divisor.                   |
+| `Offset`    | A number plus an amount.                         |
+| `Round`     | A number rounded to decimals, or to an integer.  |
+| `RoundUp`   | A number's ceiling (a whole integer).            |
+| `RoundDown` | A number's floor (a whole integer).              |
+| `Snap`      | A number rounded to the nearest step.            |
+| `Abs`       | A number's absolute value.                       |
+| `Modulo`    | A number reduced modulo `n` (wrap-around).       |
+| `Remap`     | A number mapped from one range onto another.     |
+| `Scale`     | A number rescaled (`factor`/`divisor`/`offset`). |
 
 `CreditCard`, `IBAN`, and `E164` normalize by default; pass `normalize=False`
 to validate and return the value unchanged.
