@@ -9,23 +9,21 @@ run it, adapt it.
 
 ## Tagged union
 
-When your data carries a "type" field that decides its shape, a `Union` with a
-`discriminant` routes to the matching branch. The discriminant is called as
-`discriminant(value, alternatives)` and returns the subset to try, so a bad
-branch reports its own field errors instead of "matched none of the
-alternatives".
+When your data carries a field that decides its shape (a `type`, a `platform`, a
+`condition`), `TaggedUnion` routes on that field's value to the one matching schema.
+The win is the error: a bad branch reports its own field errors, not "matched none
+of the alternatives", and an unknown tag is rejected with the valid tags named.
 
 ```python
-from probatio import Schema, Union
-
-def by_type(value, alternatives):
-    return [a for a in alternatives if a["type"] == value.get("type")]
+from probatio import Schema, TaggedUnion
 
 schema = Schema(
-    Union(
-        {"type": "point", "x": int, "y": int},
-        {"type": "label", "text": str},
-        discriminant=by_type,
+    TaggedUnion(
+        "type",
+        {
+            "point": {"type": "point", "x": int, "y": int},
+            "label": {"type": "label", "text": str},
+        },
     )
 )
 
@@ -33,33 +31,50 @@ schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
 schema({"type": "label", "text": "hi"})    # {'type': 'label', 'text': 'hi'}
 ```
 
-The discriminant sees the raw input, before any validation, so a non-dict input
-raises from `value.get` before the union gets to report anything. A production
-discriminant should guard for that; a
-`if not isinstance(value, dict): return []` up front makes the union reject a
-non-dict with its own clean `Invalid` instead.
-
 A point with a non-int coordinate fails against the point branch, not the whole
 union:
 
 <!-- verify: raises MultipleInvalid -->
 
 ```python
-from probatio import Schema, Union
-
-def by_type(value, alternatives):
-    return [a for a in alternatives if a["type"] == value.get("type")]
+from probatio import Schema, TaggedUnion
 
 schema = Schema(
-    Union(
-        {"type": "point", "x": int, "y": int},
-        {"type": "label", "text": str},
-        discriminant=by_type,
-    )
+    TaggedUnion("type", {"point": {"type": "point", "x": int, "y": int}})
 )
 
-schema({"type": "point", "x": "nope", "y": 2})
+schema({"type": "point", "x": "nope", "y": 2})  # expected int at 'x'
 ```
+
+Each case can be any schema, so define the branch schemas once and reference them,
+a plain `Schema`, a `DataclassSchema`, or any validator. When a branch already pins
+its tag as a literal (`Required("type"): "point"`), pass the branches as a list and
+the tag is read from each, so it is written once instead of repeated as the mapping
+key:
+
+```python
+from probatio import Schema, TaggedUnion, Required
+
+POINT = Schema({Required("type"): "point", Required("x"): int, Required("y"): int})
+LABEL = Schema({Required("type"): "label", Required("text"): str})
+
+schema = Schema(TaggedUnion("type", [POINT, LABEL]))  # tag read from each branch
+schema({"type": "label", "text": "hi"})  # {'type': 'label', 'text': 'hi'}
+```
+
+The routing table is built once, so the list form validates just as fast as the
+mapping. Use the `{tag: schema}` mapping when a branch does not carry the tag itself
+(its schema never mentions the key, or one branch covers several tags), a list branch
+that pins no literal is a build-time error telling you to.
+
+Pass `default=` for a fallback schema when the tag is not listed. For a discriminator
+that is not a simple key lookup (a computed tag, a subset of branches), drop to the
+lower-level `Union(..., discriminant=fn)`, where `discriminant(value, alternatives)`
+returns the branches to try. `TaggedUnion` is the common case of that.
+
+Coming from Home Assistant, `TaggedUnion` is the direct equivalent of
+`cv.key_value_schemas` (the mapping form), and its cases take the same reusable
+`Schema` objects.
 
 Deep dive: [Combinators](/guides/combinators/).
 

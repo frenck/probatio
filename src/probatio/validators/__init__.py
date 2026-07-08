@@ -22,6 +22,7 @@ from probatio.validators.combinators import (
     Or,
     SomeOf,
     Switch,
+    TaggedUnion,
     Union,
 )
 from probatio.validators.comparison import (
@@ -285,6 +286,7 @@ __all__ = [
     "StartsWith",
     "Strip",
     "Switch",
+    "TaggedUnion",
     "Time",
     "TimeZone",
     "TimeZoneInfo",

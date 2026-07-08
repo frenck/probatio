@@ -169,6 +169,13 @@ carries forward an upstream request.
 
 - `Forbidden`: a marker requiring a key to be absent
   (`{Forbidden("password"): object}`). Carries forward [issue #193](https://github.com/alecthomas/voluptuous/issues/193).
+- `TaggedUnion`: a discriminated union that routes on one key's value to the matching
+  schema (`TaggedUnion("type", {"grid": ..., "solar": ...})`), reporting the chosen
+  branch's own errors and naming the valid tags on a miss. Cases are a `{tag: schema}`
+  mapping, or a list of branches that each pin the tag as a literal (read once from
+  the branch); the routing table is built once either way. The readable form of a
+  `Union` with a hand-written `discriminant`, and the direct equivalent of Home
+  Assistant's `cv.key_value_schemas`.
 - `Alias`: a key marker accepting a value under one or more alias names and
   emitting it under a canonical name (`{Alias("user_name", "user-name"): str}`).
   Multiple aliases, first-present-wins by declaration order, optional strict

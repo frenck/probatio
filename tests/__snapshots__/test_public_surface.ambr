@@ -1588,6 +1588,16 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'TaggedUnion': dict({
+      'kind': 'class',
+      'signature': list([
+        'key POSITIONAL_OR_KEYWORD required',
+        'cases POSITIONAL_OR_KEYWORD required',
+        'default KEYWORD_ONLY None',
+        'msg KEYWORD_ONLY None',
+        'required KEYWORD_ONLY False',
+      ]),
+    }),
     'Time': dict({
       'kind': 'class',
       'signature': list([

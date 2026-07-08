@@ -18,8 +18,10 @@ from probatio import (
     Range,
     Required,
     Schema,
+    SchemaError,
     SomeOf,
     Switch,
+    TaggedUnion,
     Union,
 )
 from probatio.error import (
@@ -322,3 +324,126 @@ def test_some_of_too_many_valid_without_branch_errors_says_so() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         schema(3)
     assert "matched 2 alternatives, expected at most 1" in str(caught.value)
+
+
+def test_tagged_union_routes_on_the_key() -> None:
+    """TaggedUnion validates against the schema listed for the discriminator value."""
+    schema = Schema(
+        TaggedUnion(
+            "type",
+            {
+                "grid": {Required("type"): "grid", Required("stat"): str},
+                "solar": {Required("type"): "solar"},
+            },
+        )
+    )
+    assert schema({"type": "grid", "stat": "sensor.x"}) == {
+        "type": "grid",
+        "stat": "sensor.x",
+    }
+    assert schema({"type": "solar"}) == {"type": "solar"}
+
+
+def test_tagged_union_reports_the_chosen_branch_error() -> None:
+    """A failure is reported against the branch the value selected, not 'no match'."""
+    schema = Schema(
+        TaggedUnion("type", {"grid": {Required("type"): "grid", Required("stat"): str}})
+    )
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"type": "grid"})
+    assert caught.value.errors[0].path == ["stat"]
+
+
+def test_tagged_union_names_the_alternatives_on_an_unknown_value() -> None:
+    """An unlisted discriminator value is rejected with the valid values named."""
+    schema = Schema(TaggedUnion("type", {"grid": dict, "solar": dict}))
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"type": "wind"})
+    assert "one of ['grid', 'solar']" in caught.value.errors[0].error_message
+
+
+def test_tagged_union_falls_back_to_a_default() -> None:
+    """With a default, an unlisted value validates against the default schema."""
+    schema = Schema(
+        TaggedUnion("type", {"grid": {Required("type"): "grid"}}, default={"type": str})
+    )
+    assert schema({"type": "other"}) == {"type": "other"}
+
+
+def test_tagged_union_rejects_a_non_mapping() -> None:
+    """A non-dict value cannot carry the discriminator key, so it is rejected."""
+    with pytest.raises(MultipleInvalid):
+        Schema(TaggedUnion("type", {"a": dict}))(5)
+
+
+def test_tagged_union_treats_an_unhashable_discriminator_as_a_miss() -> None:
+    """An unhashable discriminator value cannot be a case key: a miss, then default."""
+    schema = Schema(TaggedUnion("type", {"a": {"type": "a"}}, default=dict))
+    # The 'type' value is a list (unhashable), so no case matches; the default takes it.
+    assert schema({"type": [1, 2]}) == {"type": [1, 2]}
+    # Without a default, the same unhashable discriminator is rejected.
+    with pytest.raises(MultipleInvalid):
+        Schema(TaggedUnion("type", {"a": {"type": "a"}}))({"type": [1, 2]})
+
+
+def test_tagged_union_rejects_cases_that_are_neither_mapping_nor_list() -> None:
+    """The cases must be a mapping or a list of branches, not some other value."""
+    with pytest.raises(SchemaError):
+        TaggedUnion("type", 5)  # type: ignore[arg-type]
+
+
+def test_tagged_union_repr() -> None:
+    """TaggedUnion renders as a constructor call showing the key and cases."""
+    assert (
+        repr(TaggedUnion("type", {"a": int}))
+        == "TaggedUnion('type', {'a': <class 'int'>})"
+    )
+
+
+def test_tagged_union_list_form_reads_the_tag_from_each_branch() -> None:
+    """The list form routes by the literal each branch pins at the discriminator key."""
+    point = Schema({Required("type"): "point", Required("x"): int, Required("y"): int})
+    label = Schema({Required("type"): "label", Required("text"): str})
+    schema = Schema(TaggedUnion("type", [point, label]))
+
+    assert schema({"type": "point", "x": 1, "y": 2}) == {
+        "type": "point",
+        "x": 1,
+        "y": 2,
+    }
+    assert schema({"type": "label", "text": "hi"}) == {"type": "label", "text": "hi"}
+    # Routing to the wrong branch is impossible: the tag comes from the branch itself.
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"type": "point", "x": "no", "y": 2})
+    assert caught.value.errors[0].path == ["x"]
+
+
+def test_tagged_union_list_form_accepts_plain_dict_branches() -> None:
+    """A branch can be a plain dict, marker or literal key, not only a Schema."""
+    schema = Schema(
+        TaggedUnion("type", [{Required("type"): "a", "v": int}, {"type": "b"}])
+    )
+    assert schema({"type": "a", "v": 5}) == {"type": "a", "v": 5}
+
+
+def test_tagged_union_list_form_rejects_a_branch_without_the_literal() -> None:
+    """A branch that never pins the discriminator literal cannot be auto-routed."""
+    with pytest.raises(SchemaError):
+        TaggedUnion("type", [Schema({Required("x"): int})])
+    # A non-mapping branch (a bare type) has no key to read a tag from either.
+    with pytest.raises(SchemaError):
+        TaggedUnion("type", [int])
+
+
+def test_tagged_union_list_form_rejects_duplicate_tags() -> None:
+    """Two branches pinning the same tag is a build-time error."""
+    branch = {Required("type"): "a"}
+    with pytest.raises(SchemaError):
+        TaggedUnion("type", [branch, branch])
+
+
+@pytest.mark.parametrize("bad_tag", [int, str.strip, [1, 2]])
+def test_tagged_union_list_form_needs_a_plain_literal_tag(bad_tag: object) -> None:
+    """A discriminator mapping to a type, a validator, or an unhashable is not a tag."""
+    with pytest.raises(SchemaError):
+        TaggedUnion("type", [{Required("type"): bad_tag, "v": int}])
