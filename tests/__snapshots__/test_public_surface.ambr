@@ -343,6 +343,12 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'Dedupe': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
     'DefaultTo': dict({
       'kind': 'class',
       'signature': list([
@@ -588,6 +594,12 @@
         'context KEYWORD_ONLY None',
         'translation_key KEYWORD_ONLY None',
         'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'First': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
       ]),
     }),
     'Forbidden': dict({
@@ -854,6 +866,13 @@
         'msg POSITIONAL_OR_KEYWORD None',
       ]),
     }),
+    'Join': dict({
+      'kind': 'class',
+      'signature': list([
+        "sep POSITIONAL_OR_KEYWORD ','",
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'JsonInvalid': dict({
       'kind': 'class',
       'signature': list([
@@ -881,6 +900,12 @@
         'description POSITIONAL_OR_KEYWORD None',
         'msg POSITIONAL_OR_KEYWORD None',
         'extra POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Last': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
       ]),
     }),
     'Latitude': dict({
@@ -1471,10 +1496,26 @@
         'kwargs VAR_KEYWORD required',
       ]),
     }),
+    'Sort': dict({
+      'kind': 'class',
+      'signature': list([
+        'reverse KEYWORD_ONLY False',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Sorted': dict({
       'kind': 'class',
       'signature': list([
         'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Split': dict({
+      'kind': 'class',
+      'signature': list([
+        "sep POSITIONAL_OR_KEYWORD ','",
+        'strip KEYWORD_ONLY True',
+        'drop_empty KEYWORD_ONLY True',
+        'msg KEYWORD_ONLY None',
       ]),
     }),
     'StartsWith': dict({
@@ -1713,6 +1754,13 @@
     }),
     'VirtualPathComponent': dict({
       'kind': 'class',
+    }),
+    'Without': dict({
+      'kind': 'class',
+      'signature': list([
+        'values VAR_POSITIONAL required',
+        'msg KEYWORD_ONLY None',
+      ]),
     }),
     'WriteOnce': dict({
       'kind': 'class',

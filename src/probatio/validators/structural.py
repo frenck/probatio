@@ -339,3 +339,219 @@ class Msg(_SafeValidator):
         except Invalid as exc:
             error_cls = self.cls or Invalid
             raise error_cls(self.msg) from exc
+
+
+def _require_sequence(value: typing.Any, msg: str | None) -> None:
+    """Raise ValueInvalid unless the value is a list or tuple.
+
+    The collection shapers work on a list or tuple, not a bare string (which would
+    split character by character) or a scalar. Shared so they agree on what counts.
+    """
+    if not isinstance(value, list | tuple):
+        raise ValueInvalid(
+            msg,
+            translation_key="expected_sequence",
+            placeholders={"expected": "sequence"},
+        )
+
+
+class Split(_SafeValidator):
+    """Split a delimited string into a list.
+
+    ``Split(",")`` turns ``"a, b ,c"`` into ``["a", "b", "c"]``: each piece is
+    stripped and empty pieces dropped by default, the common shape for a
+    comma-separated config value. Pass ``strip=False`` or ``drop_empty=False`` to keep
+    whitespace or empty pieces. A non-string is rejected.
+    """
+
+    def __init__(
+        self,
+        sep: str = ",",
+        *,
+        strip: bool = True,
+        drop_empty: bool = True,
+        msg: str | None = None,
+    ) -> None:
+        """Store the separator and the strip and drop-empty options."""
+        self.sep = sep
+        self.strip = strip
+        self.drop_empty = drop_empty
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the separator and options."""
+        return (
+            f"Split(sep={self.sep!r}, strip={self.strip!r}, "
+            f"drop_empty={self.drop_empty!r})"
+        )
+
+    def __call__(self, value: typing.Any) -> list[str]:
+        """Return the string split into a list, else raise ValueInvalid."""
+        if not isinstance(value, str):
+            raise ValueInvalid(self.msg, translation_key="expected_string")
+        parts = value.split(self.sep)
+        if self.strip:
+            parts = [part.strip() for part in parts]
+        if self.drop_empty:
+            parts = [part for part in parts if part]
+        return parts
+
+
+class Join(_SafeValidator):
+    """Join a sequence into a delimited string, the inverse of ``Split``.
+
+    ``Join(",")`` turns ``[1, 2, 3]`` into ``"1,2,3"``, converting each element to a
+    string. A value that is not a list or tuple is rejected, so a bare string is not
+    joined character by character.
+    """
+
+    def __init__(self, sep: str = ",", *, msg: str | None = None) -> None:
+        """Store the separator."""
+        self.sep = sep
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the separator."""
+        return f"Join({self.sep!r})"
+
+    def __call__(self, value: typing.Any) -> str:
+        """Return the sequence joined into a string, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        return self.sep.join(str(item) for item in value)
+
+
+class Sort(_SafeValidator):
+    """Sort a sequence into ascending order, returning a new list.
+
+    ``Sort()`` orders the items; pass ``reverse=True`` for descending. Unlike
+    ``Sorted``, which validates order and returns the value unchanged, this reorders.
+    A value that is not a list or tuple, or whose items cannot be ordered, is
+    rejected.
+    """
+
+    def __init__(self, *, reverse: bool = False, msg: str | None = None) -> None:
+        """Store the sort direction."""
+        self.reverse = reverse
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the direction."""
+        return f"Sort(reverse={self.reverse!r})"
+
+    def __call__(self, value: typing.Any) -> list[typing.Any]:
+        """Return the sorted sequence, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        try:
+            return sorted(value, reverse=self.reverse)
+        except Exception as exc:
+            # Incomparable items (``[1, "a"]``) raise TypeError; a hostile comparison
+            # raises worse. Contain either as Invalid rather than leak it.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Dedupe(_SafeValidator):
+    """Remove duplicate items from a sequence, keeping first-seen order.
+
+    ``Dedupe()`` turns ``[1, 2, 1, 3]`` into ``[1, 2, 3]``. Unlike ``Unique``, which
+    validates distinctness and returns the value unchanged, this drops the repeats. A
+    value that is not a list or tuple, or with an unhashable item, is rejected.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "Dedupe()"
+
+    def __call__(self, value: typing.Any) -> list[typing.Any]:
+        """Return the sequence without duplicates, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        try:
+            return list(dict.fromkeys(value))
+        except Exception as exc:
+            # An unhashable item raises TypeError; a hostile ``__eq__``/``__hash__``
+            # raises worse. Contain either as Invalid rather than leak it.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class First(_SafeValidator):
+    """Return the first item of a sequence.
+
+    ``First()`` picks ``value[0]``, handy when a source returns a one-element list. A
+    value that is not a list or tuple, or an empty one, is rejected.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "First()"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the first item, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        if not value:
+            raise ValueInvalid(self.msg, translation_key="value_not_empty")
+        return value[0]
+
+
+class Last(_SafeValidator):
+    """Return the last item of a sequence.
+
+    ``Last()`` picks ``value[-1]``. A value that is not a list or tuple, or an empty
+    one, is rejected.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "Last()"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the last item, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        if not value:
+            raise ValueInvalid(self.msg, translation_key="value_not_empty")
+        return value[-1]
+
+
+class Without(_SafeValidator):
+    """Drop every item equal to one of the given values, returning a new list.
+
+    ``Without(None, 0)`` removes each ``None`` and ``0`` from a list, for pruning
+    sentinels and placeholders (``Without(None)`` alone drops the ``None`` holes). A
+    value that is not a list or tuple is rejected.
+    """
+
+    def __init__(self, *values: typing.Any, msg: str | None = None) -> None:
+        """Store the values to drop."""
+        self.values = values
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the dropped values."""
+        body = ", ".join(repr(value) for value in self.values)
+        return f"Without({body})"
+
+    def __call__(self, value: typing.Any) -> list[typing.Any]:
+        """Return the sequence without the listed values, else raise ValueInvalid."""
+        _require_sequence(value, self.msg)
+        try:
+            return [item for item in value if item not in self.values]
+        except Exception as exc:
+            # ``in`` calls each item's ``__eq__``, which may raise (a signaling
+            # ``Decimal``, a hostile object). Contain it as Invalid rather than leak.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc

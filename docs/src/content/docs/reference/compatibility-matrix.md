@@ -217,6 +217,10 @@ carries forward an upstream request.
   nearest step, a magnitude, a modulo wrap-around, a range remap like the Arduino
   `map()`, or the whole affine transform in one `Scale`). Readable, composable
   stand-ins for `Coerce(lambda ...)`.
+- `Split`, `Join`, `Sort`, `Dedupe`, `First`, `Last`, `Without`: collection shapers.
+  `Split`/`Join` convert between a delimited string and a list; `Sort` and `Dedupe`
+  are the doing siblings of the `Sorted` and `Unique` validators; `First`/`Last` pick
+  an element; `Without` prunes listed values (so `Without(None)` clears the holes).
 - `JSONString`, `FromJSONString`: validate a JSON string (and optionally the decoded
   value against an inner schema); `JSONString` returns the string unchanged, while
   `FromJSONString` returns the decoded value.
