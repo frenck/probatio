@@ -8,6 +8,7 @@ from probatio.error import (
     ExactSequenceInvalid,
     Invalid,
     MultipleInvalid,
+    SchemaError,
     TypeInvalid,
     ValueInvalid,
 )
@@ -372,7 +373,10 @@ class Split(_SafeValidator):
         drop_empty: bool = True,
         msg: str | None = None,
     ) -> None:
-        """Store the separator and the strip and drop-empty options."""
+        """Store the separator; reject a non-string or empty separator at build time."""
+        if not isinstance(sep, str) or sep == "":
+            message = "Split separator must be a non-empty string"
+            raise SchemaError(message)
         self.sep = sep
         self.strip = strip
         self.drop_empty = drop_empty
@@ -406,7 +410,10 @@ class Join(_SafeValidator):
     """
 
     def __init__(self, sep: str = ",", *, msg: str | None = None) -> None:
-        """Store the separator."""
+        """Store the separator; reject a non-string separator at build time."""
+        if not isinstance(sep, str):
+            message = "Join separator must be a string"
+            raise SchemaError(message)
         self.sep = sep
         self.msg = msg
 

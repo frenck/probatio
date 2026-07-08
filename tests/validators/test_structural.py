@@ -19,6 +19,7 @@ from probatio import (
     Msg,
     MultipleInvalid,
     Schema,
+    SchemaError,
     Set,
     Sort,
     Sorted,
@@ -269,6 +270,20 @@ def test_join_builds_a_string() -> None:
     """Join renders each element and joins them with the separator."""
     assert Schema(Join(","))([1, 2, 3]) == "1,2,3"
     assert Schema(Join("-"))(["a", "b"]) == "a-b"
+
+
+def test_split_and_join_reject_a_bad_separator_at_build_time() -> None:
+    """A non-string (or, for Split, empty) separator is a schema error, raised early.
+
+    Split and Join are called directly (safe validators), so a bad separator would
+    otherwise leak a raw ValueError/TypeError from str.split/str.join at call time.
+    """
+    with pytest.raises(SchemaError):
+        Split("")
+    with pytest.raises(SchemaError):
+        Split(5)  # type: ignore[arg-type]
+    with pytest.raises(SchemaError):
+        Join(5)  # type: ignore[arg-type]
 
 
 def test_sort_orders_the_sequence() -> None:
