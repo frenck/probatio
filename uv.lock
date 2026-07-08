@@ -953,8 +953,7 @@ bench-world = [
     { name = "covdefaults", specifier = "==2.3.0" },
     { name = "dacite", specifier = "==1.9.2" },
     { name = "dataclasses-json", specifier = "==0.6.7" },
-    { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.3" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.3" },
+    { name = "hypothesis", specifier = "==6.156.3" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "marshmallow", specifier = "==3.26.2" },
     { name = "mashumaro", specifier = "==3.22" },
@@ -970,8 +969,7 @@ bench-world = [
 ]
 codspeed = [
     { name = "covdefaults", specifier = "==2.3.0" },
-    { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.3" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.3" },
+    { name = "hypothesis", specifier = "==6.156.3" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "openapi-schema-validator", specifier = "==0.9.0" },
@@ -986,8 +984,7 @@ codspeed = [
 dev = [
     { name = "codespell", specifier = "==2.4.2" },
     { name = "covdefaults", specifier = "==2.3.0" },
-    { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.3" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.3" },
+    { name = "hypothesis", specifier = "==6.156.3" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "mypy", specifier = "==2.2.0" },
@@ -1010,8 +1007,7 @@ lint = [
 ]
 test = [
     { name = "covdefaults", specifier = "==2.3.0" },
-    { name = "hypothesis", marker = "python_full_version < '3.15'", specifier = "==6.156.3" },
-    { name = "hypothesis", marker = "python_full_version >= '3.15'", specifier = "==6.156.3" },
+    { name = "hypothesis", specifier = "==6.156.3" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "mashumaro", specifier = "==3.22" },
     { name = "openapi-schema-validator", specifier = "==0.9.0" },
