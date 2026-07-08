@@ -220,13 +220,14 @@ first-seen order, the transformer siblings of `Sorted` and `Unique`. `First` and
 the holes.
 
 ```python
-from probatio import Schema, Split, Join, Sort, Dedupe, First, Without
+from probatio import Schema, Split, Join, Sort, Dedupe, First, Last, Without
 
 Schema(Split(","))("a, b ,c")        # ['a', 'b', 'c']
 Schema(Join(","))([1, 2, 3])         # '1,2,3'
 Schema(Sort())([3, 1, 2])            # [1, 2, 3]
 Schema(Dedupe())([1, 2, 1, 3])       # [1, 2, 3]
 Schema(First())([1, 2, 3])           # 1
+Schema(Last())([1, 2, 3])            # 3
 Schema(Without(None, 0))([1, None, 0, 2])  # [1, 2]
 ```
 

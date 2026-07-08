@@ -54,17 +54,18 @@ key, so a marker stands in for the bare key.
 
 Compose or wrap other validators.
 
-| Name     | Note                                                |
-| -------- | --------------------------------------------------- |
-| `All`    | Run each in turn; the output of one feeds the next. |
-| `Any`    | The first that accepts wins.                        |
-| `And`    | Alias of `All`.                                     |
-| `Or`     | Alias of `Any`.                                     |
-| `Union`  | `Any` with an optional discriminant.                |
-| `Switch` | Alias of `Union`.                                   |
-| `SomeOf` | Between `min_valid` and `max_valid` must pass.      |
-| `Maybe`  | Accept `None`, otherwise the wrapped validator.     |
-| `Msg`    | Override a validator's error message.               |
+| Name          | Note                                                |
+| ------------- | --------------------------------------------------- |
+| `All`         | Run each in turn; the output of one feeds the next. |
+| `Any`         | The first that accepts wins.                        |
+| `And`         | Alias of `All`.                                     |
+| `Or`          | Alias of `Any`.                                     |
+| `Union`       | `Any` with an optional discriminant.                |
+| `Switch`      | Alias of `Union`.                                   |
+| `TaggedUnion` | Route on one key's value to the matching schema.    |
+| `SomeOf`      | Between `min_valid` and `max_valid` must pass.      |
+| `Maybe`       | Accept `None`, otherwise the wrapped validator.     |
+| `Msg`         | Override a validator's error message.               |
 
 ## Validators
 
