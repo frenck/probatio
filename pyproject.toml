@@ -80,7 +80,7 @@ include = [
 test = [
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
-  "syrupy==5.5.1",
+  "syrupy==5.5.2",
   "covdefaults==2.3.0",
   # voluptuous is a dev-only oracle for the conformance tests: probatio and
   # voluptuous run the same schemas and inputs and their results are compared.
