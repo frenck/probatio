@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import typing
+from collections.abc import Mapping
 
 from probatio.error import (
     AllInvalid,
@@ -19,10 +20,30 @@ from probatio.error import (
     Invalid,
     MultipleInvalid,
     NotEnoughValid,
+    SchemaError,
     TooManyValid,
 )
-from probatio.schema import PREVENT_EXTRA, compile_schema
+from probatio.schema import PREVENT_EXTRA, Schema, compile_schema
 from probatio.validators._base import _SafeValidator
+
+# Sentinel for "this branch pins no literal at the discriminator key", so ``None``
+# stays usable as a real tag value.
+_NO_TAG = object()
+
+
+def _is_literal_tag(value: typing.Any) -> bool:
+    """Whether a value can be a discriminator tag: a hashable, plain literal.
+
+    A type (``int``) or a validator (``In([...])``, a ``Schema``) is not a tag, so a
+    branch whose discriminator key maps to one of those is not auto-routable.
+    """
+    if isinstance(value, type) or callable(value):
+        return False
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
 
 
 def _branch_holds_mapping(node: typing.Any) -> bool:
@@ -503,6 +524,142 @@ class Union(_Combinator):
     def __repr__(self) -> str:
         """Render as ``Union(v, ..., msg=...)``."""
         return _combinator_repr(self)
+
+
+class TaggedUnion(Union):
+    """A discriminated union: route on one key's value to the matching schema.
+
+    ``TaggedUnion("type", {"grid": GRID, "solar": SOLAR})`` reads ``value["type"]``
+    and validates against the single schema listed for that value, so a failure is
+    reported against the branch the value selected (a bad ``grid`` field, not "matched
+    none of the alternatives"). Pass ``default`` for a schema to fall back to when the
+    key's value is not listed; without one, an unlisted value is rejected with the
+    valid values named.
+
+    ``cases`` is either a ``{tag: schema}`` mapping, or a list of branches that each
+    pin the discriminator as a literal (``{Required("type"): "grid", ...}``), in which
+    case the tag is read from each branch so it is written once. The list form only
+    fits branches that carry that literal; a branch that does not (its schema never
+    mentions the key) needs the mapping form. Either way the routing table is built
+    once here, so validation is a single dict lookup.
+
+    This is the readable form of a ``Union`` with a hand-written ``discriminant``, and
+    mirrors Home Assistant's ``cv.key_value_schemas``.
+    """
+
+    def __init__(
+        self,
+        key: typing.Any,
+        cases: dict[typing.Any, typing.Any] | list[typing.Any] | tuple[typing.Any, ...],
+        *,
+        default: typing.Any = None,
+        msg: str | None = None,
+        required: bool = False,
+    ) -> None:
+        """Store the discriminator key and the value-to-schema cases."""
+        self.key = key
+        self.cases = self._normalize_cases(key, cases)
+        self.default = default
+        branches = list(self.cases.values())
+        if default is not None:
+            branches.append(default)
+        super().__init__(
+            *branches, msg=msg, required=required, discriminant=self._route
+        )
+
+    @staticmethod
+    def _normalize_cases(
+        key: typing.Any, cases: typing.Any
+    ) -> dict[typing.Any, typing.Any]:
+        """Return a ``{tag: schema}`` map from either the mapping or the list form."""
+        if isinstance(cases, dict):
+            return dict(cases)
+        if isinstance(cases, (list, tuple)):
+            built: dict[typing.Any, typing.Any] = {}
+            for index, branch in enumerate(cases):
+                tag = TaggedUnion._tag_of(branch, key)
+                if tag is _NO_TAG:
+                    message = (
+                        f"TaggedUnion branch at index {index} pins no literal {key!r} "
+                        f"to route on; pass an explicit {{tag: schema}} mapping instead"
+                    )
+                    raise SchemaError(message)
+                if tag in built:
+                    message = f"TaggedUnion has more than one branch for tag {tag!r}"
+                    raise SchemaError(message)
+                built[tag] = branch
+            return built
+        message = (
+            "TaggedUnion cases must be a {tag: schema} mapping, or a list of branches "
+            "that each pin the discriminator literal"
+        )
+        raise SchemaError(message)
+
+    @staticmethod
+    def _tag_of(branch: typing.Any, key: typing.Any) -> typing.Any:
+        """Read the literal a branch pins at ``key``, or ``_NO_TAG`` if it pins none.
+
+        The branch's raw schema (a ``Schema`` unwraps to it) must be a mapping with the
+        discriminator key, and the value there must be a plain literal (a string, an
+        int, an enum member), not a type or another validator.
+        """
+        raw = branch.schema if isinstance(branch, Schema) else branch
+        if not isinstance(raw, dict):
+            return _NO_TAG
+        for candidate, tag in raw.items():
+            # A marker key (``Required("type")``) exposes its underlying key as
+            # ``.schema``; a plain key is itself.
+            underlying = getattr(candidate, "schema", candidate)
+            if underlying == key and _is_literal_tag(tag):
+                return tag
+        return _NO_TAG
+
+    def _route(self, value: typing.Any, alternatives: typing.Any) -> list[typing.Any]:
+        """Pick the branch whose case matches ``value[key]``, else the default.
+
+        ``__call__`` only reaches the discriminant path for a mapping, so ``value`` is
+        a ``Mapping`` here.
+        """
+        del alternatives
+        try:
+            chosen = self.cases.get(value.get(self.key))
+        except TypeError:
+            # An unhashable discriminator value cannot be a case key: a miss, so with
+            # a default set this routes to it.
+            chosen = None
+        if chosen is not None:
+            return [chosen]
+        return [self.default] if self.default is not None else []
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the key and cases."""
+        return f"TaggedUnion({self.key!r}, {self.cases!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Route on the key's value, else reject.
+
+        A non-mapping is rejected as such (any ``Mapping`` is accepted, matching the
+        rest of the engine, not just ``dict``). A mapping whose discriminator value is
+        not a listed tag is rejected at the key, naming the valid tags, unless a
+        ``default`` was given.
+        """
+        if not isinstance(value, Mapping):
+            raise Invalid(self.msg, translation_key="expected_mapping")
+        try:
+            known = value.get(self.key) in self.cases
+        except TypeError:
+            # An unhashable discriminator value is not a listed tag.
+            known = False
+        if known or self.default is not None:
+            # Union's discriminant path validates the chosen branch and surfaces its
+            # own errors.
+            return super().__call__(value)
+        raise Invalid(
+            self.msg,
+            path=[self.key],
+            translation_key="expected_discriminator",
+            placeholders={"key": self.key, "values": list(self.cases)},
+        )
 
 
 class SomeOf(_Combinator):

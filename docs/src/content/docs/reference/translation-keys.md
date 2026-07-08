@@ -42,6 +42,7 @@ message, with the close matches also available raw on `context["candidates"]`
 | `expected_collection`              | `expected a collection: {detail}`                                                                   |
 | `expected_credit_card_number`      | `expected a credit card number`                                                                     |
 | `expected_data_uri`                | `expected a data URI`                                                                               |
+| `expected_discriminator`           | `expected {key} to be one of {values}`                                                              |
 | `expected_duration`                | `expected a duration`                                                                               |
 | `expected_duration_detailed`       | `expected a duration like H:MM, H:MM:SS, an ISO 8601 duration like PT1H30M, or a number of seconds` |
 | `expected_email_address`           | `expected an email address`                                                                         |

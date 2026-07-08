@@ -101,6 +101,44 @@ Note that the discriminant sees the raw input, and the one above assumes a
 mapping; a production discriminant should also handle a non-mapping value.
 `Switch` is an alias for `Union`.
 
+For the common case, routing on one key's value, reach for `TaggedUnion` instead of
+writing the discriminant by hand:
+
+```python
+from probatio import Schema, TaggedUnion
+
+schema = Schema(
+    TaggedUnion(
+        "type",
+        {
+            "point": {"type": "point", "x": int, "y": int},
+            "label": {"type": "label", "text": str},
+        },
+    )
+)
+
+schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
+```
+
+`TaggedUnion` reads `value["type"]`, validates against the one listed schema, and on
+an unknown tag rejects with the valid tags named. Pass `default=` for a fallback. It
+is the direct equivalent of Home Assistant's `cv.key_value_schemas`.
+
+When each branch pins its tag as a literal, pass a list instead of a mapping and the
+tag is read from each branch (written once, not repeated as the key); the routing
+table is still built once, so it is no slower:
+
+```python
+from probatio import Schema, TaggedUnion, Required
+
+POINT = Schema({Required("type"): "point", Required("x"): int, Required("y"): int})
+LABEL = Schema({Required("type"): "label", Required("text"): str})
+
+schema = Schema(TaggedUnion("type", [POINT, LABEL]))
+
+schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
+```
+
 ## SomeOf: enough of them
 
 `SomeOf` requires the value to pass a bounded number of its validators. Give at
