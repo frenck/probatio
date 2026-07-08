@@ -254,6 +254,12 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'CollapseWhitespace': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
     'CompilePolicy': dict({
       'kind': 'class',
       'signature': list([
@@ -1285,6 +1291,20 @@
         'description POSITIONAL_OR_KEYWORD None',
       ]),
     }),
+    'RemovePrefix': dict({
+      'kind': 'class',
+      'signature': list([
+        'prefix POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'RemoveSuffix': dict({
+      'kind': 'class',
+      'signature': list([
+        'suffix POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Replace': dict({
       'kind': 'class',
       'signature': list([
@@ -1629,6 +1649,13 @@
         'context KEYWORD_ONLY None',
         'translation_key KEYWORD_ONLY None',
         'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Truncate': dict({
+      'kind': 'class',
+      'signature': list([
+        'max_length POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
       ]),
     }),
     'TypeInvalid': dict({

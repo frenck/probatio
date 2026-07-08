@@ -275,6 +275,21 @@ Schema(Strip)("  hi  ")           # 'hi'
 Schema(Replace("-", "_"))("a-b-c")  # 'a_b_c'
 ```
 
+A few more transforms take an argument, so they are classes you call.
+`CollapseWhitespace` squeezes each run of whitespace to one space (`Strip` only
+trims the ends). `RemovePrefix` and `RemoveSuffix` strip a known affix when present,
+and `Truncate` caps the length. Unlike the plain transforms above, these reject a
+non-string rather than coercing it.
+
+```python
+from probatio import Schema, CollapseWhitespace, RemovePrefix, RemoveSuffix, Truncate
+
+Schema(CollapseWhitespace())("  a   b c ")   # 'a b c'
+Schema(RemovePrefix("sensor."))("sensor.temp")  # 'temp'
+Schema(RemoveSuffix("_raw"))("value_raw")    # 'value'
+Schema(Truncate(5))("hello world")           # 'hello'
+```
+
 ```python
 from probatio import Schema, Email, Url, FqdnUrl
 
