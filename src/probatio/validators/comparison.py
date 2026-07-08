@@ -15,6 +15,7 @@ from probatio.error import (
     NotInInvalid,
     RangeInvalid,
     SchemaError,
+    ValueInvalid,
 )
 from probatio.validators._base import _SafeValidator
 
@@ -377,6 +378,255 @@ class Percentage(_SafeValidator):
         """Return the value if it is a valid percentage, else raise RangeInvalid."""
         _percent_value(value, self.msg)
         return value
+
+
+def _require_number(value: typing.Any, msg: str | None) -> int | float:
+    """Return the value if it is a real number, else raise ValueInvalid.
+
+    A ``bool`` is an ``int`` subclass but not a number to compute with, so it is
+    rejected like a string or ``None`` rather than treated as 0 or 1. Shared by the
+    arithmetic mutators (``Multiply``, ``Divide``, ``Offset``, ``Round``, ``Scale``)
+    so they agree on what counts as a number.
+    """
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise ValueInvalid(msg, translation_key="invalid_value_or_type")
+    return value
+
+
+class Multiply(_SafeValidator):
+    """Multiply a number by a factor (``value * factor``).
+
+    The clear shorthand for a gain or a scale-up: ``Multiply(100)``, ``Multiply(0.1)``.
+    An integer factor on an ``int`` keeps an ``int``; a fractional factor yields a
+    ``float``. A ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, factor: float, *, msg: str | None = None) -> None:
+        """Store the factor to multiply by."""
+        self.factor = factor
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the factor."""
+        return f"Multiply({self.factor!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return ``value * factor``, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return number * self.factor
+        except Exception as exc:
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Divide(_SafeValidator):
+    """Divide a number by a divisor (``value / divisor``).
+
+    The clear shorthand for a unit conversion like milliunits: ``Divide(1000)``.
+    Division always yields a ``float``. A zero divisor is a schema error. A ``bool``,
+    a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, divisor: float, *, msg: str | None = None) -> None:
+        """Store the divisor; reject a zero divisor at build time."""
+        if divisor == 0:
+            message = "Divide divisor must not be zero"
+            raise SchemaError(message)
+        self.divisor = divisor
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the divisor."""
+        return f"Divide({self.divisor!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return ``value / divisor``, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return number / self.divisor
+        except Exception as exc:
+            # A huge int overflowing the ``float`` division is contained, not leaked.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Offset(_SafeValidator):
+    """Add an offset to a number (``value + amount``).
+
+    The clear shorthand for a unit shift like Kelvin to Celsius: ``Offset(-273.15)``.
+    An integer amount on an ``int`` keeps an ``int``; a fractional amount yields a
+    ``float``. A ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, amount: float, *, msg: str | None = None) -> None:
+        """Store the amount to add (negative to subtract)."""
+        self.amount = amount
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the amount."""
+        return f"Offset({self.amount!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return ``value + amount``, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return number + self.amount
+        except Exception as exc:
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Round(_SafeValidator):
+    """Round a number, to ``ndigits`` decimals or to the nearest integer by default.
+
+    The clear shorthand for tidying a computed value: ``Round(2)`` keeps two decimals,
+    ``Round()`` rounds to the nearest ``int`` (Python's ``round`` semantics, banker's
+    rounding included). A ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, ndigits: int | None = None, *, msg: str | None = None) -> None:
+        """Store the decimals to keep; reject a non-integer ndigits at build time."""
+        if ndigits is not None and not isinstance(ndigits, int):
+            message = "Round ndigits must be a whole number or None"
+            raise SchemaError(message)
+        self.ndigits = ndigits
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the decimals."""
+        return f"Round({self.ndigits!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the rounded number, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return round(number, self.ndigits)
+        except Exception as exc:
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Scale(_SafeValidator):
+    """Rescale a number with an affine transform: ``value * factor / divisor + offset``.
+
+    The one-call form of the arithmetic shorthands, for a raw device or sensor
+    reading in a single step: divide milliunits with ``Scale(divisor=1000)``, apply a
+    gain with ``Scale(0.1)``, turn a 0 to 255 byte into a percentage with
+    ``Scale(100, divisor=255, round=1)``, or shift a unit with ``Scale(offset=-273.15)``
+    (Kelvin to Celsius). Pass ``round`` to round the result. When one step reads
+    clearer on its own, reach for ``Multiply``, ``Divide``, ``Offset``, or ``Round``
+    and chain them in an ``All``. A ``bool``, a string, or anything not a real number
+    is rejected.
+
+    The result keeps Python's own arithmetic type: an integer ``factor``/``offset`` on
+    an ``int`` stays an ``int`` (``Scale(10)(5)`` is ``50``), while a ``divisor`` or a
+    fractional operand yields a ``float`` (``Scale(divisor=1000)(5000)`` is ``5.0``).
+    """
+
+    def __init__(
+        self,
+        factor: float = 1,
+        *,
+        divisor: float = 1,
+        offset: float = 0,
+        round: int | None = None,
+        msg: str | None = None,
+    ) -> None:
+        """Store the transform; reject a zero divisor or a non-integer round."""
+        if divisor == 0:
+            message = "Scale divisor must not be zero"
+            raise SchemaError(message)
+        if round is not None and not isinstance(round, int):
+            message = "Scale round must be a whole number of decimals or None"
+            raise SchemaError(message)
+        self.factor = factor
+        self.divisor = divisor
+        self.offset = offset
+        self.round = round
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the transform."""
+        return (
+            f"Scale(factor={self.factor!r}, divisor={self.divisor!r}, "
+            f"offset={self.offset!r}, round={self.round!r})"
+        )
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the rescaled number, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            result = number * self.factor
+            if self.divisor != 1:
+                result = result / self.divisor
+            result = result + self.offset
+            if self.round is not None:
+                result = round(result, self.round)
+        except Exception as exc:
+            # A huge int overflowing ``float`` division, or an ``int`` subclass whose
+            # arithmetic raises, is contained as Invalid rather than leaked.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+        return result
+
+
+class Remap(_SafeValidator):
+    """Linearly map a number from one range to another (the Arduino ``map``).
+
+    A value at ``in_low`` maps to ``out_low`` and one at ``in_high`` to ``out_high``,
+    linearly in between (and beyond, it does not clamp). The workhorse for a raw
+    reading: a 0 to 1023 ADC to a percentage with ``Remap(0, 1023, 0, 100)``, a 0 to
+    255 byte with ``Remap(0, 255, 0, 100)``, or an RSSI in dBm with
+    ``Remap(-100, -50, 0, 100)``. Wrap it in ``All(Remap(...), Clamp(low, high))`` to
+    bound the result, and add ``Round`` to tidy it. The output is always a ``float``.
+    A zero-width input range is a schema error; a ``bool``, a string, or anything not a
+    real number is rejected.
+    """
+
+    def __init__(
+        self,
+        in_low: float,
+        in_high: float,
+        out_low: float,
+        out_high: float,
+        *,
+        msg: str | None = None,
+    ) -> None:
+        """Store the input and output ranges; reject a zero-width input range."""
+        if in_high == in_low:
+            message = "Remap input range must not be zero-width (in_low != in_high)"
+            raise SchemaError(message)
+        self.in_low = in_low
+        self.in_high = in_high
+        self.out_low = out_low
+        self.out_high = out_high
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing both ranges."""
+        return (
+            f"Remap(in_low={self.in_low!r}, in_high={self.in_high!r}, "
+            f"out_low={self.out_low!r}, out_high={self.out_high!r})"
+        )
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value mapped onto the output range, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            ratio = (number - self.in_low) / (self.in_high - self.in_low)
+            return self.out_low + ratio * (self.out_high - self.out_low)
+        except Exception as exc:
+            # A huge int overflowing the ``float`` arithmetic is contained, not leaked.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
 
 
 class Byte(Range):

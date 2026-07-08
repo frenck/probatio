@@ -109,6 +109,48 @@ Schema(Latitude())(52.37)           # 52.37
 Schema(Longitude())(4.9)            # 4.9
 ```
 
+A small family of arithmetic mutators rescales a number, the readable stand-in for
+the `Coerce(lambda v: v / 1000)` calculations that pile up on device and sensor
+fields. `Multiply` and `Divide` apply a gain or a unit conversion, `Offset` shifts a
+value, and `Round` tidies the result (to `ndigits` decimals, or to the nearest
+integer by default). An integer operand on an `int` keeps an `int`; a `Divide` or a
+fractional operand yields a `float`. Chain them in an `All` when a calculation takes
+more than one step.
+
+```python
+from probatio import Schema, All, Multiply, Divide, Offset, Round
+
+Schema(Divide(1000))(5000)                     # 5.0    (milliunits to units)
+Schema(Multiply(0.1))(50)                      # 5.0    (a gain)
+Schema(Offset(50))(100)                        # 150    (a shift, stays an int)
+Schema(Round(2))(5.126)                        # 5.13
+Schema(All(Offset(-273.15), Round(2)))(300)    # 26.85  (Kelvin to Celsius, chained)
+```
+
+`Remap` linearly maps a number from one range onto another, the Arduino `map()`. It
+is the workhorse for a raw reading: a 0 to 1023 ADC or a 0 to 255 byte to a
+percentage, or an RSSI in dBm to a signal percentage. It does not clamp, so wrap it
+in `Clamp` to bound the result, and add `Round` to tidy it.
+
+```python
+from probatio import Schema, All, Remap, Clamp, Round
+
+Schema(All(Remap(0, 255, 0, 100), Round(1)))(128)          # 50.2  (a byte as a percentage)
+Schema(All(Remap(-100, -50, 0, 100), Clamp(0, 100)))(-70)  # 60.0  (RSSI dBm to percent)
+```
+
+`Scale` folds the whole affine transform into one call, `value * factor / divisor +
+offset`, optionally rounded, when a single field does several steps at once.
+
+```python
+from probatio import Schema, Scale
+
+Schema(Scale(divisor=1000))(5000)             # 5.0   (milliunits to units)
+Schema(Scale(10))(5)                          # 50    (integer gain, stays an int)
+Schema(Scale(100, divisor=255, round=1))(128) # 50.2  (a byte as a percentage)
+Schema(Scale(offset=-273.15, round=2))(300)   # 26.85 (Kelvin to Celsius)
+```
+
 ## Collections and structure
 
 These shape sequences, sets, and objects.
