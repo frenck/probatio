@@ -19,6 +19,7 @@ from probatio.error import (
     SchemaError,
     SlugInvalid,
     UrlInvalid,
+    ValueInvalid,
 )
 from probatio.validators._base import _SafeValidator
 
@@ -530,3 +531,116 @@ class Replace(_SafeValidator):
             return self.pattern.sub(self.substitution, value)
         except TypeError as exc:
             raise MatchInvalid(self.msg, translation_key="expected_string") from exc
+
+
+# Collapses each run of whitespace to a single space. Anchored to a character class,
+# so no input can make it backtrack.
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+class CollapseWhitespace(_SafeValidator):
+    r"""Collapse each run of whitespace to a single space, trimming the ends.
+
+    ``CollapseWhitespace()`` turns ``"  a   b\tc "`` into ``"a b c"``, the tidy-up a
+    free-text field often wants that ``Strip`` (ends only) does not do. A non-string
+    is rejected.
+    """
+
+    def __init__(self, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "CollapseWhitespace()"
+
+    def __call__(self, value: typing.Any) -> str:
+        """Return the value with internal whitespace collapsed, else raise ValueInvalid."""
+        if not isinstance(value, str):
+            raise ValueInvalid(self.msg, translation_key="expected_string")
+        return _WHITESPACE_RUN.sub(" ", value).strip()
+
+
+class RemovePrefix(_SafeValidator):
+    """Remove a leading prefix if present, leaving the value unchanged otherwise.
+
+    ``RemovePrefix("sensor.")`` turns ``"sensor.temp"`` into ``"temp"`` and leaves
+    ``"temp"`` alone. A non-string value is rejected; a non-string prefix is a schema
+    error.
+    """
+
+    def __init__(self, prefix: str, *, msg: str | None = None) -> None:
+        """Store the prefix; reject a non-string prefix at build time."""
+        if not isinstance(prefix, str):
+            message = "RemovePrefix prefix must be a string"
+            raise SchemaError(message)
+        self.prefix = prefix
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the prefix."""
+        return f"RemovePrefix({self.prefix!r})"
+
+    def __call__(self, value: typing.Any) -> str:
+        """Return the value with the prefix removed, else raise ValueInvalid."""
+        if not isinstance(value, str):
+            raise ValueInvalid(self.msg, translation_key="expected_string")
+        return value.removeprefix(self.prefix)
+
+
+class RemoveSuffix(_SafeValidator):
+    """Remove a trailing suffix if present, leaving the value unchanged otherwise.
+
+    ``RemoveSuffix("_raw")`` turns ``"value_raw"`` into ``"value"`` and leaves
+    ``"value"`` alone. A non-string value is rejected; a non-string suffix is a schema
+    error.
+    """
+
+    def __init__(self, suffix: str, *, msg: str | None = None) -> None:
+        """Store the suffix; reject a non-string suffix at build time."""
+        if not isinstance(suffix, str):
+            message = "RemoveSuffix suffix must be a string"
+            raise SchemaError(message)
+        self.suffix = suffix
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the suffix."""
+        return f"RemoveSuffix({self.suffix!r})"
+
+    def __call__(self, value: typing.Any) -> str:
+        """Return the value with the suffix removed, else raise ValueInvalid."""
+        if not isinstance(value, str):
+            raise ValueInvalid(self.msg, translation_key="expected_string")
+        return value.removesuffix(self.suffix)
+
+
+class Truncate(_SafeValidator):
+    """Cut a string to at most ``max_length`` characters.
+
+    ``Truncate(20)`` keeps the first twenty characters of a longer string and leaves a
+    shorter one unchanged, for a field a store or display bounds. A non-string value
+    is rejected; a negative or non-integer ``max_length`` is a schema error.
+    """
+
+    def __init__(self, max_length: int, *, msg: str | None = None) -> None:
+        """Store the maximum length; reject a negative or non-integer one at build."""
+        if (
+            isinstance(max_length, bool)
+            or not isinstance(max_length, int)
+            or max_length < 0
+        ):
+            message = "Truncate max_length must be a non-negative integer"
+            raise SchemaError(message)
+        self.max_length = max_length
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the maximum length."""
+        return f"Truncate({self.max_length!r})"
+
+    def __call__(self, value: typing.Any) -> str:
+        """Return the value cut to the maximum length, else raise ValueInvalid."""
+        if not isinstance(value, str):
+            raise ValueInvalid(self.msg, translation_key="expected_string")
+        return value[: self.max_length]

@@ -224,6 +224,10 @@ The type stays; the value is cleaned.
 | `Capitalize`          | Capitalized.                                   |
 | `Title`               | Title-cased.                                   |
 | `Strip`               | Whitespace trimmed.                            |
+| `CollapseWhitespace`  | Whitespace runs squeezed to one space.         |
+| `RemovePrefix`        | A leading prefix removed if present.           |
+| `RemoveSuffix`        | A trailing suffix removed if present.          |
+| `Truncate`            | Cut to at most `max_length` characters.        |
 | `Replace`             | Regular-expression replace.                    |
 | `Clamp`               | A number pinned into a range.                  |
 | `NormalizeMacAddress` | A MAC address in canonical form.               |

@@ -13,6 +13,7 @@ from probatio import (
     Alphanumeric,
     ByteLength,
     Capitalize,
+    CollapseWhitespace,
     Email,
     EndsWith,
     FqdnUrl,
@@ -23,12 +24,15 @@ from probatio import (
     MultipleInvalid,
     NoWhitespace,
     PrintableASCII,
+    RemovePrefix,
+    RemoveSuffix,
     Replace,
     Schema,
     Slug,
     StartsWith,
     Strip,
     Title,
+    Truncate,
     Upper,
     Url,
 )
@@ -39,6 +43,7 @@ from probatio.error import (
     SchemaError,
     SlugInvalid,
     UrlInvalid,
+    ValueInvalid,
 )
 
 
@@ -307,3 +312,53 @@ def test_hex_color_rejects(value: object) -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(HexColor())(value)
     assert isinstance(caught.value.errors[0], MatchInvalid)
+
+
+def test_collapse_whitespace_normalizes_runs() -> None:
+    """CollapseWhitespace turns each run of whitespace into one space and trims ends."""
+    assert Schema(CollapseWhitespace())("  a   b\tc ") == "a b c"
+
+
+def test_remove_prefix_and_suffix() -> None:
+    """RemovePrefix and RemoveSuffix strip an affix when present, leaving it otherwise."""
+    assert Schema(RemovePrefix("sensor."))("sensor.temp") == "temp"
+    assert Schema(RemovePrefix("sensor."))("temp") == "temp"
+    assert Schema(RemoveSuffix("_raw"))("value_raw") == "value"
+    assert Schema(RemoveSuffix("_raw"))("value") == "value"
+
+
+def test_truncate_cuts_to_the_maximum_length() -> None:
+    """Truncate keeps at most max_length characters, leaving a shorter string alone."""
+    assert Schema(Truncate(5))("hello world") == "hello"
+    assert Schema(Truncate(20))("short") == "short"
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [CollapseWhitespace(), RemovePrefix("p"), RemoveSuffix("s"), Truncate(5)],
+)
+def test_string_normalizers_reject_a_non_string(transform: object) -> None:
+    """A non-string value is rejected rather than coerced or mishandled."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(transform)(5)
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_string_normalizers_reject_bad_construction_args() -> None:
+    """A non-string affix or a negative/non-integer length is a schema error, raised early."""
+    with pytest.raises(SchemaError):
+        RemovePrefix(5)  # type: ignore[arg-type]
+    with pytest.raises(SchemaError):
+        RemoveSuffix(5)  # type: ignore[arg-type]
+    with pytest.raises(SchemaError):
+        Truncate(-1)
+    with pytest.raises(SchemaError):
+        Truncate(True)  # a bool is not a length
+
+
+def test_string_normalizer_reprs() -> None:
+    """Each string normalizer renders as a constructor call for introspection."""
+    assert repr(CollapseWhitespace()) == "CollapseWhitespace()"
+    assert repr(RemovePrefix("x")) == "RemovePrefix('x')"
+    assert repr(RemoveSuffix("y")) == "RemoveSuffix('y')"
+    assert repr(Truncate(10)) == "Truncate(10)"

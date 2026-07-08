@@ -217,6 +217,10 @@ carries forward an upstream request.
   nearest step, a magnitude, a modulo wrap-around, a range remap like the Arduino
   `map()`, or the whole affine transform in one `Scale`). Readable, composable
   stand-ins for `Coerce(lambda ...)`.
+- `CollapseWhitespace`, `RemovePrefix`, `RemoveSuffix`, `Truncate`: string
+  normalizers beyond the plain transforms (squeeze internal whitespace, strip a known
+  prefix or suffix, cap the length). Unlike `Lower`/`Strip`, they reject a non-string
+  rather than coercing it.
 - `Split`, `Join`, `Sort`, `Dedupe`, `First`, `Last`, `Without`: collection shapers.
   `Split`/`Join` convert between a delimited string and a list; `Sort` and `Dedupe`
   are the doing siblings of the `Sorted` and `Unique` validators; `First`/`Last` pick
