@@ -109,8 +109,8 @@ test = [
   # From 6.156 hypothesis ships only per-version compiled wheels (no sdist), and
   # CPython 3.15 has none yet, so the 3.15 beta job pins the last universal
   # release. Drop the split once hypothesis publishes cp315 wheels.
-  "hypothesis==6.156.1; python_version < '3.15'",
-  "hypothesis==6.155.0; python_version >= '3.15'",
+  "hypothesis==6.156.3; python_version < '3.15'",
+  "hypothesis==6.156.3; python_version >= '3.15'",
 ]
 typing = ["mypy==2.2.0", "ty==0.0.57"]
 lint = ["ruff==0.15.20", "codespell==2.4.2", "zizmor==1.26.1"]
