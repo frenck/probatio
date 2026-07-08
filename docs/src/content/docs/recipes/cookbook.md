@@ -64,8 +64,8 @@ schema({"type": "label", "text": "hi"})  # {'type': 'label', 'text': 'hi'}
 
 The routing table is built once, so the list form validates just as fast as the
 mapping. Use the `{tag: schema}` mapping when a branch does not carry the tag itself
-(its schema never mentions the key, or one branch covers several tags), a list branch
-that pins no literal is a build-time error telling you to.
+(its schema never mentions the key, or one branch covers several tags); a list branch
+that pins no literal is a build-time error pointing you to the mapping form.
 
 Pass `default=` for a fallback schema when the tag is not listed. For a discriminator
 that is not a simple key lookup (a computed tag, a subset of branches), drop to the

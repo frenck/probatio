@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import typing
+from collections.abc import Mapping
 
 from probatio.error import (
     AllInvalid,
@@ -617,7 +618,7 @@ class TaggedUnion(Union):
         """Pick the branch whose case matches ``value[key]``, else the default.
 
         ``__call__`` only reaches the discriminant path for a mapping, so ``value`` is
-        a dict here.
+        a ``Mapping`` here.
         """
         del alternatives
         try:
@@ -635,18 +636,27 @@ class TaggedUnion(Union):
         return f"TaggedUnion({self.key!r}, {self.cases!r})"
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Route on the key's value, else reject naming the valid values."""
-        if isinstance(value, dict):
-            try:
-                known = value.get(self.key) in self.cases
-            except TypeError:
-                known = False
-            if known or self.default is not None:
-                # Union's discriminant path validates the chosen branch and surfaces
-                # its own errors.
-                return super().__call__(value)
+        """Route on the key's value, else reject.
+
+        A non-mapping is rejected as such (any ``Mapping`` is accepted, matching the
+        rest of the engine, not just ``dict``). A mapping whose discriminator value is
+        not a listed tag is rejected at the key, naming the valid tags, unless a
+        ``default`` was given.
+        """
+        if not isinstance(value, Mapping):
+            raise Invalid(self.msg, translation_key="expected_mapping")
+        try:
+            known = value.get(self.key) in self.cases
+        except TypeError:
+            # An unhashable discriminator value is not a listed tag.
+            known = False
+        if known or self.default is not None:
+            # Union's discriminant path validates the chosen branch and surfaces its
+            # own errors.
+            return super().__call__(value)
         raise Invalid(
             self.msg,
+            path=[self.key],
             translation_key="expected_discriminator",
             placeholders={"key": self.key, "values": list(self.cases)},
         )

@@ -355,11 +355,13 @@ def test_tagged_union_reports_the_chosen_branch_error() -> None:
 
 
 def test_tagged_union_names_the_alternatives_on_an_unknown_value() -> None:
-    """An unlisted discriminator value is rejected with the valid values named."""
+    """An unlisted tag is rejected with the valid values named, anchored at the key."""
     schema = Schema(TaggedUnion("type", {"grid": dict, "solar": dict}))
     with pytest.raises(MultipleInvalid) as caught:
         schema({"type": "wind"})
-    assert "one of ['grid', 'solar']" in caught.value.errors[0].error_message
+    error = caught.value.errors[0]
+    assert "one of ['grid', 'solar']" in error.error_message
+    assert error.path == ["type"]  # anchored at the discriminator key
 
 
 def test_tagged_union_falls_back_to_a_default() -> None:
@@ -371,9 +373,18 @@ def test_tagged_union_falls_back_to_a_default() -> None:
 
 
 def test_tagged_union_rejects_a_non_mapping() -> None:
-    """A non-dict value cannot carry the discriminator key, so it is rejected."""
-    with pytest.raises(MultipleInvalid):
+    """A non-mapping cannot carry the discriminator key; it is rejected as a mapping."""
+    with pytest.raises(MultipleInvalid) as caught:
         Schema(TaggedUnion("type", {"a": dict}))(5)
+    assert caught.value.errors[0].error_message == "expected a mapping"
+
+
+def test_tagged_union_accepts_any_mapping() -> None:
+    """Any Mapping routes, not only a plain dict, matching the rest of the engine."""
+    from types import MappingProxyType  # noqa: PLC0415
+
+    schema = Schema(TaggedUnion("type", {"grid": {Required("type"): "grid"}}))
+    assert schema(MappingProxyType({"type": "grid"})) == {"type": "grid"}
 
 
 def test_tagged_union_treats_an_unhashable_discriminator_as_a_miss() -> None:
