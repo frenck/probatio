@@ -41,10 +41,15 @@ _policy = _DEFAULT_POLICY
 def set_build_policy(policy: BuildPolicy) -> None:
     """Set the process-wide build policy.
 
-    Call it once, early, from deliberate startup code, before the schemas you want
-    deferred are constructed. Raises ``TypeError`` for anything that is not a
-    ``BuildPolicy``, so a stray string fails loudly rather than silently disabling
-    lazy building.
+    This is a single process-wide switch, so only an application (the process owner)
+    should call it, once, early, from deliberate startup code, before the schemas it
+    wants deferred are constructed. A library must not: it would change how every
+    schema in the process builds, the application's own and those of unrelated
+    dependencies included. The build policy has no per-schema override, so a library
+    has nothing to set here and should leave the choice to the application.
+
+    Raises ``TypeError`` for anything that is not a ``BuildPolicy``, so a stray string
+    fails loudly rather than silently disabling lazy building.
     """
     if not isinstance(policy, BuildPolicy):
         message = f"build policy must be a BuildPolicy, got {type(policy).__name__}"

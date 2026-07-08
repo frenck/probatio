@@ -100,6 +100,17 @@ A per-schema `compile` flag always wins over the policy, in either direction. Th
 order of precedence is: `schema.compile()`, then the `compile=True`/`compile=False`
 flag, then the process policy.
 
+:::caution[Applications set this, not libraries]
+`set_compile_policy` is a single process-wide switch, so only an application (the
+process that owns the run) should call it. A library that sets it changes compilation
+for every schema in the process, the application's own and those of unrelated
+dependencies included, which is not a library's call to make. A library that wants a
+particular schema compiled (or kept interpreted) sets the per-schema flag instead,
+`Schema(..., compile=True)` or `compile=False`, and even then sparingly: whether
+compilation pays depends on how the application drives the schema, so the `AUTO`
+default is usually the right answer.
+:::
+
 ## What compiles, and what does not
 
 The generator handles the common shapes: dict (mapping) schemas, dataclasses, and
