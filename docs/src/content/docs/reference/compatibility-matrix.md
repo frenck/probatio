@@ -211,10 +211,12 @@ carries forward an upstream request.
   by nesting (`Optional(Secret("password"))`). Voluptuous has no equivalent.
 - `NonEmpty`, `Byte`, `SmallFloat`, `IsRegex`: a non-empty check, 0 to 255 and 0
   to 1 bounded numbers, and a "value is a compilable regex" check.
-- `Multiply`, `Divide`, `Offset`, `Round`, `Remap`, `Scale`: arithmetic mutators for
-  the small calculations common on device and sensor fields (a gain, a unit divide, a
-  shift, rounding, a range remap like the Arduino `map()`, or the whole affine
-  transform in one `Scale`). Readable, composable stand-ins for `Coerce(lambda ...)`.
+- `Multiply`, `Divide`, `Offset`, `Round`, `RoundUp`, `RoundDown`, `Snap`, `Abs`,
+  `Modulo`, `Remap`, `Scale`: arithmetic mutators for the small calculations common on
+  device and sensor fields (a gain, a unit divide, a shift, rounding up/down or to a
+  nearest step, a magnitude, a modulo wrap-around, a range remap like the Arduino
+  `map()`, or the whole affine transform in one `Scale`). Readable, composable
+  stand-ins for `Coerce(lambda ...)`.
 - `JSONString`, `FromJSONString`: validate a JSON string (and optionally the decoded
   value against an inner schema); `JSONString` returns the string unchanged, while
   `FromJSONString` returns the decoded value.

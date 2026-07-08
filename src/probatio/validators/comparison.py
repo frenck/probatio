@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import typing
 
@@ -624,6 +625,148 @@ class Remap(_SafeValidator):
             return self.out_low + ratio * (self.out_high - self.out_low)
         except Exception as exc:
             # A huge int overflowing the ``float`` arithmetic is contained, not leaked.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Snap(_SafeValidator):
+    """Round a number to the nearest multiple of a step (setpoint quantization).
+
+    ``Snap(0.5)`` rounds to the nearest half, ``Snap(5)`` to the nearest five, the
+    common shape for a thermostat or dimmer setpoint. The result follows Python's
+    arithmetic type, so an integer step keeps an ``int``. A zero step is a schema
+    error; a ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, step: float, *, msg: str | None = None) -> None:
+        """Store the step; reject a zero step at build time."""
+        if step == 0:
+            message = "Snap step must not be zero"
+            raise SchemaError(message)
+        self.step = step
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the step."""
+        return f"Snap({self.step!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the value snapped to the nearest step, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return round(number / self.step) * self.step
+        except Exception as exc:
+            # A huge int overflowing the ``float`` division is contained, not leaked.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class RoundUp(_SafeValidator):
+    """Round a number up to the next whole integer (the ceiling).
+
+    ``RoundUp()`` takes ``4.1`` to ``5`` and ``-4.9`` to ``-4``, for "always the next
+    whole unit". Returns an ``int``. A ``bool``, a string, or anything not a real
+    number is rejected.
+    """
+
+    def __init__(self, *, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "RoundUp()"
+
+    def __call__(self, value: typing.Any) -> int:
+        """Return the ceiling of the value, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return math.ceil(number)
+        except (OverflowError, ValueError) as exc:
+            # ``inf`` and ``nan`` have no integer ceiling; reject rather than leak.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class RoundDown(_SafeValidator):
+    """Round a number down to the previous whole integer (the floor).
+
+    ``RoundDown()`` takes ``4.9`` to ``4`` and ``-4.1`` to ``-5``. Returns an ``int``.
+    A ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, *, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "RoundDown()"
+
+    def __call__(self, value: typing.Any) -> int:
+        """Return the floor of the value, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return math.floor(number)
+        except (OverflowError, ValueError) as exc:
+            # ``inf`` and ``nan`` have no integer floor; reject rather than leak.
+            raise ValueInvalid(
+                self.msg, translation_key="invalid_value_or_type"
+            ) from exc
+
+
+class Abs(_SafeValidator):
+    """Return the absolute value of a number (its magnitude).
+
+    ``Abs()`` takes ``-3`` to ``3``, keeping the type (an ``int`` stays an ``int``). A
+    ``bool``, a string, or anything not a real number is rejected.
+    """
+
+    def __init__(self, *, msg: str | None = None) -> None:
+        """Store an optional custom message."""
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call."""
+        return "Abs()"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return the absolute value, else raise ValueInvalid."""
+        return abs(_require_number(value, self.msg))
+
+
+class Modulo(_SafeValidator):
+    """Reduce a number modulo ``n`` (``value % n``), for wrap-around like an angle.
+
+    ``Modulo(360)`` wraps a heading into 0 to 359; Python's ``%`` follows the
+    divisor's sign, so ``Modulo(360)`` maps ``-10`` to ``350``. Distinct from
+    ``MultipleOf``, which validates divisibility rather than transforming. A zero
+    divisor is a schema error; a ``bool``, a string, or anything not a real number is
+    rejected.
+    """
+
+    def __init__(self, n: float, *, msg: str | None = None) -> None:
+        """Store the divisor; reject a zero divisor at build time."""
+        if n == 0:
+            message = "Modulo divisor must not be zero"
+            raise SchemaError(message)
+        self.n = n
+        self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the divisor."""
+        return f"Modulo({self.n!r})"
+
+    def __call__(self, value: typing.Any) -> typing.Any:
+        """Return ``value % n``, else raise ValueInvalid."""
+        number = _require_number(value, self.msg)
+        try:
+            return number % self.n
+        except Exception as exc:
+            # A huge int overflowing a ``float`` modulus is contained, not leaked.
             raise ValueInvalid(
                 self.msg, translation_key="invalid_value_or_type"
             ) from exc

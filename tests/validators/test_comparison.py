@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 
 from probatio import (
+    Abs,
     Byte,
     Clamp,
     Contains,
@@ -18,6 +19,7 @@ from probatio import (
     Length,
     Literal,
     Longitude,
+    Modulo,
     MultipleInvalid,
     MultipleOf,
     Multiply,
@@ -31,10 +33,13 @@ from probatio import (
     Range,
     Remap,
     Round,
+    RoundDown,
+    RoundUp,
     Scale,
     Schema,
     SchemaError,
     SmallFloat,
+    Snap,
 )
 from probatio.error import (
     ContainsInvalid,
@@ -589,6 +594,74 @@ def test_arithmetic_mutators_contain_an_overflow(
     with pytest.raises(MultipleInvalid) as caught:
         Schema(mutator)(value)
     assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_snap_rounds_to_the_nearest_step() -> None:
+    """Snap quantizes to the nearest multiple of the step, keeping int for an int step."""
+    assert Schema(Snap(0.5))(1.2) == 1.0
+    kept = Schema(Snap(5))(23)
+    assert kept == 25
+    assert type(kept) is int
+    with pytest.raises(SchemaError):
+        Snap(0)
+
+
+def test_round_up_and_down_go_to_the_whole_integer() -> None:
+    """RoundUp takes the ceiling, RoundDown the floor, both returning an int."""
+    assert Schema(RoundUp())(4.1) == 5
+    assert Schema(RoundUp())(-4.9) == -4
+    assert Schema(RoundDown())(4.9) == 4
+    assert Schema(RoundDown())(-4.1) == -5
+
+
+def test_abs_returns_the_magnitude() -> None:
+    """Abs returns the absolute value, keeping the type."""
+    result = Schema(Abs())(-3)
+    assert result == 3
+    assert type(result) is int
+
+
+def test_modulo_wraps_around() -> None:
+    """Modulo reduces value % n, following the divisor's sign for wrap-around."""
+    assert Schema(Modulo(360))(370) == 10
+    assert Schema(Modulo(360))(-10) == 350
+    with pytest.raises(SchemaError):
+        Modulo(0)
+
+
+@pytest.mark.parametrize(
+    "mutator", [Snap(0.5), RoundUp(), RoundDown(), Abs(), Modulo(5)]
+)
+def test_numeric_finishers_reject_a_non_number(mutator: object) -> None:
+    """Every numeric finisher rejects a string rather than mishandling it."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(mutator)("x")
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "value"),
+    [
+        (Snap(0.5), 10**400),
+        (RoundUp(), float("inf")),
+        (RoundDown(), float("inf")),
+        (Modulo(1.5), 10**400),
+    ],
+)
+def test_numeric_finishers_contain_a_bad_value(mutator: object, value: object) -> None:
+    """An overflow or an unrepresentable infinity is reported cleanly, not leaked."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(mutator)(value)
+    assert isinstance(caught.value.errors[0], ValueInvalid)
+
+
+def test_numeric_finisher_reprs() -> None:
+    """Each numeric finisher renders as a constructor call for introspection."""
+    assert repr(Snap(0.5)) == "Snap(0.5)"
+    assert repr(RoundUp()) == "RoundUp()"
+    assert repr(RoundDown()) == "RoundDown()"
+    assert repr(Abs()) == "Abs()"
+    assert repr(Modulo(360)) == "Modulo(360)"
 
 
 def test_membership_and_equality_reject_signaling_nan() -> None:

@@ -151,6 +151,22 @@ Schema(Scale(100, divisor=255, round=1))(128) # 50.2  (a byte as a percentage)
 Schema(Scale(offset=-273.15, round=2))(300)   # 26.85 (Kelvin to Celsius)
 ```
 
+A few finishers round out the number work. `Round` takes the nearest value; `RoundUp`
+and `RoundDown` take the ceiling and floor (to a whole integer). `Snap` rounds to the
+nearest multiple of a step, for a setpoint. `Abs` is the magnitude, and `Modulo` wraps
+a value, so `Modulo(360)` keeps a heading in 0 to 359 (`MultipleOf`, by contrast,
+validates divisibility rather than transforming).
+
+```python
+from probatio import Schema, RoundUp, RoundDown, Snap, Abs, Modulo
+
+Schema(RoundUp())(4.1)       # 5
+Schema(RoundDown())(4.9)     # 4
+Schema(Snap(0.5))(1.2)       # 1.0   (nearest half)
+Schema(Abs())(-3)            # 3
+Schema(Modulo(360))(370)     # 10    (wrap a heading)
+```
+
 ## Collections and structure
 
 These shape sequences, sets, and objects.

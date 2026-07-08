@@ -10,6 +10,12 @@
         'msg POSITIONAL_OR_KEYWORD None',
       ]),
     }),
+    'Abs': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Alias': dict({
       'kind': 'class',
       'signature': list([
@@ -997,6 +1003,13 @@
         'msg POSITIONAL_OR_KEYWORD None',
       ]),
     }),
+    'Modulo': dict({
+      'kind': 'class',
+      'signature': list([
+        'n POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'Msg': dict({
       'kind': 'class',
       'signature': list([
@@ -1311,6 +1324,18 @@
         'msg KEYWORD_ONLY None',
       ]),
     }),
+    'RoundDown': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
+    'RoundUp': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg KEYWORD_ONLY None',
+      ]),
+    }),
     'ScalarInvalid': dict({
       'kind': 'class',
       'signature': list([
@@ -1413,6 +1438,13 @@
       'kind': 'class',
       'signature': list([
         'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Snap': dict({
+      'kind': 'class',
+      'signature': list([
+        'step POSITIONAL_OR_KEYWORD required',
+        'msg KEYWORD_ONLY None',
       ]),
     }),
     'SocketInvalid': dict({
