@@ -440,6 +440,12 @@
         'placeholders KEYWORD_ONLY None',
       ]),
     }),
+    'EmptyToNone': dict({
+      'kind': 'class',
+      'signature': list([
+        'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
     'EndsWith': dict({
       'kind': 'class',
       'signature': list([
@@ -997,6 +1003,14 @@
         'context KEYWORD_ONLY None',
         'translation_key KEYWORD_ONLY None',
         'placeholders KEYWORD_ONLY None',
+      ]),
+    }),
+    'Map': dict({
+      'kind': 'class',
+      'signature': list([
+        'mapping POSITIONAL_OR_KEYWORD required',
+        'default KEYWORD_ONLY <Undefined>',
+        'msg KEYWORD_ONLY None',
       ]),
     }),
     'Marker': dict({

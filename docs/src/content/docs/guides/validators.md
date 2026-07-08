@@ -665,16 +665,32 @@ except MultipleInvalid as err:
 These do not reject values; they patch them.
 
 `DefaultTo` replaces `None` with a default and passes everything else through.
-`SetTo` ignores the input and always produces a fixed value. `Msg` wraps another
-validator and swaps its failure message for one you choose, which is the simplest
-way to make an error read in your own words.
+`EmptyToNone` is the near-reverse: an empty string or container (`""`, `[]`, `{}`)
+becomes `None`, the "empty means unset" shape from config and forms, while a falsy
+scalar like `0` stays put. `SetTo` ignores the input and always produces a fixed
+value. `Msg` wraps another validator and swaps its failure message for one you
+choose, which is the simplest way to make an error read in your own words.
 
 ```python
-from probatio import Schema, DefaultTo, SetTo
+from probatio import Schema, DefaultTo, EmptyToNone, SetTo
 
 Schema(DefaultTo("fallback"))(None)     # 'fallback'
 Schema(DefaultTo("fallback"))("value")  # 'value'
+Schema(EmptyToNone())("")               # None
+Schema(EmptyToNone())(0)                # 0
 Schema(SetTo(42))("anything")           # 42
+```
+
+`Map` translates a value through a table you supply, like a device status code to a
+name. It is the bring-your-own-mapping answer to a domain conversion: probatio does
+not pick the table, so a disputed or app-specific lookup stays yours. A value not in
+the table is rejected, unless you pass a `default`.
+
+```python
+from probatio import Schema, Map
+
+Schema(Map({0: "off", 1: "on", 2: "auto"}))(1)       # 'on'
+Schema(Map({0: "off"}, default="unknown"))(9)        # 'unknown'
 ```
 
 `Msg` rewrites the message on failure:

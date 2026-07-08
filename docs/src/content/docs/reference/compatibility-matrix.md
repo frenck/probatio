@@ -221,6 +221,11 @@ carries forward an upstream request.
   normalizers beyond the plain transforms (squeeze internal whitespace, strip a known
   prefix or suffix, cap the length). Unlike `Lower`/`Strip`, they reject a non-string
   rather than coercing it.
+- `Map`, `EmptyToNone`: `Map` translates a value through a table you supply (a device
+  status code to a name), the bring-your-own-mapping answer to a domain conversion so
+  probatio never picks a disputed table; `EmptyToNone` turns an empty string or
+  container into `None` (the "empty means unset" shape), the near-reverse of
+  `DefaultTo`.
 - `Split`, `Join`, `Sort`, `Dedupe`, `First`, `Last`, `Without`: collection shapers.
   `Split`/`Join` convert between a delimited string and a list; `Sort` and `Dedupe`
   are the doing siblings of the `Sorted` and `Unique` validators; `First`/`Last` pick
