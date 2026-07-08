@@ -101,6 +101,49 @@ like `Lower` and `Strip` are plain functions instead, so use those bare.
 
 Deep dive: [Validators](/guides/validators/).
 
+## Device and sensor conversions
+
+Raw device and sensor readings usually need a small calculation before they are
+useful: a milliunit divided down, a byte scaled to a percentage, a temperature
+converted, a status code named. The arithmetic mutators compose into these without
+a hand-written `Coerce(lambda ...)`, and because you supply the numbers, probatio
+never has to bake in a disputed formula.
+
+```python
+from probatio import Schema, All, Divide, Scale, Remap, Clamp, Round, Map
+
+# Milliunits to units (millivolts to volts, milliseconds to seconds).
+Schema(Divide(1000))(21500)  # 21.5
+
+# A 0..255 byte to a 0..100 percentage.
+Schema(All(Remap(0, 255, 0, 100), Round(0)))(128)  # 50.0
+
+# Celsius to Fahrenheit, the affine transform in one call (value * 9 / 5 + 32).
+Schema(Scale(9, divisor=5, offset=32))(20)  # 68.0
+
+# A device status code to a name (you own the table).
+Schema(Map({0: "off", 1: "on", 2: "auto"}))(2)  # 'auto'
+```
+
+RSSI to a signal percentage is the classic case with no single agreed formula.
+`Remap` lets you pick the input range, and `Clamp` keeps the result in bounds when a
+reading runs past it:
+
+```python
+from probatio import Schema, All, Remap, Clamp, Round
+
+# Linear dBm -100..-50 to 0..100%, your chosen range, clamped and rounded.
+rssi = Schema(All(Remap(-100, -50, 0, 100), Clamp(0, 100), Round(0)))
+rssi(-70)  # 60.0
+rssi(-40)  # 100  (past the top of the range, clamped)
+```
+
+Probatio deliberately ships no `RSSIToPercentage` or `CelsiusToFahrenheit`: the
+formula is a policy choice, and unit conversion is bottomless. The primitives keep
+that choice in your schema, where it is readable and yours to change.
+
+Deep dive: [Validators](/guides/validators/).
+
 ## Open mapping with typed keys and values
 
 To describe "any string key, integer value", use a type as the dict key. A type
