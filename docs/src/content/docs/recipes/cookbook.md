@@ -171,9 +171,13 @@ enum, so the sentinel is folded ahead of the enum without dropping to a `str` fi
 
 ```python
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Annotated
 
-from probatio import DataclassSchema, Key
+from probatio import DataclassSchema, Key, Map, PASSTHROUGH
+
+class VehicleType(StrEnum):
+    CAR = "Personenauto"
 
 @dataclass
 class Vehicle:
