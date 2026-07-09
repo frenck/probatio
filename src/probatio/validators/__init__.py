@@ -7,6 +7,7 @@ internal organization detail.
 from __future__ import annotations
 
 from probatio.validators.coerce import (
+    PASSTHROUGH,
     Boolean,
     Coerce,
     DefaultTo,
@@ -166,6 +167,7 @@ __all__ = [
     "ASCII",
     "E164",
     "IBAN",
+    "PASSTHROUGH",
     "ULID",
     "UUID",
     "Abs",

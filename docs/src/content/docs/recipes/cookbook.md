@@ -140,6 +140,31 @@ Schema(Scale(9, divisor=5, offset=32))(20)  # 68.0
 Schema(Map({0: "off", 1: "on", 2: "auto"}))(2)  # 'auto'
 ```
 
+`Map` rejects a key it does not know, which is right for a closed set of codes. When
+a table exists only to rewrite a few sentinel values ahead of a stricter step, pass
+`default=PASSTHROUGH` so an unlisted value flows through untouched. A scraped source
+that sends `"N.v.t."` (not applicable) for a missing enum is the common case: fold
+the sentinel to `None`, let a real value reach the enum.
+
+```python
+from enum import StrEnum
+
+from probatio import Schema, All, Map, Maybe, PASSTHROUGH
+
+class VehicleType(StrEnum):
+    CAR = "Personenauto"
+
+vehicle_type = Schema(
+    All(Map({"N.v.t.": None}, default=PASSTHROUGH), Maybe(VehicleType))
+)
+vehicle_type("N.v.t.")        # None
+vehicle_type("Personenauto")  # <VehicleType.CAR: 'Personenauto'>
+```
+
+`Map` runs first here and rewrites only what it names, so the enum coerces whatever
+is left. Order matters: put the `Map` before the enum in the `All`, or the enum
+rejects the sentinel before the table ever sees it.
+
 RSSI to a signal percentage is the classic case with no single agreed formula.
 `Remap` lets you pick the input range, and `Clamp` keeps the result in bounds when a
 reading runs past it:
