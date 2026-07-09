@@ -1215,6 +1215,9 @@
         'kwargs VAR_KEYWORD required',
       ]),
     }),
+    'PASSTHROUGH': dict({
+      'kind': 'value',
+    }),
     'PREVENT_EXTRA': dict({
       'kind': 'value',
     }),

@@ -9,6 +9,7 @@ import pytest
 import voluptuous
 
 from probatio import (
+    PASSTHROUGH,
     Boolean,
     Coerce,
     DefaultTo,
@@ -264,6 +265,23 @@ def test_map_treats_an_unhashable_value_as_a_miss() -> None:
     with pytest.raises(MultipleInvalid):
         Schema(Map({0: "off"}))([1, 2])
     assert Schema(Map({0: "off"}, default=None))([1, 2]) is None
+
+
+def test_map_passthrough_returns_an_unmapped_value_unchanged() -> None:
+    """With default=PASSTHROUGH, a miss returns the value as-is, a hit still maps."""
+    remap = Map({"N.v.t.": None, "Niet geregistreerd": None}, default=PASSTHROUGH)
+    assert Schema(remap)("N.v.t.") is None
+    assert Schema(remap)("Personenauto") == "Personenauto"
+
+
+def test_map_passthrough_returns_an_unhashable_value_unchanged() -> None:
+    """PASSTHROUGH leaves even an unhashable miss alone rather than rejecting it."""
+    assert Schema(Map({0: "off"}, default=PASSTHROUGH))([1, 2]) == [1, 2]
+
+
+def test_passthrough_repr() -> None:
+    """The PASSTHROUGH sentinel renders as its name."""
+    assert repr(PASSTHROUGH) == "PASSTHROUGH"
 
 
 def test_map_rejects_a_non_dict_mapping_at_build_time() -> None:

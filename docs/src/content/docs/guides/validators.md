@@ -694,6 +694,20 @@ Schema(Map({0: "off", 1: "on", 2: "auto"}))(1)       # 'on'
 Schema(Map({0: "off"}, default="unknown"))(9)        # 'unknown'
 ```
 
+A fixed `default` folds every miss to one value. To rewrite only the keys you list
+and leave everything else untouched, pass `default=PASSTHROUGH`. That is the
+difference between "unknown means this value" and "only touch what I named", which is
+what you want when a table just cleans up a few sentinel strings ahead of a stricter
+validator.
+
+```python
+from probatio import Schema, Map, PASSTHROUGH
+
+sentinels = Map({"N.v.t.": None, "n/a": None}, default=PASSTHROUGH)
+Schema(sentinels)("N.v.t.")     # None
+Schema(sentinels)("Personenauto")  # 'Personenauto'  (unmapped, left as-is)
+```
+
 `Msg` rewrites the message on failure:
 
 <!-- verify: raises MultipleInvalid -->

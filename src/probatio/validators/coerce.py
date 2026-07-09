@@ -224,15 +224,32 @@ class DefaultTo(_SafeValidator):
         return value
 
 
+class _Passthrough:
+    """Type of the ``PASSTHROUGH`` sentinel: a ``Map`` miss returns the value unchanged."""
+
+    def __repr__(self) -> str:
+        """Render as ``PASSTHROUGH`` so it reads clearly in debug output."""
+        return "PASSTHROUGH"
+
+
+PASSTHROUGH = _Passthrough()
+
+
 class Map(_SafeValidator):
     """Translate a value through a mapping, like a status code to a name.
 
     ``Map({0: "off", 1: "on", 2: "auto"})`` returns the mapped value for a key it
     knows. This is the bring-your-own-table generalization of a domain converter:
     probatio does not pick the mapping, you do, so a disputed or app-specific lookup
-    (an RSSI bucket, a vendor status code) stays yours. A value not in the mapping is
-    rejected, unless a ``default`` is given, in which case the default is returned. An
-    unhashable value, which cannot be a mapping key, is treated as a miss.
+    (an RSSI bucket, a vendor status code) stays yours. An unhashable value, which
+    cannot be a mapping key, is treated as a miss.
+
+    A value not in the mapping is rejected. Two escapes change that. A ``default``
+    value is returned in place of any miss (``Map({...}, default=None)`` folds every
+    unknown key to ``None``). Passing ``default=PASSTHROUGH`` instead returns the
+    value *unchanged* on a miss, so a ``Map`` rewrites only the keys it lists and
+    leaves everything else alone. That is the difference between "unknown means this
+    fixed value" and "only touch what I named".
     """
 
     def __init__(
@@ -260,8 +277,11 @@ class Map(_SafeValidator):
             return self.mapping[value]
         except Exception as exc:
             # A miss (KeyError), an unhashable value (TypeError), or a hostile
-            # ``__hash__``/``__eq__``: none is a valid key. Fall back to the default
-            # if one was given, otherwise report the allowed keys.
+            # ``__hash__``/``__eq__``: none is a valid key. ``PASSTHROUGH`` leaves the
+            # value as-is; any other default replaces the miss; otherwise report the
+            # allowed keys.
+            if self.default is PASSTHROUGH:
+                return value
             if self.default is not UNDEFINED:
                 return self.default
             raise Invalid(
