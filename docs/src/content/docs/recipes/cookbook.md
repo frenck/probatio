@@ -165,6 +165,33 @@ vehicle_type("Personenauto")  # <VehicleType.CAR: 'Personenauto'>
 is left. Order matters: put the `Map` before the enum in the `All`, or the enum
 rejects the sentinel before the table ever sees it.
 
+The same works inside a dataclass field, and the field stays typed as the enum. A
+coercer in the metadata (`Map` or `Coerce`) runs before a producing base like an
+enum, so the sentinel is folded ahead of the enum without dropping to a `str` field:
+
+```python
+from dataclasses import dataclass
+from typing import Annotated
+
+from probatio import DataclassSchema, Key
+
+@dataclass
+class Vehicle:
+    vehicle_type: Annotated[
+        VehicleType | None,
+        Key(alias="voertuigsoort"),
+        Map({"N.v.t.": None}, default=PASSTHROUGH),
+    ] = None
+
+schema = DataclassSchema(Vehicle)
+schema({"voertuigsoort": "N.v.t."})        # Vehicle(vehicle_type=None)
+schema({"voertuigsoort": "Personenauto"})  # Vehicle(vehicle_type=<VehicleType.CAR: 'Personenauto'>)
+```
+
+An asserting constraint keeps the opposite order. An `In([...])` in the metadata runs
+_after_ the enum, so it checks the produced member, not the raw string. Only a coercer
+moves ahead of a producing base.
+
 RSSI to a signal percentage is the classic case with no single agreed formula.
 `Remap` lets you pick the input range, and `Clamp` keeps the result in bounds when a
 reading runs past it:

@@ -84,7 +84,7 @@ from probatio.schema import (
     CompiledSchema,
     Schema,
 )
-from probatio.validators import All, Any, ExactSequence, In, Maybe, Union
+from probatio.validators import All, Any, Coerce, ExactSequence, In, Map, Maybe, Union
 
 __all__ = [
     "DataclassSchema",
@@ -176,6 +176,32 @@ def _base_asserts_the_result(base_schema: TypingAny) -> bool:
     return False
 
 
+def _metadata_coerces(item: TypingAny) -> bool:
+    """Whether an ``Annotated`` metadata item *coerces* (so it should run first).
+
+    A plain type base runs its metadata first and then confirms the result (ADR-008):
+    ``Annotated[int, Coerce(int)]`` coerces, then the ``int`` asserts. A *producing*
+    base (an ``Enum``, a nested schema, a container) normally runs first instead, so a
+    constraint layers on top of the produced value. That leaves no way to preprocess a
+    raw value before a producing base coerces it, which is the enum-sentinel case:
+    ``Map`` a `"N.v.t."` sentinel to ``None`` before the enum sees it.
+
+    So the same rule extends the other way: if the metadata itself carries a coercer, it
+    runs first and the base confirms, even when the base produces. Only the coercion
+    markers (``Coerce`` and ``Map``, and a ``Maybe``/union wrapping one, so
+    ``Maybe(Coerce(...))`` counts) flip the order. An asserting constraint like ``In`` or
+    a bare callable does not: it cannot be told apart from a plain check, so it keeps the
+    old base-first order and sees the produced value.
+    """
+    if isinstance(item, (Coerce, Map)):
+        return True
+    if isinstance(item, Maybe):
+        return _metadata_coerces(item.validator)
+    if isinstance(item, (Any, Union)):
+        return any(_metadata_coerces(member) for member in item.validators)
+    return False
+
+
 def _annotation_to_schema(  # noqa: PLR0911, PLR0912
     annotation: TypingAny,
     self_refs: dict[type, _RecursiveSchemaRef],
@@ -222,7 +248,14 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         # also a bare type that coerces when compiled (an ``Enum`` class, or a type with a
         # ``__probatio_validate__`` protocol from ADR-007, both turn a raw value into the
         # validated form).
-        if _base_asserts_the_result(base_schema):
+        #
+        # The exception: if the metadata itself coerces (a ``Coerce`` or ``Map``), it runs
+        # first even against a producing base, so a raw value can be reshaped before the
+        # base coerces it. That is what lets ``Map`` fold an enum sentinel to ``None``
+        # ahead of the enum. The base then only confirms an already-produced member.
+        if _base_asserts_the_result(base_schema) or any(
+            _metadata_coerces(item) for item in extras
+        ):
             return All(*extras, base_schema)
         return All(base_schema, *extras)
 

@@ -23,6 +23,7 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    PASSTHROUGH,
     PREVENT_EXTRA,
     REMOVE_EXTRA,
     AsDatetime,
@@ -33,6 +34,8 @@ from probatio import (
     Invalid,
     Key,
     Length,
+    Map,
+    Maybe,
     MultipleInvalid,
     Range,
     SchemaError,
@@ -514,6 +517,48 @@ def test_annotated_self_validating_base_coerces_first() -> None:
     assert DataclassSchema(_SelfValidatingDoc)({"slug": "HELLO"}).slug == _AnnSlug(
         "hello"
     )
+
+
+@dataclass
+class _MapSentinelShirt:
+    """A Map in the metadata rewrites a raw value before the enum base coerces it."""
+
+    color: Annotated[_AnnColor | None, Map({"n/a": None}, default=PASSTHROUGH)] = None
+
+
+@dataclass
+class _MaybeCoerceShirt:
+    """A Maybe(Coerce(...)) in the metadata coerces before the producing enum base."""
+
+    color: Annotated[_AnnColor | None, Maybe(Coerce(_AnnColor))] = None
+
+
+@dataclass
+class _UnionCoerceShirt:
+    """A coercer nested in a union metadata item still flips the order."""
+
+    color: Annotated[_AnnColor, AnyOf(Map({"scarlet": "red"}), Coerce(_AnnColor))]
+
+
+def test_map_metadata_runs_before_a_producing_enum_base() -> None:
+    """A Map maps a sentinel to None before the enum coerces, keeping the enum type."""
+    schema = DataclassSchema(_MapSentinelShirt)
+    assert schema({"color": "n/a"}).color is None
+    assert schema({"color": "red"}).color is _AnnColor.RED
+
+
+def test_maybe_coerce_metadata_runs_before_a_producing_enum_base() -> None:
+    """A Maybe(Coerce(...)) metadata item is recognized as a coercer through the Maybe."""
+    schema = DataclassSchema(_MaybeCoerceShirt)
+    assert schema({"color": "blue"}).color is _AnnColor.BLUE
+    assert schema({"color": None}).color is None
+
+
+def test_union_wrapped_coercer_metadata_runs_before_a_producing_base() -> None:
+    """A coercer inside a union metadata item is seen, so the order still flips."""
+    schema = DataclassSchema(_UnionCoerceShirt)
+    assert schema({"color": "scarlet"}).color is _AnnColor.RED
+    assert schema({"color": "blue"}).color is _AnnColor.BLUE
 
 
 def test_annotated_applies_every_validator_in_order() -> None:
