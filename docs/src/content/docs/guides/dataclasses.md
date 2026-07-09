@@ -142,6 +142,11 @@ constraint next to the field instead of in a separate map. The rules:
   produced.
 - It composes inside containers: `list[Annotated[int, Range(min=1)]]` checks
   every element.
+- A producing base (an enum, a nested dataclass, a container) coerces first, so
+  an asserting constraint after it checks the produced value. A coercer in the
+  metadata (`Coerce` or `Map`) still runs ahead of it, so you can reshape a raw
+  value, like folding an enum sentinel to `None`, before the base sees it (see
+  the [cookbook](/recipes/cookbook/#device-and-sensor-conversions)).
 - Metadata that is not callable is left alone, so an `Annotated` value you
   share with another tool passes through untouched.
 
