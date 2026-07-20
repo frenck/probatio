@@ -108,7 +108,7 @@ test = [
   # and the codecs are hammered with generated schemas and data). Dev-only.
   "hypothesis==6.156.6",
 ]
-typing = ["mypy==2.3.0", "ty==0.0.60"]
+typing = ["mypy==2.3.0", "ty==0.0.61"]
 lint = ["ruff==0.15.22", "codespell==2.4.3", "zizmor==1.27.0"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
