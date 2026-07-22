@@ -106,7 +106,7 @@ test = [
   "mashumaro==3.22",
   # Hypothesis drives the property-based and differential fuzz tests (the engine
   # and the codecs are hammered with generated schemas and data). Dev-only.
-  "hypothesis==6.158.1",
+  "hypothesis==6.160.0",
 ]
 typing = ["mypy==2.3.0", "ty==0.0.62"]
 lint = ["ruff==0.15.22", "codespell==2.4.3", "zizmor==1.28.0"]
