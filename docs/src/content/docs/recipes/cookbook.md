@@ -28,7 +28,7 @@ schema = Schema(
 )
 
 schema({"type": "point", "x": 1, "y": 2})  # {'type': 'point', 'x': 1, 'y': 2}
-schema({"type": "label", "text": "hi"})    # {'type': 'label', 'text': 'hi'}
+schema({"type": "label", "text": "hi"})  # {'type': 'label', 'text': 'hi'}
 ```
 
 A point with a non-int coordinate fails against the point branch, not the whole
@@ -39,9 +39,7 @@ union:
 ```python
 from probatio import Schema, TaggedUnion
 
-schema = Schema(
-    TaggedUnion("type", {"point": {"type": "point", "x": int, "y": int}})
-)
+schema = Schema(TaggedUnion("type", {"point": {"type": "point", "x": int, "y": int}}))
 
 schema({"type": "point", "x": "nope", "y": 2})  # expected int at 'x'
 ```
@@ -151,13 +149,15 @@ from enum import StrEnum
 
 from probatio import Schema, All, Map, Maybe, PASSTHROUGH
 
+
 class VehicleType(StrEnum):
     CAR = "Personenauto"
+
 
 vehicle_type = Schema(
     All(Map({"N.v.t.": None}, default=PASSTHROUGH), Maybe(VehicleType))
 )
-vehicle_type("N.v.t.")        # None
+vehicle_type("N.v.t.")  # None
 vehicle_type("Personenauto")  # <VehicleType.CAR: 'Personenauto'>
 ```
 
@@ -176,8 +176,10 @@ from typing import Annotated
 
 from probatio import DataclassSchema, Key, Map, PASSTHROUGH
 
+
 class VehicleType(StrEnum):
     CAR = "Personenauto"
+
 
 @dataclass
 class Vehicle:
@@ -187,9 +189,12 @@ class Vehicle:
         Map({"N.v.t.": None}, default=PASSTHROUGH),
     ] = None
 
+
 schema = DataclassSchema(Vehicle)
-schema({"voertuigsoort": "N.v.t."})        # Vehicle(vehicle_type=None)
-schema({"voertuigsoort": "Personenauto"})  # Vehicle(vehicle_type=<VehicleType.CAR: 'Personenauto'>)
+schema({"voertuigsoort": "N.v.t."})  # Vehicle(vehicle_type=None)
+schema(
+    {"voertuigsoort": "Personenauto"}
+)  # Vehicle(vehicle_type=<VehicleType.CAR: 'Personenauto'>)
 ```
 
 An asserting constraint keeps the opposite order. An `In([...])` in the metadata runs
@@ -414,7 +419,9 @@ schema = Schema({Required(Any("email", "phone")): str})
 try:
     schema({})
 except Invalid as err:
-    print(err)  # at least one of ['email', 'phone'] is required at '[Any('email', 'phone', msg=None)]'
+    print(
+        err
+    )  # at least one of ['email', 'phone'] is required at '[Any('email', 'phone', msg=None)]'
 ```
 
 That default group label is honest but ugly: the path segment renders the

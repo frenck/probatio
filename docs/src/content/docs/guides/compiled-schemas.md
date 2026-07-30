@@ -41,7 +41,7 @@ from probatio import Schema, All, Coerce, Range
 PORT = Schema(All(Coerce(int), Range(min=1, max=65535)))
 
 PORT("443")  # 443
-PORT(8080)   # 8080
+PORT(8080)  # 8080
 ```
 
 ## Asking for it explicitly
@@ -69,10 +69,12 @@ function with no intermediate dict.
 from dataclasses import dataclass
 from probatio import DataclassSchema
 
+
 @dataclass
 class Point:
     x: int
     y: int
+
 
 POINT = DataclassSchema(Point).compile()
 POINT({"x": 1, "y": 2})  # Point(x=1, y=2)
@@ -92,8 +94,8 @@ behavior invisibly.
 from probatio import CompilePolicy, set_compile_policy
 
 set_compile_policy(CompilePolicy.OFF)  # never compile unless a schema opts in
-set_compile_policy(CompilePolicy.ON)   # compile every eligible schema on first use
-set_compile_policy(CompilePolicy.AUTO) # the default: compile a schema once it is hot
+set_compile_policy(CompilePolicy.ON)  # compile every eligible schema on first use
+set_compile_policy(CompilePolicy.AUTO)  # the default: compile a schema once it is hot
 ```
 
 A per-schema `compile` flag always wins over the policy, in either direction. The

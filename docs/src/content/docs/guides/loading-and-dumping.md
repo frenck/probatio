@@ -100,6 +100,7 @@ import json
 from datetime import date
 from decimal import Decimal
 
+
 def to_jsonable(value):
     if isinstance(value, (set, frozenset)):
         return sorted(value)
@@ -108,6 +109,7 @@ def to_jsonable(value):
     if isinstance(value, date):
         return value.isoformat()
     raise TypeError(type(value).__name__)
+
 
 json.dumps({"when": date(2020, 1, 1)}, default=to_jsonable)  # '{"when": "2020-01-01"}'
 ```
@@ -121,12 +123,14 @@ hook only covers what it does not know:
 import orjson
 from decimal import Decimal
 
+
 def to_jsonable(value):
     if isinstance(value, (set, frozenset)):
         return sorted(value)
     if isinstance(value, Decimal):
         return float(value)
     raise TypeError(type(value).__name__)
+
 
 orjson.dumps({"scale": Decimal("1.5")}, default=to_jsonable)  # b'{"scale":1.5}'
 ```
@@ -158,9 +162,11 @@ from probatio.humanize import humanize_error
 schema = Schema({Required("server"): {Required("port"): Range(min=1, max=65535)}})
 data, positions = load_yaml_with_positions("server:\n  port: 70000\n")  # your loader
 
+
 def locator(path):
     node = positions_at(positions, path)  # your lookup into the located tree
     return Location(node.line, node.column) if node else None
+
 
 try:
     schema(data)

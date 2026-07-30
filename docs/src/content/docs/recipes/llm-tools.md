@@ -97,7 +97,10 @@ from probatio import from_json_schema
 
 document = {
     "type": "object",
-    "properties": {"query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1}},
+    "properties": {
+        "query": {"type": "string"},
+        "limit": {"type": "integer", "minimum": 1},
+    },
     "required": ["query"],
 }
 validate_args = from_json_schema(document)

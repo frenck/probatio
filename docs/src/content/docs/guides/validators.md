@@ -43,20 +43,20 @@ and `Equal` pin a value to a constant. `In` and `NotIn` test membership,
 ```python
 from probatio import Schema, Coerce, Boolean, Literal, Equal
 
-Schema(Coerce(int))("42")   # 42
-Schema(Boolean())("on")     # True
-Schema(Boolean())("off")    # False
-Schema(Literal("on"))("on") # 'on'
-Schema(Equal(3))(3)         # 3
+Schema(Coerce(int))("42")  # 42
+Schema(Boolean())("on")  # True
+Schema(Boolean())("off")  # False
+Schema(Literal("on"))("on")  # 'on'
+Schema(Equal(3))(3)  # 3
 ```
 
 ```python
 from probatio import Schema, In, NotIn, Contains, Match
 
 Schema(In(["red", "green", "blue"]))("green")  # 'green'
-Schema(NotIn(["root", "admin"]))("frenck")     # 'frenck'
-Schema(Contains(2))([1, 2, 3])                 # [1, 2, 3]
-Schema(Match(r"^[a-z]+$"))("probatio")         # 'probatio'
+Schema(NotIn(["root", "admin"]))("frenck")  # 'frenck'
+Schema(Contains(2))([1, 2, 3])  # [1, 2, 3]
+Schema(Match(r"^[a-z]+$"))("probatio")  # 'probatio'
 ```
 
 `Coerce` raises when the value cannot be converted:
@@ -82,10 +82,10 @@ digits) and scale (decimal places).
 ```python
 from probatio import Schema, Range, Clamp, Number
 
-Schema(Range(min=1, max=10))(5)                  # 5
+Schema(Range(min=1, max=10))(5)  # 5
 Schema(Range(min=0, max=1, max_included=False))(0.5)  # 0.5
-Schema(Clamp(min=0, max=100))(150)               # 100
-Schema(Number(precision=4, scale=2))("12.34")    # '12.34'
+Schema(Clamp(min=0, max=100))(150)  # 100
+Schema(Number(precision=4, scale=2))("12.34")  # '12.34'
 ```
 
 `Positive`, `Negative`, and `NonNegative` are sign conveniences over `Range`.
@@ -98,15 +98,21 @@ with `Coerce` for that (`All(Coerce(int), NonNegative())`).
 
 ```python
 from probatio import (
-    Schema, Positive, MultipleOf, Percentage, FromPercentage, Latitude, Longitude,
+    Schema,
+    Positive,
+    MultipleOf,
+    Percentage,
+    FromPercentage,
+    Latitude,
+    Longitude,
 )
 
-Schema(Positive())(5)               # 5
-Schema(MultipleOf(15))(45)          # 45
-Schema(Percentage())("80%")         # '80%'
-Schema(FromPercentage())("80%")     # 80.0
-Schema(Latitude())(52.37)           # 52.37
-Schema(Longitude())(4.9)            # 4.9
+Schema(Positive())(5)  # 5
+Schema(MultipleOf(15))(45)  # 45
+Schema(Percentage())("80%")  # '80%'
+Schema(FromPercentage())("80%")  # 80.0
+Schema(Latitude())(52.37)  # 52.37
+Schema(Longitude())(4.9)  # 4.9
 ```
 
 A small family of arithmetic mutators rescales a number, the readable stand-in for
@@ -120,11 +126,11 @@ more than one step.
 ```python
 from probatio import Schema, All, Multiply, Divide, Offset, Round
 
-Schema(Divide(1000))(5000)                     # 5.0    (milliunits to units)
-Schema(Multiply(0.1))(50)                      # 5.0    (a gain)
-Schema(Offset(50))(100)                        # 150    (a shift, stays an int)
-Schema(Round(2))(5.126)                        # 5.13
-Schema(All(Offset(-273.15), Round(2)))(300)    # 26.85  (Kelvin to Celsius, chained)
+Schema(Divide(1000))(5000)  # 5.0    (milliunits to units)
+Schema(Multiply(0.1))(50)  # 5.0    (a gain)
+Schema(Offset(50))(100)  # 150    (a shift, stays an int)
+Schema(Round(2))(5.126)  # 5.13
+Schema(All(Offset(-273.15), Round(2)))(300)  # 26.85  (Kelvin to Celsius, chained)
 ```
 
 `Remap` linearly maps a number from one range onto another, the Arduino `map()`. It
@@ -135,7 +141,7 @@ in `Clamp` to bound the result, and add `Round` to tidy it.
 ```python
 from probatio import Schema, All, Remap, Clamp, Round
 
-Schema(All(Remap(0, 255, 0, 100), Round(1)))(128)          # 50.2  (a byte as a percentage)
+Schema(All(Remap(0, 255, 0, 100), Round(1)))(128)  # 50.2  (a byte as a percentage)
 Schema(All(Remap(-100, -50, 0, 100), Clamp(0, 100)))(-70)  # 60.0  (RSSI dBm to percent)
 ```
 
@@ -145,10 +151,10 @@ offset`, optionally rounded, when a single field does several steps at once.
 ```python
 from probatio import Schema, Scale
 
-Schema(Scale(divisor=1000))(5000)             # 5.0   (milliunits to units)
-Schema(Scale(10))(5)                          # 50    (integer gain, stays an int)
-Schema(Scale(100, divisor=255, round=1))(128) # 50.2  (a byte as a percentage)
-Schema(Scale(offset=-273.15, round=2))(300)   # 26.85 (Kelvin to Celsius)
+Schema(Scale(divisor=1000))(5000)  # 5.0   (milliunits to units)
+Schema(Scale(10))(5)  # 50    (integer gain, stays an int)
+Schema(Scale(100, divisor=255, round=1))(128)  # 50.2  (a byte as a percentage)
+Schema(Scale(offset=-273.15, round=2))(300)  # 26.85 (Kelvin to Celsius)
 ```
 
 A few finishers round out the number work. `Round` takes the nearest value; `RoundUp`
@@ -160,11 +166,11 @@ validates divisibility rather than transforming).
 ```python
 from probatio import Schema, RoundUp, RoundDown, Snap, Abs, Modulo
 
-Schema(RoundUp())(4.1)       # 5
-Schema(RoundDown())(4.9)     # 4
-Schema(Snap(0.5))(1.2)       # 1.0   (nearest half)
-Schema(Abs())(-3)            # 3
-Schema(Modulo(360))(370)     # 10    (wrap a heading)
+Schema(RoundUp())(4.1)  # 5
+Schema(RoundDown())(4.9)  # 4
+Schema(Snap(0.5))(1.2)  # 1.0   (nearest half)
+Schema(Abs())(-3)  # 3
+Schema(Modulo(360))(370)  # 10    (wrap a heading)
 ```
 
 ## Collections and structure
@@ -184,13 +190,13 @@ value (string, list, mapping) to not be empty.
 ```python
 from probatio import Schema, Length, Unique, ExactSequence, Unordered, Maybe, EnsureList
 
-Schema(Length(min=1, max=3))([1, 2])      # [1, 2]
-Schema(Unique())([1, 2, 3])               # [1, 2, 3]
+Schema(Length(min=1, max=3))([1, 2])  # [1, 2]
+Schema(Unique())([1, 2, 3])  # [1, 2, 3]
 Schema(ExactSequence([str, int]))(["a", 1])  # ['a', 1]
-Schema(Unordered([str, int]))([1, "a"])   # [1, 'a']
-Schema(Maybe(int))(None)                  # None
-Schema(Maybe(int))(5)                     # 5
-Schema(EnsureList())("one")               # ['one']
+Schema(Unordered([str, int]))([1, "a"])  # [1, 'a']
+Schema(Maybe(int))(None)  # None
+Schema(Maybe(int))(5)  # 5
+Schema(EnsureList())("one")  # ['one']
 ```
 
 `Maybe` composes with a coercer for the "optional, coerce if present" field:
@@ -200,8 +206,8 @@ no null check to hand-write:
 ```python
 from probatio import Schema, Maybe, Coerce
 
-Schema(Maybe(Coerce(float)))(None)    # None
-Schema(Maybe(Coerce(float)))("0.5")   # 0.5
+Schema(Maybe(Coerce(float)))(None)  # None
+Schema(Maybe(Coerce(float)))("0.5")  # 0.5
 ```
 
 `Sorted` requires a collection to already be in order (it does not reorder):
@@ -222,12 +228,12 @@ the holes.
 ```python
 from probatio import Schema, Split, Join, Sort, Dedupe, First, Last, Without
 
-Schema(Split(","))("a, b ,c")        # ['a', 'b', 'c']
-Schema(Join(","))([1, 2, 3])         # '1,2,3'
-Schema(Sort())([3, 1, 2])            # [1, 2, 3]
-Schema(Dedupe())([1, 2, 1, 3])       # [1, 2, 3]
-Schema(First())([1, 2, 3])           # 1
-Schema(Last())([1, 2, 3])            # 3
+Schema(Split(","))("a, b ,c")  # ['a', 'b', 'c']
+Schema(Join(","))([1, 2, 3])  # '1,2,3'
+Schema(Sort())([3, 1, 2])  # [1, 2, 3]
+Schema(Dedupe())([1, 2, 1, 3])  # [1, 2, 3]
+Schema(First())([1, 2, 3])  # 1
+Schema(Last())([1, 2, 3])  # 3
 Schema(Without(None, 0))([1, None, 0, 2])  # [1, 2]
 ```
 
@@ -245,9 +251,11 @@ sorted(result)  # [1, 2, 3]
 ```python
 from probatio import Schema, Object
 
+
 class Point:
     def __init__(self, x, y):
         self.x, self.y = x, y
+
 
 result = Schema(Object({"x": int, "y": int}))(Point(1, 2))
 result.x  # 1
@@ -268,11 +276,11 @@ They avoid backtracking regular expressions, so a crafted input cannot hang them
 ```python
 from probatio import Schema, Lower, Upper, Capitalize, Title, Strip, Replace
 
-Schema(Lower)("HELLO")            # 'hello'
-Schema(Upper)("hello")            # 'HELLO'
-Schema(Capitalize)("hello world") # 'Hello world'
-Schema(Title)("hello world")      # 'Hello World'
-Schema(Strip)("  hi  ")           # 'hi'
+Schema(Lower)("HELLO")  # 'hello'
+Schema(Upper)("hello")  # 'HELLO'
+Schema(Capitalize)("hello world")  # 'Hello world'
+Schema(Title)("hello world")  # 'Hello World'
+Schema(Strip)("  hi  ")  # 'hi'
 Schema(Replace("-", "_"))("a-b-c")  # 'a_b_c'
 ```
 
@@ -285,18 +293,18 @@ non-string rather than coercing it.
 ```python
 from probatio import Schema, CollapseWhitespace, RemovePrefix, RemoveSuffix, Truncate
 
-Schema(CollapseWhitespace())("  a   b c ")   # 'a b c'
+Schema(CollapseWhitespace())("  a   b c ")  # 'a b c'
 Schema(RemovePrefix("sensor."))("sensor.temp")  # 'temp'
-Schema(RemoveSuffix("_raw"))("value_raw")    # 'value'
-Schema(Truncate(5))("hello world")           # 'hello'
+Schema(RemoveSuffix("_raw"))("value_raw")  # 'value'
+Schema(Truncate(5))("hello world")  # 'hello'
 ```
 
 ```python
 from probatio import Schema, Email, Url, FqdnUrl
 
-Schema(Email())("me@example.com")          # 'me@example.com'
+Schema(Email())("me@example.com")  # 'me@example.com'
 Schema(Url())("https://example.com/path")  # 'https://example.com/path'
-Schema(FqdnUrl())("https://example.com")   # 'https://example.com'
+Schema(FqdnUrl())("https://example.com")  # 'https://example.com'
 ```
 
 `Slug` validates a slug (lowercase alphanumerics with hyphen or underscore
@@ -318,9 +326,11 @@ More string checks: the character classes `Alpha`, `Alphanumeric`, `ASCII`,
 ```python
 from probatio import Schema, Alphanumeric, StartsWith, HexColor
 
-Schema(Alphanumeric())("abc123")     # 'abc123'
+Schema(Alphanumeric())("abc123")  # 'abc123'
 Schema(StartsWith("https://"))("https://example.com")  # 'https://example.com'
-Schema(HexColor())("#FF8800")        # '#FF8800' (validated, unchanged; use Lower to fold case)
+Schema(HexColor())(
+    "#FF8800"
+)  # '#FF8800' (validated, unchanged; use Lower to fold case)
 ```
 
 :::tip
@@ -342,10 +352,10 @@ return the value unchanged.
 ```python
 from probatio import Schema, CreditCard, IBAN, E164
 
-Schema(CreditCard())("4242 4242 4242 4242")     # '4242424242424242'
-Schema(IBAN())("de89 3704 0044 0532 0130 00")   # 'DE89370400440532013000'
-Schema(E164())("+1 (415) 555-2671")             # '+14155552671'
-Schema(E164(normalize=False))("+14155552671")   # '+14155552671' (unchanged)
+Schema(CreditCard())("4242 4242 4242 4242")  # '4242424242424242'
+Schema(IBAN())("de89 3704 0044 0532 0130 00")  # 'DE89370400440532013000'
+Schema(E164())("+1 (415) 555-2671")  # '+14155552671'
+Schema(E164(normalize=False))("+14155552671")  # '+14155552671' (unchanged)
 ```
 
 These check shape, not existence: `CreditCard` confirms the Luhn checksum, not that
@@ -363,8 +373,8 @@ anything else.
 from probatio import Schema, Datetime, Date
 
 Schema(Datetime())("2026-06-25T10:30:00.000000Z")  # '2026-06-25T10:30:00.000000Z'
-Schema(Date())("2026-06-25")                        # '2026-06-25'
-Schema(Date(format="%d/%m/%Y"))("25/06/2026")       # '25/06/2026'
+Schema(Date())("2026-06-25")  # '2026-06-25'
+Schema(Date(format="%d/%m/%Y"))("25/06/2026")  # '25/06/2026'
 ```
 
 `Time` is the time-of-day sibling, defaulting to `%H:%M:%S`. `Duration` validates a
@@ -386,17 +396,26 @@ offset into a `datetime.timezone`.
 import zoneinfo
 
 from probatio import (
-    Schema, Time, Duration, AsTimedelta, TimeZone, TimeZoneInfo, AsTimezone, Coerce,
+    Schema,
+    Time,
+    Duration,
+    AsTimedelta,
+    TimeZone,
+    TimeZoneInfo,
+    AsTimezone,
+    Coerce,
 )
 
-Schema(Time())("14:30:00")                  # '14:30:00'
-Schema(Duration())("1:30:00")               # '1:30:00'
-Schema(AsTimedelta())("1:30:00")            # datetime.timedelta(seconds=5400)
-Schema(AsTimedelta())("P1DT2H30M")          # datetime.timedelta(days=1, seconds=9000)
+Schema(Time())("14:30:00")  # '14:30:00'
+Schema(Duration())("1:30:00")  # '1:30:00'
+Schema(AsTimedelta())("1:30:00")  # datetime.timedelta(seconds=5400)
+Schema(AsTimedelta())("P1DT2H30M")  # datetime.timedelta(days=1, seconds=9000)
 Schema(TimeZoneInfo())("Europe/Amsterdam")  # 'Europe/Amsterdam'
-Schema(Coerce(zoneinfo.ZoneInfo))("Europe/Amsterdam")  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
-Schema(TimeZone())("+01:00")                # '+01:00'
-Schema(AsTimezone())("+01:00")              # datetime.timezone(datetime.timedelta(seconds=3600))
+Schema(Coerce(zoneinfo.ZoneInfo))(
+    "Europe/Amsterdam"
+)  # zoneinfo.ZoneInfo(key='Europe/Amsterdam')
+Schema(TimeZone())("+01:00")  # '+01:00'
+Schema(AsTimezone())("+01:00")  # datetime.timezone(datetime.timedelta(seconds=3600))
 ```
 
 `AsDatetime`, `AsDate`, and `AsTime` are the object-returning siblings of
@@ -412,8 +431,8 @@ rejects a `datetime`, since it carries a time a pure date would drop).
 ```python
 from probatio import Schema, AsDatetime, AsDate, AsTime
 
-Schema(AsDate())("2026-06-25")                    # datetime.date(2026, 6, 25)
-Schema(AsTime())("14:30:00")                      # datetime.time(14, 30)
+Schema(AsDate())("2026-06-25")  # datetime.date(2026, 6, 25)
+Schema(AsTime())("14:30:00")  # datetime.time(14, 30)
 Schema(AsDatetime())("2026-06-25T10:30:00+02:00")
 # datetime.datetime(2026, 6, 25, 10, 30, tzinfo=datetime.timezone(datetime.timedelta(seconds=7200)))
 Schema(AsDatetime(format="%d/%m/%Y %H:%M"))("25/06/2026 10:30")
@@ -493,8 +512,8 @@ Schema(NormalizeMacAddress(separator="-"))("aabbccddeeff")  # 'aa-bb-cc-dd-ee-ff
 from probatio import Schema, IPNetwork, Hostname, Fqdn
 
 Schema(IPNetwork())("192.0.2.5/24")  # '192.0.2.5/24'
-Schema(Hostname())("localhost")      # 'localhost'
-Schema(Fqdn())("host.example.com")   # 'host.example.com'
+Schema(Hostname())("localhost")  # 'localhost'
+Schema(Fqdn())("host.example.com")  # 'host.example.com'
 ```
 
 ## Encoding
@@ -507,8 +526,8 @@ returns the decoded value.
 ```python
 from probatio import Schema, JSONString, FromJSONString
 
-Schema(JSONString())('{"a": 1, "b": [2, 3]}')          # '{"a": 1, "b": [2, 3]}'
-Schema(FromJSONString())('{"a": 1, "b": [2, 3]}')      # {'a': 1, 'b': [2, 3]}
+Schema(JSONString())('{"a": 1, "b": [2, 3]}')  # '{"a": 1, "b": [2, 3]}'
+Schema(FromJSONString())('{"a": 1, "b": [2, 3]}')  # {'a': 1, 'b': [2, 3]}
 Schema(FromJSONString({"port": int}))('{"port": 8080}')  # {'port': 8080}
 ```
 
@@ -519,7 +538,7 @@ unchanged; decode it yourself with `Coerce` if you want the bytes).
 from probatio import Schema, Base64, Hex
 
 Schema(Base64())("aGVsbG8=")  # 'aGVsbG8='
-Schema(Hex())("deadbeef")     # 'deadbeef'
+Schema(Hex())("deadbeef")  # 'deadbeef'
 ```
 
 `HexInt` is the parsing sibling of `Hex`: it reads a hexadecimal string (a
@@ -528,7 +547,7 @@ leading `0x` is optional) and returns the `int`.
 ```python
 from probatio import Schema, HexInt
 
-Schema(HexInt())("ff")    # 255
+Schema(HexInt())("ff")  # 255
 Schema(HexInt())("0x1A")  # 26
 ```
 
@@ -548,9 +567,9 @@ with tempfile.TemporaryDirectory() as path:
     file_path = os.path.join(path, "config.yaml")
     open(file_path, "w").close()
 
-    Schema(IsDir())(path)          # an existing directory
-    Schema(IsFile())(file_path)    # an existing file
-    Schema(PathExists())(path)     # any existing path
+    Schema(IsDir())(path)  # an existing directory
+    Schema(IsFile())(file_path)  # an existing file
+    Schema(PathExists())(path)  # any existing path
 ```
 
 ## Truthiness
@@ -561,7 +580,7 @@ unchanged.
 ```python
 from probatio import Schema, IsTrue, IsFalse
 
-Schema(IsTrue())(1)   # 1
+Schema(IsTrue())(1)  # 1
 Schema(IsFalse())(0)  # 0
 ```
 
@@ -595,7 +614,7 @@ schema = Schema(
     ),
 )
 schema({"tls": True, "cert": "c", "key": "k"})  # unchanged
-schema({})                                      # unchanged, no trigger
+schema({})  # unchanged, no trigger
 ```
 
 `Check` runs an arbitrary predicate over the value with a paired message. A falsy
@@ -606,7 +625,10 @@ that message, so a cross-field rule never leaks a raw exception.
 from probatio import Schema, All, Check
 
 schema = Schema(
-    All({"start": int, "end": int}, Check(lambda d: d["start"] < d["end"], "start must be before end")),
+    All(
+        {"start": int, "end": int},
+        Check(lambda d: d["start"] < d["end"], "start must be before end"),
+    ),
 )
 schema({"start": 1, "end": 2})  # unchanged
 ```
@@ -626,10 +648,10 @@ more naturally as a standalone check than as a marker on each key.
 ```python
 from probatio import Schema, AtLeastOne, AtMostOne, ExactlyOne, AllOrNone
 
-Schema(AtLeastOne("host", "url"))({"host": "nas"})       # unchanged
+Schema(AtLeastOne("host", "url"))({"host": "nas"})  # unchanged
 Schema(AtMostOne("include", "exclude"))({"include": 1})  # unchanged
 Schema(ExactlyOne("token", "password"))({"token": "t"})  # unchanged
-Schema(AllOrNone("lat", "lon"))({"lat": 1, "lon": 2})    # unchanged
+Schema(AllOrNone("lat", "lon"))({"lat": 1, "lon": 2})  # unchanged
 ```
 
 A non-mapping is rejected by default, so the rule stands on its own without an
@@ -675,11 +697,11 @@ choose, which is the simplest way to make an error read in your own words.
 ```python
 from probatio import Schema, DefaultTo, EmptyToNone, SetTo
 
-Schema(DefaultTo("fallback"))(None)     # 'fallback'
+Schema(DefaultTo("fallback"))(None)  # 'fallback'
 Schema(DefaultTo("fallback"))("value")  # 'value'
-Schema(EmptyToNone())("")               # None
-Schema(EmptyToNone())(0)                # 0
-Schema(SetTo(42))("anything")           # 42
+Schema(EmptyToNone())("")  # None
+Schema(EmptyToNone())(0)  # 0
+Schema(SetTo(42))("anything")  # 42
 ```
 
 `Map` translates a value through a table you supply, like a device status code to a
@@ -690,8 +712,8 @@ the table is rejected, unless you pass a `default`.
 ```python
 from probatio import Schema, Map
 
-Schema(Map({0: "off", 1: "on", 2: "auto"}))(1)       # 'on'
-Schema(Map({0: "off"}, default="unknown"))(9)        # 'unknown'
+Schema(Map({0: "off", 1: "on", 2: "auto"}))(1)  # 'on'
+Schema(Map({0: "off"}, default="unknown"))(9)  # 'unknown'
 ```
 
 A fixed `default` folds every miss to one value. To rewrite only the keys you list
@@ -704,7 +726,7 @@ validator.
 from probatio import Schema, Map, PASSTHROUGH
 
 sentinels = Map({"N.v.t.": None, "n/a": None}, default=PASSTHROUGH)
-Schema(sentinels)("N.v.t.")     # None
+Schema(sentinels)("N.v.t.")  # None
 Schema(sentinels)("Personenauto")  # 'Personenauto'  (unmapped, left as-is)
 ```
 

@@ -45,12 +45,15 @@ from probatio import from_openapi
 
 document = {
     "type": "object",
-    "properties": {"name": {"type": "string"}, "age": {"type": "integer", "nullable": True}},
+    "properties": {
+        "name": {"type": "string"},
+        "age": {"type": "integer", "nullable": True},
+    },
     "required": ["name"],
 }
 schema = from_openapi(document)
 schema({"name": "Ada", "age": None})  # {'name': 'Ada', 'age': None}
-schema({"name": "Ada", "age": 37})    # {'name': 'Ada', 'age': 37}
+schema({"name": "Ada", "age": 37})  # {'name': 'Ada', 'age': 37}
 ```
 
 ## The nullable keyword

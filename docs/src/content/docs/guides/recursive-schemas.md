@@ -49,7 +49,9 @@ data = {
     ],
 }
 
-comment(data)  # {'text': 'top', 'replies': [{'text': 'first', 'replies': []}, {'text': 'second', 'replies': [{'text': 'nested', 'replies': []}]}]}
+comment(
+    data
+)  # {'text': 'top', 'replies': [{'text': 'first', 'replies': []}, {'text': 'second', 'replies': [{'text': 'nested', 'replies': []}]}]}
 ```
 
 Recursion follows the data. A finite structure validates fine, because each

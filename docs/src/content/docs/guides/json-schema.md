@@ -40,7 +40,10 @@ from probatio import from_json_schema
 
 document = {
     "type": "object",
-    "properties": {"name": {"type": "string"}, "age": {"type": "integer", "minimum": 0}},
+    "properties": {
+        "name": {"type": "string"},
+        "age": {"type": "integer", "minimum": 0},
+    },
     "required": ["name"],
 }
 schema = from_json_schema(document)
@@ -85,10 +88,12 @@ tune that:
 from probatio import Schema, to_json_schema
 from probatio.codecs import UNSUPPORTED
 
+
 def as_password(node):
     if node is str.strip:
         return {"type": "string", "writeOnly": True}
     return UNSUPPORTED
+
 
 to_json_schema(Schema({"token": str.strip}), custom_serializer=as_password)
 # {'type': 'object', 'properties': {'token': {'type': 'string', 'writeOnly': True}}, 'additionalProperties': False}

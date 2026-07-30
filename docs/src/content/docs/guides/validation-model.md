@@ -15,9 +15,9 @@ ordinary Python object, and its shape _is_ the rule:
 ```python
 from probatio import Schema
 
-Schema(int)(42)          # 42
-Schema("on")("on")       # 'on'
-Schema([int])([1, 2, 3]) # [1, 2, 3]
+Schema(int)(42)  # 42
+Schema("on")("on")  # 'on'
+Schema([int])([1, 2, 3])  # [1, 2, 3]
 Schema({"a": int})({"a": 1})  # {'a': 1}
 ```
 
@@ -73,7 +73,7 @@ schema = Schema({"port": Coerce(int)})
 data = {"port": "443"}
 
 schema(data)  # {'port': 443}
-data          # {'port': '443'}  (unchanged)
+data  # {'port': '443'}  (unchanged)
 ```
 
 ## Failure is an exception, not a return value

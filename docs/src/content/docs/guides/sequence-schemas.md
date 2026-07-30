@@ -22,7 +22,7 @@ from probatio import Schema
 schema = Schema([int, str])
 
 schema([1, "a", 2])  # [1, 'a', 2]
-schema([])           # []
+schema([])  # []
 ```
 
 Each element tries the alternatives in order and the first match wins, like
@@ -88,7 +88,7 @@ alternatives, and the result is a new container of that type.
 from probatio import Schema
 
 Schema((int,))((1, 2, 3))  # (1, 2, 3)
-Schema({int})({1, 2})      # {1, 2}
+Schema({int})({1, 2})  # {1, 2}
 ```
 
 The container types do not mix:
@@ -119,7 +119,7 @@ schema = Schema({"ports": [int]})
 try:
     schema({"ports": [80, "nope"]})
 except Invalid as err:
-    print(err)       # expected int at 'ports[1]'
+    print(err)  # expected int at 'ports[1]'
     print(err.path)  # ['ports', 1]
 ```
 
@@ -201,7 +201,7 @@ schema({"servers": [{"host": "a", "ports": [80, 443]}]})
 try:
     schema({"servers": [{"host": "a", "ports": [80, "x"]}]})
 except Invalid as err:
-    print(err)       # expected int at 'servers[0].ports[1]'
+    print(err)  # expected int at 'servers[0].ports[1]'
     print(err.path)  # ['servers', 0, 'ports', 1]
 ```
 
