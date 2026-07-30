@@ -148,6 +148,7 @@ select = ["ALL"]
 ignore = [
   "ANN401",  # Opinionated warning on disallowing dynamically typed expressions
   "A005",    # The `codecs` subpackage is always used qualified (probatio.codecs)
+  "CPY001",  # This project does not use file-level copyright headers
   "E501",    # Line length is handled by the formatter
   "TRY301",  # Abstract raise to inner function, not useful for this codebase
   "D203",    # Conflicts with other rules
