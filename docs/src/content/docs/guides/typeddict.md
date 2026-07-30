@@ -79,7 +79,7 @@ class Server(TypedDict):
 
 schema = TypedDictSchema(Server)
 schema({"name": "nas", "port": 22})  # {'name': 'nas', 'port': 22}
-schema({"name": "nas"})              # {'name': 'nas'}
+schema({"name": "nas"})  # {'name': 'nas'}
 ```
 
 A `total=False` class flips the default, so nothing is required:

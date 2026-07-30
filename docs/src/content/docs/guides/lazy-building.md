@@ -41,7 +41,7 @@ architectural choice, not a deployment toggle.
 ```python
 from probatio import BuildPolicy, set_build_policy
 
-set_build_policy(BuildPolicy.LAZY)   # defer every eligible schema to first use
+set_build_policy(BuildPolicy.LAZY)  # defer every eligible schema to first use
 set_build_policy(BuildPolicy.EAGER)  # the default: compile at construction
 ```
 

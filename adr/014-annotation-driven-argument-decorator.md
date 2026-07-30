@@ -24,12 +24,11 @@ drop-in.
 
 ```python
 @probatio
-async def fetch(user_id: Annotated[int, Range(min=1)], name: str) -> Response:
-    ...
+async def fetch(user_id: Annotated[int, Range(min=1)], name: str) -> Response: ...
+
 
 @probatio({"name": Length(min=2)}, returns=User)
-def make(name: str, age: int) -> User:
-    ...
+def make(name: str, age: int) -> User: ...
 ```
 
 - **Inference is the default.** Each annotated parameter becomes its inferred

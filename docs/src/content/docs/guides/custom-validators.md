@@ -16,8 +16,10 @@ it returns becomes the validated result.
 ```python
 from probatio import Schema
 
+
 def double(value):
     return value * 2
+
 
 schema = Schema(double)
 
@@ -34,10 +36,12 @@ caller sees, and Probatio attaches the path to the offending value for you.
 ```python
 from probatio import Schema, Invalid, Required
 
+
 def even(value):
     if value % 2 != 0:
         raise Invalid("must be even")
     return value
+
 
 schema = Schema({Required("count"): even})
 
@@ -50,10 +54,12 @@ key that broke:
 ```python
 from probatio import Schema, Invalid, Required, MultipleInvalid
 
+
 def even(value):
     if value % 2 != 0:
         raise Invalid("must be even")
     return value
+
 
 schema = Schema({Required("count"): even})
 
@@ -73,11 +79,13 @@ is on purpose: a lot of standard-library and third-party functions already raise
 ```python
 from probatio import Schema
 
+
 def port(value):
     number = int(value)  # raises ValueError on "nope"
     if not 0 < number <= 65535:
         raise ValueError("out of range")
     return number
+
 
 schema = Schema(port)
 
@@ -90,11 +98,13 @@ The catch keeps the `ValueError` reason, appending it after `not a valid value: 
 ```python
 from probatio import Schema, MultipleInvalid
 
+
 def port(value):
     number = int(value)
     if not 0 < number <= 65535:
         raise ValueError("out of range")
     return number
+
 
 schema = Schema(port)
 
@@ -122,9 +132,11 @@ rejects it when it is falsy.
 ```python
 from probatio import Schema, truth
 
+
 @truth
 def positive(value):
     return value > 0
+
 
 schema = Schema(positive)
 schema(5)  # 5
@@ -138,9 +150,11 @@ message.
 ```python
 from probatio import Schema, MultipleInvalid, truth
 
+
 @truth
 def positive(value):
     return value > 0
+
 
 schema = Schema(positive)
 
@@ -160,8 +174,10 @@ hands back what you return, and the original input stays as it was (see
 ```python
 from probatio import Schema
 
+
 def to_slug(value):
     return value.strip().lower().replace(" ", "-")
+
 
 schema = Schema(to_slug)
 
@@ -202,8 +218,10 @@ specifically:
 ```python
 from probatio import Schema, Msg, Match, Invalid, MultipleInvalid
 
+
 class BadName(Invalid):
     """The name does not look right."""
+
 
 schema = Schema(Msg(Match(r"^[a-z]+$"), "lowercase letters only", cls=BadName))
 
@@ -222,10 +240,12 @@ validator feeds the next (see [combinators](/guides/combinators/)).
 ```python
 from probatio import Schema, All, Strip, Lower, Invalid, Required
 
+
 def not_empty(value):
     if not value:
         raise Invalid("must not be empty")
     return value
+
 
 schema = Schema({Required("name"): All(Strip, Lower, not_empty)})
 
@@ -238,10 +258,12 @@ field of only spaces collapses to an empty string and is rejected:
 ```python
 from probatio import Schema, All, Strip, Lower, Invalid, Required, MultipleInvalid
 
+
 def not_empty(value):
     if not value:
         raise Invalid("must not be empty")
     return value
+
 
 schema = Schema({Required("name"): All(Strip, Lower, not_empty)})
 
@@ -260,12 +282,15 @@ every built-in factory works, `Range(min=...)` and `Length(max=...)` included.
 ```python
 from probatio import Schema, Invalid, MultipleInvalid
 
+
 def at_least(minimum):
     def check(value):
         if value < minimum:
             raise Invalid(f"must be at least {minimum}")
         return value
+
     return check
+
 
 schema = Schema(at_least(18))
 schema(21)  # 21
@@ -282,6 +307,7 @@ validator carries several settings or wants a readable `repr`:
 ```python
 from probatio import Schema, Invalid
 
+
 class AtLeast:
     def __init__(self, minimum):
         self.minimum = minimum
@@ -290,6 +316,7 @@ class AtLeast:
         if value < self.minimum:
             raise Invalid(f"must be at least {self.minimum}")
         return value
+
 
 Schema(AtLeast(18))(21)  # 21
 ```
@@ -314,7 +341,7 @@ class Color(enum.Enum):
 
 
 schema = Schema(Color)
-schema("red")       # Color.RED
+schema("red")  # Color.RED
 schema(Color.BLUE)  # Color.BLUE
 ```
 
@@ -391,9 +418,11 @@ input.
 ```python
 from probatio import probatio, MultipleInvalid
 
+
 @probatio
 def area(width: int, height: int) -> int:
     return width * height
+
 
 area(3, 4)  # 12
 
@@ -409,9 +438,11 @@ Layer extra rules with a `constraints` map, and validate the result against the
 ```python
 from probatio import probatio, Length
 
+
 @probatio({"name": Length(min=2)}, returns=True)
 def greet(name: str) -> str:
     return "hi " + name
+
 
 greet("ada")  # 'hi ada'
 ```

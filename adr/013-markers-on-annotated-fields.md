@@ -36,8 +36,8 @@ marker chain (`Secret`, `Alias`, ...) with the field name as the key.
 ```python
 class Login(TypedDict):
     user_name: Annotated[str, Key(alias=["user-name", "userName"])]
-    password:  Annotated[str, Key(secret=True)]
-    token:     Annotated[str, Key(exclusive="auth")]
+    password: Annotated[str, Key(secret=True)]
+    token: Annotated[str, Key(exclusive="auth")]
 ```
 
 The same spelling works on a dataclass. Plain dict schemas keep using the markers

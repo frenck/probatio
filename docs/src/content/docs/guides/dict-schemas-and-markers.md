@@ -116,7 +116,7 @@ try:
     schema({"nmae": "app"})
 except Invalid as err:
     error = err.errors[0]
-    print(error)            # not a valid option, did you mean 'name'? at 'nmae'
+    print(error)  # not a valid option, did you mean 'name'? at 'nmae'
     print(error.candidates)  # ['name']
 ```
 
@@ -126,7 +126,9 @@ keys untouched), and `REMOVE_EXTRA` (drop them from the result):
 ```python
 from probatio import Schema, ALLOW_EXTRA, REMOVE_EXTRA
 
-Schema({"name": str}, extra=ALLOW_EXTRA)({"name": "app", "x": 1})   # {'name': 'app', 'x': 1}
+Schema({"name": str}, extra=ALLOW_EXTRA)(
+    {"name": "app", "x": 1}
+)  # {'name': 'app', 'x': 1}
 Schema({"name": str}, extra=REMOVE_EXTRA)({"name": "app", "x": 1})  # {'name': 'app'}
 ```
 
@@ -198,7 +200,7 @@ from probatio import Schema, Alias
 schema = Schema({Alias("user_name", "user-name", "userName"): str})
 
 schema({"user-name": "ada"})  # {'user_name': 'ada'}
-schema({"userName": "ada"})   # {'user_name': 'ada'}
+schema({"userName": "ada"})  # {'user_name': 'ada'}
 schema({"user_name": "ada"})  # {'user_name': 'ada'}
 ```
 
@@ -213,7 +215,7 @@ from probatio import Schema, Alias
 schema = Schema({Alias("name", "alias", accept_canonical=False): str})
 
 schema({"alias": "ada"})  # {'name': 'ada'}
-schema({"name": "ada"})   # {} (the canonical name is not an input name here)
+schema({"name": "ada"})  # {} (the canonical name is not an input name here)
 ```
 
 Note what the second call does: the canonical key is still recognized, so it is
@@ -321,7 +323,9 @@ schema = Schema(
 try:
     schema({"lat": 52.1})
 except Invalid as err:
-    print(err)  # some but not all values in the same group of inclusion 'coords' at '<coords>'
+    print(
+        err
+    )  # some but not all values in the same group of inclusion 'coords' at '<coords>'
 ```
 
 Since no single key is at fault, a group error reports a synthetic path segment

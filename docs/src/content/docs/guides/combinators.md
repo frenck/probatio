@@ -34,7 +34,7 @@ from probatio import Schema, Any
 
 schema = Schema(Any(int, str))
 
-schema(5)    # 5
+schema(5)  # 5
 schema("a")  # 'a'
 ```
 
@@ -81,8 +81,10 @@ validate a tagged union by its tag:
 ```python
 from probatio import Schema, Union
 
+
 def by_type(value, alternatives):
     return [a for a in alternatives if a["type"] == value.get("type")]
+
 
 schema = Schema(
     Union(
@@ -171,7 +173,7 @@ schema = Schema(
 )
 
 schema({"level": "high"})  # {'level': 'high'}
-schema({"level": "7"})     # {'level': 7}
+schema({"level": "7"})  # {'level': 7}
 ```
 
 ## Passing options through

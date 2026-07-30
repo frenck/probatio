@@ -67,8 +67,8 @@ try:
     schema({"server": {"ports": [80, "nope"]}})
 except MultipleInvalid as err:
     first = err.errors[0]
-    print(first.path)             # ['server', 'ports', 1]
-    print(first.code)             # type
+    print(first.path)  # ['server', 'ports', 1]
+    print(first.code)  # type
     print(first.as_dict()["context"])  # {'expected': 'int'}
 ```
 
@@ -187,5 +187,5 @@ try:
 except MultipleInvalid as err:
     first = err.errors[0]
     print(isinstance(first, RangeInvalid))  # True
-    print(first.code)                        # range
+    print(first.code)  # range
 ```

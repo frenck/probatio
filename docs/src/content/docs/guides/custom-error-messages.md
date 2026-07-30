@@ -65,6 +65,7 @@ for a consumer instead of only prose:
 ```python
 from probatio import Schema, Invalid, MultipleInvalid
 
+
 def quiet_hour(value):
     if not isinstance(value, int) or not 0 <= value <= 23:
         raise Invalid(
@@ -76,16 +77,17 @@ def quiet_hour(value):
         )
     return value
 
+
 schema = Schema({"start": quiet_hour})
 
 try:
     schema({"start": 25})
 except MultipleInvalid as err:
     error = err.errors[0]
-    print(error)                  # expected an hour between 0 and 23 at 'start'
-    print(error.code)             # quiet_hour
+    print(error)  # expected an hour between 0 and 23 at 'start'
+    print(error.code)  # quiet_hour
     print(error.translation_key)  # quiet_hour_out_of_range
-    print(error.placeholders)     # {'min': 0, 'max': 23}
+    print(error.placeholders)  # {'min': 0, 'max': 23}
 ```
 
 The message is the fallback for anyone who just prints the error; the
@@ -157,11 +159,13 @@ DUTCH = {
     "length_min": "lengte moet minimaal {min} zijn",
 }
 
+
 def render_dutch(error):
     template = DUTCH.get(error.translation_key)
     if template is None:
         return error.error_message
     return template.format(**error.placeholders)
+
 
 schema = Schema({"port": int, "host": str})
 
@@ -196,6 +200,7 @@ DUTCH = {
     "did_you_mean": ", bedoelde je {candidates}?",
 }
 
+
 def render_dutch(error):
     text = DUTCH.get(error.translation_key)
     if text is None:
@@ -206,6 +211,7 @@ def render_dutch(error):
         joined = " of ".join(repr(name) for name in candidates)
         text += DUTCH["did_you_mean"].format(candidates=joined)
     return text
+
 
 schema = Schema({"name": str, "email": str})
 

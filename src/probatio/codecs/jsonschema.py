@@ -408,7 +408,7 @@ def _convert_mapping(
     return result
 
 
-def _emit_named_key(  # noqa: PLR0913
+def _emit_named_key(  # noqa: PLR0913, PLR0917
     name: str,
     decorated: dict[str, Any],
     marker: Marker | None,

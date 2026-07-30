@@ -23,7 +23,7 @@ from probatio import Schema, All, Coerce, Range
 PORT = Schema(All(Coerce(int), Range(min=1, max=65535)))
 
 PORT("443")  # 443
-PORT(8080)   # 8080
+PORT(8080)  # 8080
 ```
 
 The expensive work (walking the definition, resolving markers, wiring up the

@@ -210,8 +210,8 @@ def widen(value: Annotated[int, Coerce(int)]) -> int:
     return value
 
 
-widen("5")             # 5, validated and coerced
-widen.__wrapped__("5") # '5', straight through, no validation
+widen("5")  # 5, validated and coerced
+widen.__wrapped__("5")  # '5', straight through, no validation
 ```
 
 That escape hatch frames when not to use the decorator at all. Every decorated

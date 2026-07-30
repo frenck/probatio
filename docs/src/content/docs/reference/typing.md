@@ -64,17 +64,21 @@ into a typed object:
 from dataclasses import dataclass
 from probatio import Schema, Required
 
+
 @dataclass
 class Config:
     name: str
     port: int
 
+
 schema = Schema({Required("name"): str, Required("port"): int})
+
 
 def load(raw: object) -> Config:
     """Validate, then build a typed object the checker understands."""
     data = schema(raw)  # runtime-checked, typed Any
     return Config(name=data["name"], port=data["port"])
+
 
 load({"name": "app", "port": 8080})  # Config(name='app', port=8080)
 ```
@@ -95,10 +99,12 @@ dataclass type, so the checker infers the result. `DataclassSchema(Config)` is a
 from dataclasses import dataclass
 from probatio import DataclassSchema
 
+
 @dataclass
 class Config:
     name: str
     port: int = 8080
+
 
 schema = DataclassSchema(Config)
 config = schema({"name": "app"})  # config is typed as Config
@@ -122,9 +128,11 @@ and `result["key"]` access keeps working, because it really is a dict.
 from typing import TypedDict
 from probatio import TypedDictSchema
 
+
 class Config(TypedDict):
     name: str
     port: int
+
 
 schema = TypedDictSchema(Config)
 config = schema({"name": "app", "port": 8080})  # typed as Config
@@ -156,9 +164,11 @@ so the alias is `Any`. Use it for intent and readability, not for narrowing:
 ```python
 from probatio import Schema, Schemable
 
+
 def make_validator(definition: Schemable) -> Schema:
     """Build a Schema from any schemable definition."""
     return Schema(definition)
+
 
 make_validator({"port": int})  # a compiled Schema
 ```

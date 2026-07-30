@@ -33,7 +33,9 @@ schema. Keyword arguments pass through to `Schema`.
 ```python
 from probatio import Schema, Required
 
-Schema.infer({"name": "app", "port": 80})  # == Schema({Required("name"): str, Required("port"): int})
+Schema.infer(
+    {"name": "app", "port": 80}
+)  # == Schema({Required("name"): str, Required("port"): int})
 ```
 
 A schema is built from plain Python: a type (`int`), a literal (`"on"`), a
@@ -93,8 +95,8 @@ The extra-key policy is set with the `extra` argument to `Schema`:
 ```python
 from probatio import All, Any, SomeOf, Range, Schema
 
-Schema(All(str, str.strip))("  hi  ")            # 'hi'
-Schema(Any(int, str))("a")                       # 'a'
+Schema(All(str, str.strip))("  hi  ")  # 'hi'
+Schema(Any(int, str))("a")  # 'a'
 Schema(SomeOf(min_valid=2, validators=[Range(1, 5), int, 3]))(3)  # 3
 ```
 
@@ -103,8 +105,10 @@ A `Union` discriminant picks the branch instead of trying every alternative:
 ```python
 from probatio import Schema, Union
 
+
 def by_type(value, alternatives):
     return [a for a in alternatives if a["type"] == value.get("type")]
+
 
 schema = Schema(
     Union({"type": "a", "v": int}, {"type": "b", "v": str}, discriminant=by_type)
@@ -175,11 +179,13 @@ mean ...?`) and records them on the error's `candidates`.
 ```python
 from probatio import Object, Schema, Unordered
 
-Schema(Unordered([str, int]))([1, "a"])   # [1, 'a']
+Schema(Unordered([str, int]))([1, "a"])  # [1, 'a']
+
 
 class Point:
     def __init__(self, x, y):
         self.x, self.y = x, y
+
 
 result = Schema(Object({"x": int, "y": int}))(Point(1, 2))  # validates the attributes
 result.x  # 1
@@ -367,9 +373,11 @@ from typing import Annotated
 
 from probatio import probatio, Range
 
+
 @probatio(returns=True)
 def multiply(arg1: int, arg2: int) -> Annotated[int, Range(min=0)]:
     return arg1 * arg2
+
 
 multiply(3, 4)  # 12
 ```

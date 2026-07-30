@@ -42,8 +42,8 @@ schema = Schema({"server": {"ports": [int]}})
 try:
     schema({"server": {"ports": [80, "nope"]}})
 except Invalid as err:
-    print(err)        # expected int at 'server.ports[1]'
-    print(err.path)   # ['server', 'ports', 1]
+    print(err)  # expected int at 'server.ports[1]'
+    print(err.path)  # ['server', 'ports', 1]
 ```
 
 `error.path` is the machine-readable form; follow it into the original data to
@@ -65,7 +65,7 @@ try:
 except MultipleInvalid as err:
     print(len(err.errors))  # 2
     for sub in err.errors:
-        print(sub.path)     # ['a'] then ['b']
+        print(sub.path)  # ['a'] then ['b']
 ```
 
 For convenience, a `MultipleInvalid` proxies its first error, so `error.msg` and
@@ -112,7 +112,7 @@ try:
 except MultipleInvalid as err:
     first = err.errors[0]
     print(isinstance(first, RangeInvalid))  # True
-    print(first.error_message)              # value must be at most 10
+    print(first.error_message)  # value must be at most 10
 ```
 
 `error_message` is the bare message without the path; `msg` is the same text.
@@ -138,7 +138,7 @@ try:
     schema({"port": "nope"})
 except Invalid as err:
     first = err.errors[0]
-    print(first.code)               # type
+    print(first.code)  # type
     print(first.as_dict()["path"])  # ['port']
 ```
 

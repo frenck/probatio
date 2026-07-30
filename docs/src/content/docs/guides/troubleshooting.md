@@ -27,8 +27,8 @@ schema = Schema({"server": {"port": int}})
 try:
     schema({"server": {"port": "nope"}})
 except MultipleInvalid as err:
-    print(err)                          # expected int at 'server.port'
-    print(err.errors[0].path)           # ['server', 'port']
+    print(err)  # expected int at 'server.port'
+    print(err.errors[0].path)  # ['server', 'port']
     print(err.errors[0].error_message)  # expected int
 ```
 
@@ -67,9 +67,9 @@ schema = Schema(int)
 
 try:
     schema("nope")
-except Invalid as err:           # catches MultipleInvalid too
-    print(type(err).__name__)    # MultipleInvalid
-    print(err.errors[0].msg)     # expected int
+except Invalid as err:  # catches MultipleInvalid too
+    print(type(err).__name__)  # MultipleInvalid
+    print(err.errors[0].msg)  # expected int
 ```
 
 To branch on a specific kind of failure (like `RangeInvalid`), inspect
@@ -109,10 +109,12 @@ Raise `Invalid` with your own message to control it exactly, with no prefix:
 ```python
 from probatio import Schema, Invalid
 
+
 def even(value):
     if value % 2:
         raise Invalid("must be even")
     return value
+
 
 try:
     Schema(even)(3)

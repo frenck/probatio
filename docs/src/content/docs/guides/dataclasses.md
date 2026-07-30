@@ -211,9 +211,15 @@ from probatio import DataclassSchema, Key, Length
 @dataclass
 class Account:
     name: str
-    password: Annotated[str, Key(secret=True), Length(min=8)]  # redacted, length-checked
-    user_name: Annotated[str, Key(alias=["user-name", "userName"])] = ""  # accept aliases
-    is_admin: Annotated[bool, Key(forbidden=True)] = False  # reject if the caller sends it
+    password: Annotated[
+        str, Key(secret=True), Length(min=8)
+    ]  # redacted, length-checked
+    user_name: Annotated[str, Key(alias=["user-name", "userName"])] = (
+        ""  # accept aliases
+    )
+    is_admin: Annotated[bool, Key(forbidden=True)] = (
+        False  # reject if the caller sends it
+    )
 
 
 schema = DataclassSchema(Account)
@@ -428,7 +434,9 @@ class Event:
     when: Annotated[datetime, Coerce(datetime.fromisoformat)]
 
 
-DataclassSchema(Event)({"when": "2020-01-01T12:00"})  # Event(when=datetime(2020, 1, 1, 12, 0))
+DataclassSchema(Event)(
+    {"when": "2020-01-01T12:00"}
+)  # Event(when=datetime(2020, 1, 1, 12, 0))
 ```
 
 The `Coerce` runs first and the `datetime` type confirms the result, so the field
