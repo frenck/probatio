@@ -365,7 +365,7 @@ class _MappingValidator:
 
         self._unmatched(key, value, key_error, out, errors)
 
-    def _apply(  # noqa: PLR0913
+    def _apply(  # noqa: PLR0913, PLR0917
         self,
         key: Any,
         value: Any,
