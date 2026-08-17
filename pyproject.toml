@@ -109,7 +109,7 @@ test = [
   "hypothesis==6.165.10",
 ]
 typing = ["mypy==2.3.1", "ty==0.0.69"]
-lint = ["ruff==0.16.1", "codespell==2.4.3", "zizmor==1.29.0"]
+lint = ["ruff==0.16.3", "codespell==2.4.3", "zizmor==1.29.0"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
 codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
