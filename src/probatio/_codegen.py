@@ -588,6 +588,8 @@ def _emit_seed(
     # ALLOW_EXTRA keeps an unknown key with its input value, which is exactly what
     # the seed leaves behind untouched. PREVENT_EXTRA bails on one (below), so there
     # every seeded key is a schema key that the field lines overwrite.
+    # The seed reads them up front, where the engine reads each as it walks the input.
+    # Only a validator that rewrites its own input can tell, which is undefined here.
     return ["    out = dict(data)"]
 
 
