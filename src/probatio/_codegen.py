@@ -563,24 +563,50 @@ def _emit_field(
     return lines
 
 
+def _emit_seed(
+    extra: int, allowed: frozenset[Any], namespace: dict[str, Any]
+) -> list[str]:
+    """Emit the lines creating ``out``, seeded so its key order is the input's.
+
+    The engine writes keys in the order the *input* has them and appends a defaulted
+    key after all of those, while the generated field lines run in schema declaration
+    order. Seeding ``out`` from the input closes that gap: overwriting a key leaves
+    its position alone, so every present key keeps the slot the input gave it, and a
+    defaulted key (absent from the input, so never seeded) lands after them all. What
+    the seed puts in a slot to begin with is per-policy; either way the field lines
+    below overwrite every key the schema knows about with its validated value.
+    """
+    if extra == REMOVE_EXTRA:
+        # Unknown keys are dropped, so they are never seeded in the first place, and
+        # the input's values are not worth copying: a seeded key is by construction a
+        # schema key that is present, so the field lines below always overwrite it (or
+        # bail, and then this dict is thrown away). Placeholders reserve the slot for
+        # a third of what carrying the real value over costs.
+        namespace["_allowed"] = allowed
+        return ["    out = {_k: None for _k in data if _k in _allowed}"]
+
+    # ALLOW_EXTRA keeps an unknown key with its input value, which is exactly what
+    # the seed leaves behind untouched. PREVENT_EXTRA bails on one (below), so there
+    # every seeded key is a schema key that the field lines overwrite.
+    # The seed reads them up front, where the engine reads each as it walks the input.
+    # Only a validator that rewrites its own input can tell, which is undefined here.
+    return ["    out = dict(data)"]
+
+
 def _emit_extra(
     extra: int, allowed: frozenset[Any], namespace: dict[str, Any]
 ) -> list[str]:
-    """Emit the extra-key handling for the given policy, binding what it needs."""
+    """Emit the extra-key check for the given policy, binding what it needs.
+
+    Only PREVENT_EXTRA needs a check of its own; the other two policies are already
+    served by how ``_emit_seed`` builds ``out``.
+    """
     if extra == PREVENT_EXTRA:
         # The keys view superset-checks against the allowed set in C; the prebound
         # method skips a rich-comparison dispatch per call. An unexpected key bails
         # so the interpreted path reports it (with its suggestion).
         namespace["_issuperset"] = allowed.issuperset
         return ["    if not _issuperset(data.keys()):", "        raise _Bail"]
-    if extra == ALLOW_EXTRA:
-        namespace["_allowed"] = allowed
-        return [
-            "    for _k in data:",
-            "        if _k not in _allowed:",
-            "            out[_k] = data[_k]",
-        ]
-    # REMOVE_EXTRA drops unknown keys, which is what simply not copying them does.
     return []
 
 
@@ -618,19 +644,16 @@ def compile_mapping(
     }
     allowed = frozenset(candidate.key_schema for candidate in candidates)
     if construct is None:
-        # One ``type()`` read serves both the foreign-type guard and the out-dict
-        # setup, so the exact-dict case (nearly every call) pays one identity test.
-        # A plain dict stays plain; a dict subclass is preserved (the engine does
-        # so); a foreign Mapping or wrong type keeps the interpreted path, which
-        # accepts the Mapping superset and raises the right type error.
+        # Only an exact dict, the case nearly every call is, takes the generated
+        # path, for one identity test. A dict subclass defers to the engine, which
+        # rebuilds the result as that subclass through its ``__setitem__``, and so
+        # does a foreign Mapping or a wrong type (the engine accepts the Mapping
+        # superset and raises the right type error). Neither is something the seeded
+        # copy below reproduces, and neither is a hot path worth generating for.
         prologue = [
-            "    _dt = type(data)",
-            "    if _dt is dict:",
-            "        out = {}",
-            "    elif isinstance(data, dict):",
-            "        out = _dt()",
-            "    else:",
+            "    if type(data) is not dict:",
             "        return _interpreted(data)",
+            *_emit_seed(validator._extra, allowed, namespace),  # noqa: SLF001
         ]
     else:
         # The fused constructor path builds no out dict; just guard the type.

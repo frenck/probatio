@@ -51,6 +51,21 @@ def _is_compiled(schema: Schema) -> bool:
     return getattr(schema._compiled, "__name__", "") == "_validate"
 
 
+def _key_order(value: object) -> object:
+    """Capture the key order of a result, recursively, as something comparable.
+
+    Two dicts holding the same pairs in a different order compare equal, so an
+    order-only divergence between the two paths slips straight through ``==``
+    (that is how issue #307 survived the differential tests and the compiled CI
+    lane). This makes the layout part of what is compared.
+    """
+    if isinstance(value, dict):
+        return tuple((key, _key_order(item)) for key, item in value.items())
+    if isinstance(value, list):
+        return [_key_order(item) for item in value]
+    return None
+
+
 def _outcome(schema: Schema, data: object) -> object:
     """Reduce a validation to a comparable result or a structured error."""
     try:
@@ -62,7 +77,7 @@ def _outcome(schema: Schema, data: object) -> object:
             tuple(tuple(e.path) for e in err.errors),
             tuple(e.code for e in err.errors),
         )
-    return ("ok", result, type(result).__name__)
+    return ("ok", result, type(result).__name__, _key_order(result))
 
 
 # Schema builders, each exercised interpreted and compiled. Keep them varied:
@@ -213,6 +228,14 @@ _INPUTS: list[object] = [
     {"x": "abc"},
     {"x": "abcdef"},
     {"x": ""},
+    # Inputs whose key order is not the schema's declaration order: the result must
+    # be laid out the way the input is, not the way the schema is written (issue
+    # #307). Reversed against "types", against "defaults" (leaving the defaulted key
+    # to be appended), an extra key ahead of a known one, and a reversed nested value.
+    {"f": 1.5, "ok": True, "p": 1, "n": "x"},
+    {"p": 1, "n": "x"},
+    {"b": 2, "a": 1},
+    {"srv": {"port": 2, "host": "h"}},
 ]
 
 
@@ -568,6 +591,28 @@ def test_auto_compiles_a_schema_once_it_is_hot() -> None:
         assert schema({"a": 0}) == {"a": 0}  # crosses the threshold
         assert _is_compiled(schema)
         assert schema({"a": 7}) == {"a": 7}  # now via the compiled validator
+    finally:
+        set_compile_policy(CompilePolicy.OFF)
+
+
+def test_auto_keeps_the_key_order_stable_across_the_threshold() -> None:
+    """Going hot under AUTO does not relayout the result dict (issue #307).
+
+    The engine lays a result out the way the input is laid out and appends the
+    defaulted keys; the generated code writes fields in declaration order. When the
+    two disagreed, a schema silently started returning a differently ordered dict on
+    its 50th call, which anything serializing a validated config can see.
+    """
+    set_compile_policy(CompilePolicy.AUTO)
+    try:
+        schema = Schema({Optional("step", default=1): int, Optional("mode"): str})
+        cold = list(schema({"mode": "box"}))
+        for _ in range(_AUTO_COMPILE_THRESHOLD):
+            hot = list(schema({"mode": "box"}))
+
+        assert _is_compiled(schema)
+        assert cold == ["mode", "step"]
+        assert hot == cold
     finally:
         set_compile_policy(CompilePolicy.OFF)
 
