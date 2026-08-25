@@ -9,7 +9,8 @@ probatio schemas unchanged.
 from __future__ import annotations
 
 import enum
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, TypedDict
 
 import pytest
 import voluptuous
@@ -18,11 +19,13 @@ import voluptuous_serialize
 import probatio
 from probatio import (
     UNSUPPORTED,
+    All,
     Alpha,
     AsDate,
     AsDatetime,
     AsTime,
     Base64,
+    DataclassSchema,
     Duration,
     EnsureList,
     FromEpoch,
@@ -36,6 +39,8 @@ from probatio import (
     Required,
     Schema,
     Secret,
+    TypedDictSchema,
+    create_dataclass_schema,
     to_field_list,
 )
 from probatio import Any as ProbAny
@@ -329,3 +334,51 @@ def test_serialize_marks_allow_none_for_either_any_order() -> None:
         "type": "string",
         "allow_none": True,
     }
+
+
+def test_dataclass_schema_serializes_like_its_typeddict_twin() -> None:
+    """A dataclass schema describes the same fields as the equivalent TypedDict."""
+
+    @dataclass
+    class Server:
+        name: str
+        port: int = 8080
+
+    class ServerDict(TypedDict):
+        name: str
+        port: int
+
+    fields = to_field_list(DataclassSchema(Server))
+    assert [field["name"] for field in fields] == ["name", "port"]
+    assert fields[0] == to_field_list(TypedDictSchema(ServerDict))[0]
+    assert fields[1]["default"] == 8080
+
+
+def test_create_dataclass_schema_serializes_too() -> None:
+    """The functional builder returns a plain Schema, which serializes the same."""
+
+    @dataclass
+    class Server:
+        name: str
+
+    assert to_field_list(create_dataclass_schema(Server)) == to_field_list(
+        DataclassSchema(Server)
+    )
+
+
+def test_all_without_a_constructor_is_left_alone() -> None:
+    """Only a constructing schema is unwrapped; any other All is serialized as one."""
+    assert to_field_list(Schema(All(str, Alpha()))) == {"type": "string"}
+
+
+def test_nested_mapping_still_raises() -> None:
+    """A nested mapping has no field-list shape, matching voluptuous-serialize."""
+    nested = Schema({Required("outer"): {Required("inner"): int}})
+    with pytest.raises(ValueError, match="unable to serialize"):
+        to_field_list(nested)
+    with pytest.raises(ValueError, match="Unable to convert nested mapping"):
+        voluptuous_serialize.convert(
+            voluptuous.Schema(
+                {voluptuous.Required("outer"): {voluptuous.Required("inner"): int}}
+            )
+        )

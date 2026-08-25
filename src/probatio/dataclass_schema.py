@@ -51,6 +51,7 @@ from typing import (
     Annotated,
     Literal,
     NotRequired,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -661,6 +662,22 @@ def _field_mapping(
         mapping[key] = value_schema
 
     return mapping
+
+
+def constructed_mapping(schema: Schema) -> Schema | None:
+    """Return the mapping a constructing schema validates, or None for any other.
+
+    A dataclass schema validates a mapping and then builds an instance from it, so
+    its top-level node is that pair rather than the mapping itself. Tools that
+    describe a schema's fields (a codec, a form renderer) want the mapping, and
+    should not have to know how the pair is put together.
+    """
+    node = schema.schema
+    if isinstance(node, All) and any(
+        isinstance(validator, _Constructor) for validator in node.validators
+    ):
+        return cast("Schema", node.validators[0])
+    return None
 
 
 class _Constructor:
