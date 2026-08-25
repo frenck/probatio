@@ -189,6 +189,12 @@ def test_additional_constraints_layer_onto_a_field() -> None:
         schema({"port": 70000, "host": "x"})
 
 
+def test_additional_constraints_reject_an_unknown_field() -> None:
+    """A constraint keyed by a name that is not a field would never run."""
+    with pytest.raises(SchemaError, match="no such field"):
+        TypedDictSchema(Config, {"prot": Range(min=1)})
+
+
 def test_annotated_inline_validator_on_a_field() -> None:
     """An Annotated field carries its own validator, like the dataclass builder."""
 

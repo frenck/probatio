@@ -202,6 +202,18 @@ def test_additional_constraints_layer_onto_a_field() -> None:
         schema({"name": "a"})
 
 
+def test_additional_constraints_reject_an_unknown_field() -> None:
+    """A constraint keyed by a name that is not a field would never run."""
+    with pytest.raises(SchemaError, match="no such field"):
+        DataclassSchema(User, {"nmae": Length(min=2)})
+
+
+def test_additional_constraints_reject_a_dotted_path() -> None:
+    """A dotted path is not resolved into a nested field, so it is refused."""
+    with pytest.raises(SchemaError, match="no such field"):
+        DataclassSchema(User, {"address.number": Range(min=0)})
+
+
 def test_create_dataclass_schema_matches_the_class() -> None:
     """The functional API builds the same validator as the class."""
     schema = create_dataclass_schema(User)

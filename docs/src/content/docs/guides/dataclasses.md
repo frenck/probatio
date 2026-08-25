@@ -132,6 +132,10 @@ schema = DataclassSchema(User, {"name": Length(min=2)})
 schema({"name": "ada"})  # User(name='ada')
 ```
 
+Every key must name a field. A key that matches nothing (a typo, or a dotted path
+like `"address.number"`, which is not resolved) would never run, so the schema is
+refused with a `SchemaError` when it is built.
+
 The same rule can live on the field itself with `Annotated`, keeping the
 constraint next to the field instead of in a separate map. The rules:
 

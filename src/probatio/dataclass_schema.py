@@ -39,6 +39,7 @@ import enum
 import types
 from collections.abc import (
     Callable,
+    Iterable,
     Mapping,
     MutableMapping,
     MutableSequence,
@@ -594,6 +595,23 @@ def _key_from_spec(  # noqa: PLR0913
     return base
 
 
+def _check_constraint_names(
+    owner: str, constraints: dict[TypingAny, TypingAny], names: Iterable[str]
+) -> None:
+    """Reject an ``additional_constraints`` key that names no field.
+
+    A constraint is keyed by field name, so a name that matches nothing would
+    never run. Silently dropping it hides a typo (and a dotted path like
+    ``"inner.x"``, which is not a field name and is not resolved), so the schema
+    is refused at build time instead.
+    """
+    unknown = sorted(set(constraints) - set(names), key=repr)
+    if unknown:
+        listed = ", ".join(repr(name) for name in unknown)
+        message = f"additional_constraints for {owner!r} name no such field: {listed}"
+        raise SchemaError(message)
+
+
 def _guard_never_supplied(
     name: TypingAny, marker: str, *, constructs: bool, has: bool
 ) -> None:
@@ -633,8 +651,13 @@ def _field_mapping(
         message = f"cannot resolve type hints for {dataclass_type.__name__!r}: {exc}"
         raise SchemaError(message) from exc
 
+    fields = list(_iter_init_fields(dataclass_type))
+    _check_constraint_names(
+        dataclass_type.__name__, constraints, (field.name for field in fields)
+    )
+
     mapping: dict[TypingAny, TypingAny] = {}
-    for field in _iter_init_fields(dataclass_type):
+    for field in fields:
         annotation = _field_annotation(hints.get(field.name, TypingAny))
         value_schema = _annotation_to_schema(annotation, self_refs, extra)
         if field.name in constraints:
@@ -1216,6 +1239,8 @@ def _typeddict_mapping(
     # inheritance and per-base ``total`` where the class's own ``__total__`` does not
     # (a required field inherited into a ``total=False`` child, and the reverse).
     required_keys = typeddict_type.__required_keys__
+    _check_constraint_names(typeddict_type.__name__, constraints, hints)
+
     mapping: dict[TypingAny, TypingAny] = {}
     for name, annotation in hints.items():
         required, field_type = _typeddict_presence(
