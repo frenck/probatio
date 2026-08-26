@@ -38,8 +38,20 @@ _KEY_SCHEMAS: list[Any] = [
     True,
     {"not": {"enum": ["bad"]}},
 ]
-_ADDITIONAL: list[Any] = [None, True, False, {"type": "string"}, {"type": "integer"}, {}]
-_PROPERTIES: list[Any] = [None, {}, {"a": {"type": "string"}}, {"xy": {"type": "string"}}]
+_ADDITIONAL: list[Any] = [
+    None,
+    True,
+    False,
+    {"type": "string"},
+    {"type": "integer"},
+    {},
+]
+_PROPERTIES: list[Any] = [
+    None,
+    {},
+    {"a": {"type": "string"}},
+    {"xy": {"type": "string"}},
+]
 _REQUIRED: list[Any] = [None, [], ["a"], ["zz"]]
 
 _VALUES: list[dict[str, Any]] = [
