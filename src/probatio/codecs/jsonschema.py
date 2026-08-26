@@ -495,16 +495,40 @@ _ANY_KEY: tuple[dict[str, Any], ...] = ({}, {"type": "string"})
 def _property_names(variable_keys: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Combine the variable-key validators into one ``propertyNames``, or None.
 
-    None means "no constraint to emit": either the mapping has no variable key,
-    or one of them accepts every key, which makes the union accept every key too.
+    None means "no constraint to emit". That covers a mapping with no variable
+    key, one whose key accepts everything (so the union does too), and one whose
+    key does not match strings, since a JSON property name always is one: a
+    coercing key like ``Coerce(int)`` renders as ``{"type": "integer"}``, which
+    no property name can satisfy, so emitting it would reject every object the
+    schema accepts. The union has to cover every key, so one unrepresentable
+    branch drops the whole keyword rather than over-constraining the rest.
+
     Several restrictive keys ({In([...]): str, Match(...): int}) become an
     ``anyOf``, since the engine accepts a key that matches any one of them.
     """
     if not variable_keys or any(key in _ANY_KEY for key in variable_keys):
         return None
+    if not all(map(_matches_a_property_name, variable_keys)):
+        return None
     if len(variable_keys) == 1:
         return variable_keys[0]
     return {"anyOf": variable_keys}
+
+
+def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
+    """Whether a rendered key schema can match a string, the only kind of key.
+
+    Deliberately conservative: a shape this cannot read as string-matching (an
+    ``allOf`` of merged constraints, say) reports False and drops the keyword,
+    which widens. Widening is the direction the encoder is allowed to be wrong in.
+    """
+    if key_schema.get("type") == "string":
+        return True
+    if "enum" in key_schema:
+        return all(isinstance(member, str) for member in key_schema["enum"])
+    if "const" in key_schema:
+        return isinstance(key_schema["const"], str)
+    return False
 
 
 def _decorate_property(
@@ -1998,6 +2022,13 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
         _from_node(additional, ctx) if isinstance(additional, dict) else None
     )
 
+    # An undeclared name is an additional property, so ``additionalProperties:
+    # false`` forbids it while ``required`` demands it: nothing satisfies the
+    # object. Treating the name as declared would accept the very objects the
+    # document rules out.
+    if additional is False and required - properties.keys():
+        return In([])
+
     # A ``required`` name with no ``properties`` entry is still a presence
     # constraint; dropping it would widen an untrusted schema. Its value schema
     # is whatever ``additionalProperties`` says (an undeclared property), or
@@ -2011,8 +2042,10 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     # ``propertyNames`` that is plain ``str`` (every JSON key); with it, the
     # decoded key schema, so the constraint reaches the keys it was written for.
     if additional_schema is not None:
-        mapping[key_validator if key_validator is not None else str] = additional_schema
-    elif key_validator is not None and additional is not False:
+        mapping[str if key_validator is _NO_KEY_SCHEMA else key_validator] = (
+            additional_schema
+        )
+    elif key_validator is not _NO_KEY_SCHEMA and additional is not False:
         # Names constrained, values not: undeclared keys stay allowed, but each
         # one still has to satisfy the key schema.
         mapping[key_validator] = object
@@ -2024,7 +2057,7 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
         mapping,
         additional,
         declared="properties" in node,
-        constrained_keys=key_validator is not None,
+        constrained_keys=key_validator is not _NO_KEY_SCHEMA,
     )
     min_props = _item_count(node, "minProperties")
     max_props = _item_count(node, "maxProperties")
@@ -2034,13 +2067,19 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     return base
 
 
+# "This node carries no key constraint", distinct from every value a key schema
+# can decode to. ``None`` cannot serve: ``{"const": null}`` decodes to it and is a
+# real constraint (no JSON key is null), so sharing the sentinel would drop it.
+_NO_KEY_SCHEMA = object()
+
+
 def _from_property_names(node: dict[str, Any], ctx: _Decode) -> Any:
-    """Decode ``propertyNames`` into a key validator for the mapping, or None.
+    """Decode ``propertyNames`` into a key validator, or ``_NO_KEY_SCHEMA``.
 
     A mapping key is itself validated by a schema, so ``propertyNames`` maps onto
     the key side of the mapping directly. A key schema that accepts anything
-    (``{}`` or ``true``) constrains nothing, so it decodes to None and the object
-    keeps whatever shape ``additionalProperties`` alone would have given it.
+    (``{}`` or ``true``) constrains nothing, so it reports ``_NO_KEY_SCHEMA`` and
+    the object keeps whatever shape ``additionalProperties`` alone would give it.
 
     Plain ``{"type": "string"}`` is *not* folded away, even though every JSON key
     is a string: the decoded schema also runs against Python mappings, where a
@@ -2048,11 +2087,11 @@ def _from_property_names(node: dict[str, Any], ctx: _Decode) -> Any:
     the mapping would use regardless.
     """
     if "propertyNames" not in node:
-        return None
+        return _NO_KEY_SCHEMA
 
     key_validator = _from_node(node["propertyNames"], ctx)
     if key_validator is object:
-        return None
+        return _NO_KEY_SCHEMA
 
     # The key validator goes in as a dict key, so an unhashable decode (a nested
     # mapping schema) cannot be installed at all. Refuse it rather than let the
@@ -2076,7 +2115,7 @@ def _key_filter(key_validator: Any) -> Callable[[str], bool]:
     rejects is reported as not allowed. Only ``Invalid`` counts as a rejection;
     any other failure is a malformed schema and belongs to ``_decode``.
     """
-    if key_validator is None:
+    if key_validator is _NO_KEY_SCHEMA:
         return lambda _name: True
 
     compiled = Schema(key_validator)

@@ -1003,3 +1003,24 @@ def test_property_names_is_dropped_beside_a_declared_property() -> None:
     encoded = to_json_schema(Schema({In(["a"]): str, "x": int}))
     assert "propertyNames" not in encoded
     assert encoded["properties"] == {"x": {"type": "integer"}}
+
+
+def test_coercing_key_validator_emits_no_property_names() -> None:
+    """A key rendering as a non-string type would reject every JSON property name."""
+    encoded = to_json_schema(Schema({Coerce(int): str}))
+    assert "propertyNames" not in encoded
+
+
+def test_non_string_enum_key_emits_no_property_names() -> None:
+    """An enum key of non-strings cannot match a property name, so it is dropped."""
+    assert "propertyNames" not in to_json_schema(Schema({In([1, 2]): str}))
+
+
+def test_non_string_const_key_emits_no_property_names() -> None:
+    """A const key of a non-string cannot match a property name either."""
+    assert "propertyNames" not in to_json_schema(Schema({Equal(1): str}))
+
+
+def test_string_const_key_becomes_property_names() -> None:
+    """A const key of a string does match a property name, so it is emitted."""
+    assert to_json_schema(Schema({Equal("a"): str}))["propertyNames"] == {"const": "a"}

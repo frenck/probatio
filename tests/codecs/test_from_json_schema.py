@@ -1699,3 +1699,29 @@ def test_pydantic_literal_keyed_dict_tool_schema_enforces_its_keys() -> None:
     assert schema({"config_hash": "deadbeef"}) == {"config_hash": "deadbeef"}
     with pytest.raises(Invalid):
         schema({"config_hash": {"bogus_key": "deadbeef"}})
+
+
+def test_property_names_const_null_keeps_its_constraint() -> None:
+    """A key schema decoding to None is a real constraint: no JSON key is null."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"const": None},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    with pytest.raises(Invalid):
+        schema({"anything": "x"})
+
+
+def test_required_undeclared_name_with_no_additional_properties_accepts_nothing() -> (
+    None
+):
+    """additionalProperties false forbids the undeclared name that required demands."""
+    schema = from_json_schema(
+        {"type": "object", "additionalProperties": False, "required": ["a"]},
+    )
+    with pytest.raises(Invalid):
+        schema({"a": 1})
+    with pytest.raises(Invalid):
+        schema({})

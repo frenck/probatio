@@ -182,9 +182,14 @@ equivalent, so it is refused rather than silently widened.
 validates keys with a schema. `{"propertyNames": {"enum": ["a", "b"]}}` decodes
 to `{In(["a", "b"]): ...}`, so a key outside the set is rejected instead of
 quietly accepted, and `to_json_schema` emits the keyword back for a restrictive
-key validator. A key schema that accepts anything constrains nothing (every JSON
-object key is a string), so it is dropped in both directions rather than adding
-noise. The encoder emits it only for a mapping that declares no properties: JSON
+key validator. The two directions treat a permissive key schema differently, on
+purpose. Decoding keeps `{"type": "string"}` as the mapping's `str` key, because
+a decoded schema also runs against Python mappings, where a non-string key is
+reachable and should be rejected; only `{}` and `true`, which accept anything at
+all, are dropped. Encoding drops a plain `str` key, since every JSON property
+name is a string and emitting it would add noise to every record schema.
+
+The encoder emits the keyword only for a mapping that declares no properties: JSON
 Schema applies `propertyNames` to declared names too, while a probatio literal
 key is matched ahead of the variable keys and never sees them, so emitting it
 beside a declared property would reject input the schema accepts. Dropping it

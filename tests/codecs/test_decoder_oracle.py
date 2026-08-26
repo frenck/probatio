@@ -12,6 +12,14 @@ failure mode that matters, because it silently lets an untrusted document throug
 Probatio being stricter is expected and allowed: a declared property set is a
 closed contract here (its deliberate strict default), where JSON Schema leaves the
 object open unless ``additionalProperties`` says otherwise.
+
+The matrix deliberately carries no negated ``pattern``. JSON Schema ``pattern`` is
+an unanchored search while ``Match`` is an anchored ``re.match``, so ``{"not":
+{"pattern": "x"}}`` accepts the key ``"ax"`` where the reference rejects it. That
+is a real widening, but it belongs to every decoded ``pattern`` rather than to
+key schemas (``_convert_match`` already compensates in the encode direction and
+the decoder has no counterpart), so it is tracked separately rather than papered
+over with a key-schema-shaped exclusion here.
 """
 
 from __future__ import annotations
@@ -71,22 +79,11 @@ _VALUES: list[dict[str, Any]] = [
 
 
 def _documents() -> list[dict[str, Any]]:
-    """Every propertyNames-bearing object document the matrix describes.
-
-    One combination is left out: ``additionalProperties: false`` alongside a
-    ``required`` name that ``properties`` does not declare. That document is
-    unsatisfiable (the name must be present, and is an additional property, which
-    is forbidden), and probatio accepts objects carrying the name. The divergence
-    has nothing to do with ``propertyNames``: it reproduces on a document with no
-    key schema at all, so it is out of scope here rather than silently tolerated.
-    """
+    """Every propertyNames-bearing object document the matrix describes."""
     documents = []
     for key, additional, properties, required in itertools.product(
         _KEY_SCHEMAS, _ADDITIONAL, _PROPERTIES, _REQUIRED
     ):
-        if additional is False and set(required or []) - set(properties or {}):
-            continue
-
         document: dict[str, Any] = {"type": "object", "propertyNames": key}
         if additional is not None:
             document["additionalProperties"] = additional
