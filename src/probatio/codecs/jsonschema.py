@@ -406,9 +406,13 @@ def _convert_mapping(
     # ``propertyNames`` constrains *every* property name, declared ones included,
     # but a probatio literal key is matched ahead of the variable keys and never
     # sees them. Emitting it beside a declared property would therefore narrow the
-    # document, so it is only emitted for a mapping that declares none. Dropping it
-    # widens instead, which is the encoder's documented fallback.
-    property_names = _property_names(variable_keys) if not properties else None
+    # document, so it is only emitted for a mapping that declares none.
+    property_names = _property_names(variable_keys)
+    if property_names is not None and properties:
+        # Dropping it widens, so strict mode refuses: ``_open`` raises there. Its
+        # open-schema return is not wanted here, only that refusal.
+        _open("a key validator on a mapping that also declares properties")
+        property_names = None
     if property_names is not None:
         result["propertyNames"] = property_names
     if required:
@@ -509,6 +513,9 @@ def _property_names(variable_keys: list[dict[str, Any]]) -> dict[str, Any] | Non
     if not variable_keys or any(key in _ANY_KEY for key in variable_keys):
         return None
     if not all(map(_matches_a_property_name, variable_keys)):
+        # A real key constraint with no JSON Schema form here, so it is dropped.
+        # That widens, which is what strict mode exists to refuse.
+        _open("a key validator that cannot match a property name")
         return None
     if len(variable_keys) == 1:
         return variable_keys[0]

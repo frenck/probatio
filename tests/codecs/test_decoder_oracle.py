@@ -153,8 +153,14 @@ def test_property_names_roundtrip_reaches_a_behavioral_fixpoint(
     value path just as much as here.
     """
     once = from_json_schema(document)
-    twice = from_json_schema(to_json_schema(once))
-    thrice = from_json_schema(to_json_schema(twice))
+    emitted = to_json_schema(once)
+    # The fixpoint is behavioral, but a document that no validator would accept
+    # makes the comparison meaningless, so each trip has to stay a valid schema.
+    _VALIDATOR.check_schema(emitted)
+    twice = from_json_schema(emitted)
+    re_emitted = to_json_schema(twice)
+    _VALIDATOR.check_schema(re_emitted)
+    thrice = from_json_schema(re_emitted)
 
     for value in _VALUES:
         assert _accepts(twice, value) == _accepts(thrice, value), (

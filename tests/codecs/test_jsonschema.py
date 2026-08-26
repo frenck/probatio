@@ -1024,3 +1024,28 @@ def test_non_string_const_key_emits_no_property_names() -> None:
 def test_string_const_key_becomes_property_names() -> None:
     """A const key of a string does match a property name, so it is emitted."""
     assert to_json_schema(Schema({Equal("a"): str}))["propertyNames"] == {"const": "a"}
+
+
+def test_strict_refuses_a_key_validator_beside_a_declared_property() -> None:
+    """Dropping the key constraint widens, and strict mode exists to refuse that."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): str, "x": int})
+    assert "propertyNames" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="key validator"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_refuses_a_key_validator_that_cannot_match_a_name() -> None:
+    """A coercing key has no property-name form, so strict mode refuses the drop."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Coerce(int): str})
+    assert "propertyNames" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="key validator"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_still_allows_an_open_string_key() -> None:
+    """A plain str key constrains nothing, so there is no constraint to refuse."""
+    assert "propertyNames" not in to_json_schema(Schema({str: int}), strict=True)
