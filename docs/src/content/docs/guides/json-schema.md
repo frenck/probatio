@@ -104,19 +104,21 @@ to_json_schema(Schema({"token": str.strip}), custom_serializer=as_password)
 `from_json_schema` understands the keywords below. A purely descriptive keyword
 it does not read (`title`, `examples`) is ignored, so a partial schema still
 yields a usable validator. A _restrictive_ keyword it cannot honor
-(`if`/`then`/`else`, `propertyNames`, `patternProperties`, `dependentSchemas`,
-`dependencies`, `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`,
-`$recursiveRef`) is refused with a `SchemaError` rather than silently dropped, so
-an untrusted schema is never quietly widened to accept what its author meant to
-forbid. `dependentRequired` is honored only in the symmetric all-or-none form
-that maps to an `Inclusive` group (see below); its asymmetric form is refused the
-same way. The object and array keywords apply even on a node without a `type`
-(scoped to instances of their type, as the spec says). `to_json_schema` emits the
-same constructs in the other direction.
+(`if`/`then`/`else`, `patternProperties`, `dependentSchemas`, `dependencies`,
+`unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`, `$recursiveRef`) is
+refused with a `SchemaError` rather than silently dropped, so an untrusted schema
+is never quietly widened to accept what its author meant to forbid.
+`dependentRequired` is honored only in the symmetric all-or-none form that maps
+to an `Inclusive` group (see below); its asymmetric form is refused the same way.
+`propertyNames` is honored: a mapping key is itself validated by a schema, so it
+becomes the key validator of the mapping (see below). The object and array
+keywords apply even on a node without a `type` (scoped to instances of their
+type, as the spec says). `to_json_schema` emits the same constructs in the other
+direction.
 
 | Area    | Keywords                                                                                                                                                                           |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Objects | `properties`, `required`, `additionalProperties`, `minProperties`, `maxProperties`, `dependentRequired` (symmetric all-or-none only)                                               |
+| Objects | `properties`, `required`, `additionalProperties`, `propertyNames`, `minProperties`, `maxProperties`, `dependentRequired` (symmetric all-or-none only)                              |
 | Arrays  | `items`, `minItems`, `maxItems`, `prefixItems`, `uniqueItems`, `contains`, `minContains`, `maxContains`                                                                            |
 | Strings | `minLength`, `maxLength`, `pattern`, `format` (`date`, `date-time`, `time`, `email`, `uri`, `ipv4`, `ipv6`, `uuid`, `hostname`, `byte`), `writeOnly`, `contentEncoding` (`Base64`) |
 | Numbers | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`                                                                                                         |
@@ -145,6 +147,7 @@ round-trip:
 | `Secret` key                  | its property with `writeOnly: true`                                                                                               |
 | `Base64`                      | `contentEncoding: base64`                                                                                                         |
 | `Inclusive` group             | `dependentRequired` (all-or-none); the symmetric map decodes back to an `Inclusive` group                                         |
+| Variable key validator        | `propertyNames`, for a mapping that declares no properties (a plain `str` key emits nothing: it accepts every JSON key)           |
 
 Combinators and a few more constructs also render, though most have no inverse
 so they do not round-trip:
@@ -174,6 +177,27 @@ emits the symmetric all-or-none map (every member requires every other), and
 set of mutually dependent properties. The general `dependentRequired` is broader:
 an asymmetric dependency (`a` requires `b` but not the reverse) has no `Inclusive`
 equivalent, so it is refused rather than silently widened.
+
+`propertyNames` maps onto the key side of a mapping, where probatio already
+validates keys with a schema. `{"propertyNames": {"enum": ["a", "b"]}}` decodes
+to `{In(["a", "b"]): ...}`, so a key outside the set is rejected instead of
+quietly accepted, and `to_json_schema` emits the keyword back for a restrictive
+key validator. The two directions treat a permissive key schema differently, on
+purpose. Decoding keeps `{"type": "string"}` as the mapping's `str` key, because
+a decoded schema also runs against Python mappings, where a non-string key is
+reachable and should be rejected; only `{}` and `true`, which accept anything at
+all, are dropped. Encoding drops a plain `str` key, since every JSON property
+name is a string and emitting it would add noise to every record schema.
+
+The encoder emits the keyword only for a mapping that declares no properties: JSON
+Schema applies `propertyNames` to declared names too, while a probatio literal
+key is matched ahead of the variable keys and never sees them, so emitting it
+beside a declared property would reject input the schema accepts. Dropping it
+widens instead, the direction the encoder is allowed to be wrong in.
+
+This matters in practice: Zod emits `propertyNames` for every `z.record(...)` and
+Pydantic emits it for a `dict` keyed by a `Literal`, which makes the keyword
+common in machine-generated schemas such as MCP tool definitions.
 
 `oneOf` decodes with its exact semantics (a value must match exactly one branch,
 so one matching two or more is rejected), unlike the looser `anyOf`.

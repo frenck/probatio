@@ -966,3 +966,86 @@ def test_strict_raises_on_a_coerce_with_a_non_type_target() -> None:
 
     with pytest.raises(SchemaError, match="non-type target"):
         to_json_schema(Schema(Coerce(str.upper)), strict=True)
+
+
+def test_type_key_emits_no_property_names() -> None:
+    """A plain str key accepts every JSON key, so it adds no propertyNames noise."""
+    assert "propertyNames" not in to_json_schema(Schema({str: int}))
+
+
+def test_restrictive_key_validator_becomes_property_names() -> None:
+    """A key validator is a real constraint; dropping it would widen the schema."""
+    encoded = to_json_schema(Schema({In(["a", "b"]): str}))
+    assert encoded["propertyNames"] == {"enum": ["a", "b"]}
+
+
+def test_several_restrictive_key_validators_merge_into_any_of() -> None:
+    """The engine accepts a key matching any variable key, so they merge as anyOf."""
+    encoded = to_json_schema(Schema({In(["a"]): str, Match(r"^x"): int}))
+    assert encoded["propertyNames"] == {
+        "anyOf": [{"enum": ["a"]}, {"type": "string", "pattern": "^x"}],
+    }
+
+
+def test_one_open_key_validator_drops_property_names() -> None:
+    """A str key alongside a restrictive one accepts everything, so nothing is emitted."""
+    assert "propertyNames" not in to_json_schema(Schema({In(["a"]): str, str: int}))
+
+
+def test_property_names_is_dropped_beside_a_declared_property() -> None:
+    """Emitting it there would narrow: JSON Schema applies it to declared names too.
+
+    A probatio literal key is matched ahead of the variable keys and never sees
+    them, so ``{In(["a"]): str, "x": int}`` accepts ``{"x": 1}``. A document
+    carrying propertyNames would reject it, which is a narrowing; dropping the
+    keyword widens instead.
+    """
+    encoded = to_json_schema(Schema({In(["a"]): str, "x": int}))
+    assert "propertyNames" not in encoded
+    assert encoded["properties"] == {"x": {"type": "integer"}}
+
+
+def test_coercing_key_validator_emits_no_property_names() -> None:
+    """A key rendering as a non-string type would reject every JSON property name."""
+    encoded = to_json_schema(Schema({Coerce(int): str}))
+    assert "propertyNames" not in encoded
+
+
+def test_non_string_enum_key_emits_no_property_names() -> None:
+    """An enum key of non-strings cannot match a property name, so it is dropped."""
+    assert "propertyNames" not in to_json_schema(Schema({In([1, 2]): str}))
+
+
+def test_non_string_const_key_emits_no_property_names() -> None:
+    """A const key of a non-string cannot match a property name either."""
+    assert "propertyNames" not in to_json_schema(Schema({Equal(1): str}))
+
+
+def test_string_const_key_becomes_property_names() -> None:
+    """A const key of a string does match a property name, so it is emitted."""
+    assert to_json_schema(Schema({Equal("a"): str}))["propertyNames"] == {"const": "a"}
+
+
+def test_strict_refuses_a_key_validator_beside_a_declared_property() -> None:
+    """Dropping the key constraint widens, and strict mode exists to refuse that."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): str, "x": int})
+    assert "propertyNames" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="key validator"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_refuses_a_key_validator_that_cannot_match_a_name() -> None:
+    """A coercing key has no property-name form, so strict mode refuses the drop."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Coerce(int): str})
+    assert "propertyNames" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="key validator"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_still_allows_an_open_string_key() -> None:
+    """A plain str key constrains nothing, so there is no constraint to refuse."""
+    assert "propertyNames" not in to_json_schema(Schema({str: int}), strict=True)
