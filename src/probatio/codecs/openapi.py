@@ -33,6 +33,7 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
+from probatio.codecs.jsonschema import _JsonPattern
 from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
@@ -607,6 +608,10 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         # A Unix timestamp on the wire is a number (``FromEpoch`` takes an int or a
         # fractional-second float); the datetime is internal.
         return {"type": "number"}
+    if isinstance(node, _JsonPattern):
+        # A decoded JSON Schema ``pattern``. OpenAPI ``pattern`` is an unanchored
+        # search too, so it goes back out exactly as it came in.
+        return {"pattern": node.pattern.pattern}
     if isinstance(node, Match):
         source = node.pattern.pattern
         # A bytes pattern has no OpenAPI form (schema strings are text), so it

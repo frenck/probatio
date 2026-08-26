@@ -1769,3 +1769,47 @@ def test_property_names_with_a_resolvable_ref_still_decodes() -> None:
     assert schema({"a": "x"}) == {"a": "x"}
     with pytest.raises(Invalid):
         schema({"zz": "x"})
+
+
+def test_pattern_is_an_unanchored_search() -> None:
+    """JSON Schema pattern matches anywhere in the string, unlike Match."""
+    schema = from_json_schema({"type": "string", "pattern": "x"})
+    assert schema("ax") == "ax"
+    assert schema("xa") == "xa"
+    with pytest.raises(Invalid):
+        schema("nope")
+
+
+def test_anchored_pattern_still_anchors() -> None:
+    """A pattern the document anchors itself keeps rejecting a matching suffix."""
+    schema = from_json_schema({"type": "string", "pattern": "^x"})
+    assert schema("xa") == "xa"
+    with pytest.raises(Invalid):
+        schema("ax")
+
+
+def test_negated_pattern_does_not_widen() -> None:
+    """The search/match gap inverted under not, accepting what the document forbids."""
+    schema = from_json_schema({"not": {"pattern": "x"}})
+    assert schema("nope") == "nope"
+    with pytest.raises(Invalid):
+        schema("ax")
+
+
+def test_pattern_rejects_a_non_string() -> None:
+    """A non-string cannot be searched, so it is a clean Invalid, not a TypeError."""
+    with pytest.raises(Invalid):
+        from_json_schema({"pattern": "x"})(123)
+
+
+def test_decoded_pattern_repr_names_its_source() -> None:
+    """The decoded pattern renders readably for error paths."""
+    schema = from_json_schema({"type": "string", "pattern": "x"})
+    assert "x" in repr(schema.schema)
+
+
+def test_pattern_round_trips_unanchored() -> None:
+    """Re-emitting a decoded pattern keeps its meaning, so it is not re-anchored."""
+    encoded = to_json_schema(from_json_schema({"type": "string", "pattern": "x"}))
+    again = from_json_schema(encoded)
+    assert again("ax") == "ax"

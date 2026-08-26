@@ -13,13 +13,9 @@ Probatio being stricter is expected and allowed: a declared property set is a
 closed contract here (its deliberate strict default), where JSON Schema leaves the
 object open unless ``additionalProperties`` says otherwise.
 
-The matrix deliberately carries no negated ``pattern``. JSON Schema ``pattern`` is
-an unanchored search while ``Match`` is an anchored ``re.match``, so ``{"not":
-{"pattern": "x"}}`` accepts the key ``"ax"`` where the reference rejects it. That
-is a real widening, but it belongs to every decoded ``pattern`` rather than to
-key schemas (``_convert_match`` already compensates in the encode direction and
-the decoder has no counterpart), so it is tracked separately rather than papered
-over with a key-schema-shaped exclusion here.
+The matrix carries a negated unanchored ``pattern`` on purpose. It is what caught
+the search/match gap: JSON Schema ``pattern`` searches while ``Match`` anchors,
+which only narrowed on its own but inverted into a widening under ``not``.
 """
 
 from __future__ import annotations
@@ -45,6 +41,8 @@ _KEY_SCHEMAS: list[Any] = [
     {},
     True,
     {"not": {"enum": ["bad"]}},
+    {"not": {"pattern": "x"}},
+    {"pattern": "x"},
 ]
 _ADDITIONAL: list[Any] = [
     None,
