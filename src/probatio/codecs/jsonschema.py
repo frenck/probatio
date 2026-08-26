@@ -2105,6 +2105,14 @@ def _from_property_names(node: dict[str, Any], ctx: _Decode) -> Any:
         )
         raise SchemaError(message) from None
 
+    # A key schema that decodes to a plain value (``{"const": "a"}`` or
+    # ``{"type": "null"}``) would go in as a *literal* key, and a marker compares
+    # equal to its own name (``Optional("a") == "a"``, same hash), so it would
+    # silently replace a declared property rather than constrain the key. Wrapping
+    # it keeps it a key *validator*, which the engine matches separately.
+    if not callable(key_validator):
+        return Equal(key_validator)
+
     return key_validator
 
 

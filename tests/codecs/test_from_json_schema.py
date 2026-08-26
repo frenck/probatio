@@ -1725,3 +1725,20 @@ def test_required_undeclared_name_with_no_additional_properties_accepts_nothing(
         schema({"a": 1})
     with pytest.raises(Invalid):
         schema({})
+
+
+def test_property_names_const_does_not_replace_a_declared_property() -> None:
+    """A literal key schema stays a key validator, not a key equal to a marker."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"const": "a"},
+            "properties": {"a": {"type": "integer"}},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(Invalid):
+        schema({"a": "x"})
+    with pytest.raises(Invalid):
+        schema({"zz": "x"})
