@@ -370,7 +370,7 @@ def _oa_mapping(
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
-            additional = _absorb_extra(pval, additional)
+            additional = _absorb_extra(pval, additional, pkey, closed=closed)
 
     dependent_required, group_constraints = _group_constraints(
         inclusive, exclusive, version
@@ -464,9 +464,19 @@ def _expand_any_key(
     return {name: pval.copy() for name in names}, None
 
 
-def _absorb_extra(pval: dict[str, Any], additional: Any) -> Any:
-    """Fold a type-key value into the object's ``additionalProperties``."""
-    if pval == _OPEN_OBJECT:
+def _absorb_extra(
+    pval: dict[str, Any], additional: Any, key: Any, *, closed: bool
+) -> Any:
+    """Fold a type-key value into the object's ``additionalProperties``.
+
+    An open mapping keeps the value schema only where the key covers every
+    property name, which ``str`` does (every JSON key is one) as does ``object``.
+    A partial key is different: ``{int: int}`` with ``ALLOW_EXTRA`` accepts
+    ``{"a": None}``, because "a" matches no schema key and the policy lets it
+    through with any value, so ``additionalProperties: {"type": "integer"}`` would
+    reject what the mapping accepts.
+    """
+    if pval == _OPEN_OBJECT or not (closed or key in (str, object)):
         return True
     return pval if additional is None else additional
 

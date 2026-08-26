@@ -43,6 +43,31 @@ _json_literals = st.one_of(
 _KEY_KINDS = ("required", "optional")
 _EXTRA_MODES = (None, "allow", "remove")
 
+# What a mapping's catch-all entry is keyed on. ``Extra`` is the marker; the rest
+# are *variable keys*, where the key itself is validated. Those were never
+# generated before, so every property suite was blind to the whole region,
+# ``{str: int}`` included, and to the ``propertyNames`` the encoder renders from a
+# restrictive one.
+_CATCHALL_KINDS = ("extra", "str_key", "int_key", "in_key", "coerce_key")
+
+# Field names and data keys are drawn from this shared alphabet as well as from
+# free text. Both sides used to draw arbitrary text independently, so a generated
+# value almost never landed on a declared property or inside a variable key's
+# set, and the whole mapping region was explored far more shallowly than the
+# example counts suggested. The digits matter for a coercing key, which turns
+# "1" into a number the way a property name never could.
+_KEY_ALPHABET = ("a", "b", "c", "1", "2")
+
+# The membership key's set is fixed rather than drawn: the declared field names
+# are random text, so a fixed set reliably produces both a name inside it and
+# names outside, which is the interesting pairing.
+_IN_KEY_MEMBERS = ("a", "b")
+
+
+def _names() -> st.SearchStrategy[str]:
+    """Property names: the shared alphabet, plus free text for the odd shapes."""
+    return st.sampled_from(_KEY_ALPHABET) | st.text(min_size=1, max_size=3)
+
 
 def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
     """A recursive strategy yielding library-agnostic schema specs.
@@ -90,12 +115,15 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
             st.builds(
                 lambda fields, extra, catchall: ("dict", fields, extra, catchall),
                 st.dictionaries(
-                    st.text(min_size=1, max_size=3),
+                    _names(),
                     st.tuples(st.sampled_from(_KEY_KINDS), children),
                     max_size=3,
                 ),
                 st.sampled_from(_EXTRA_MODES),
-                st.one_of(st.none(), children),
+                st.one_of(
+                    st.none(),
+                    st.tuples(st.sampled_from(_CATCHALL_KINDS), children),
+                ),
             ),
         ),
         max_leaves=8,
@@ -118,10 +146,7 @@ def data(*, booleans: bool = True, floats: bool = True) -> st.SearchStrategy[Any
         scalars |= st.booleans()
     return st.recursive(
         scalars,
-        lambda c: (
-            st.lists(c, max_size=3)
-            | st.dictionaries(st.text(min_size=1, max_size=3), c, max_size=3)
-        ),
+        lambda c: st.lists(c, max_size=3) | st.dictionaries(_names(), c, max_size=3),
         max_leaves=6,
     )
 
@@ -160,18 +185,40 @@ def build(spec: Any, lib: Any) -> Any:
 
 
 def _build_dict(spec: Any, lib: Any) -> Any:
-    """Materialize a mapping spec, with marker kinds, an extra policy, and Extra."""
+    """Materialize a mapping spec: marker kinds, an extra policy, and a catch-all."""
     _, fields, extra, catchall = spec
     mapping: dict[Any, Any] = {}
     for key, (key_kind, child) in fields.items():
         marker = (lib.Required if key_kind == "required" else lib.Optional)(key)
         mapping[marker] = build(child, lib)
     if catchall is not None:
-        mapping[lib.Extra] = build(catchall, lib)
+        kind, child = catchall
+        mapping[_catchall_key(kind, lib)] = build(child, lib)
     if extra is None:
         return mapping
     policy = lib.ALLOW_EXTRA if extra == "allow" else lib.REMOVE_EXTRA
     return lib.Schema(mapping, extra=policy)
+
+
+def _catchall_key(kind: str, lib: Any) -> Any:
+    """The key a catch-all entry sits under: the Extra marker or a variable key.
+
+    A variable key is validated like any other schema, so the engine applies it to
+    every key no literal marker matched. ``str`` is the everyday catch-all shape;
+    ``int`` is one no JSON property name can satisfy; the membership key is what a
+    ``propertyNames`` enum decodes to.
+    """
+    if kind == "extra":
+        return lib.Extra
+    if kind == "str_key":
+        return str
+    if kind == "int_key":
+        return int
+    if kind == "coerce_key":
+        # A key that *transforms*: it accepts the property name "1" by turning it
+        # into a number, which no ``{"type": "integer"}`` rendering can express.
+        return lib.Coerce(int)
+    return lib.In(list(_IN_KEY_MEMBERS))
 
 
 def canonical_openapi(node: Any) -> Any:

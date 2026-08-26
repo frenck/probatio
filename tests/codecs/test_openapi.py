@@ -811,3 +811,19 @@ def test_decoded_pattern_emits_an_unanchored_openapi_pattern() -> None:
 
     decoded = from_json_schema({"type": "string", "pattern": "x"})
     assert to_openapi(decoded)["pattern"] == "x"
+
+
+def test_remove_extra_mapping_with_a_partial_key_renders_open() -> None:
+    """REMOVE_EXTRA accepts a key the validator misses, with any value at all."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({int: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_remove_extra_mapping_with_a_str_key_keeps_its_value_schema() -> None:
+    """A str key covers every property name, so its value schema still applies."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}

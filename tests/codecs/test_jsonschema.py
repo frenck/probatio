@@ -1066,3 +1066,22 @@ def test_union_key_needs_only_one_branch_to_match_a_name() -> None:
     """anyOf is satisfied by a single branch, so one string branch is enough."""
     encoded = to_json_schema(Schema({Any(In(["a"]), In(["b"])): str}))
     assert encoded["propertyNames"] == {"anyOf": [{"enum": ["a"]}, {"enum": ["b"]}]}
+
+
+def test_open_mapping_with_a_partial_key_renders_open() -> None:
+    """A name the key misses falls through to the policy and may take any value."""
+    encoded = to_json_schema(Schema({int: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_open_mapping_with_a_str_key_keeps_its_value_schema() -> None:
+    """A str key covers every property name, so the policy never comes into play."""
+    encoded = to_json_schema(Schema({str: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_open_mapping_emits_no_property_names() -> None:
+    """An open mapping accepts a key the validator rejects, so it cannot constrain."""
+    assert "propertyNames" not in to_json_schema(
+        Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
+    )

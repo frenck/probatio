@@ -396,22 +396,25 @@ def _convert_mapping(
     additional: Any = (
         False
         if forbid_extra
-        else _additional_properties(variable_values, allow_extra=allow_extra)
+        else _additional_properties(
+            variable_values, variable_keys, allow_extra=allow_extra
+        )
     )
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
         "additionalProperties": additional,
     }
-    # ``propertyNames`` constrains *every* property name, declared ones included,
-    # but a probatio literal key is matched ahead of the variable keys and never
-    # sees them. Emitting it beside a declared property would therefore narrow the
-    # document, so it is only emitted for a mapping that declares none.
+    # ``propertyNames`` constrains *every* property name, so it can only be
+    # emitted where every name really is constrained. A declared property is
+    # matched ahead of the variable keys and never sees them, and an open mapping
+    # lets an unmatched key through with any value at all. Emitting it in either
+    # case would reject input the mapping accepts.
     property_names = _property_names(variable_keys)
-    if property_names is not None and properties:
+    if property_names is not None and (properties or allow_extra):
         # Dropping it widens, so strict mode refuses: ``_open`` raises there. Its
         # open-schema return is not wanted here, only that refusal.
-        _open("a key validator on a mapping that also declares properties")
+        _open("a key validator that does not constrain every property name")
         property_names = None
     if property_names is not None:
         result["propertyNames"] = property_names
@@ -475,6 +478,7 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
 
 def _additional_properties(
     variable_values: list[dict[str, Any]],
+    variable_keys: list[dict[str, Any]],
     *,
     allow_extra: bool,
 ) -> Any:
@@ -483,9 +487,19 @@ def _additional_properties(
     No variable key falls back to the extra policy (open or closed). One renders
     as its value schema; several ({str: int, int: str}) merge into an ``anyOf``
     so no pair is silently dropped.
+
+    An *open* mapping keeps its variable-key value schema only where those keys
+    cover every property name, which a plain ``str`` key does: no name can miss
+    it, so the extra policy never comes into play. A partial key is different.
+    ``{int: int}`` with ``ALLOW_EXTRA`` accepts ``{"a": None}``, because "a"
+    matches no schema key and the policy lets it through with any value, so
+    rendering it as ``additionalProperties: {"type": "integer"}`` would reject
+    what the mapping accepts. There the object renders open instead.
     """
     if not variable_values:
         return allow_extra
+    if allow_extra and not all(key in _ANY_KEY for key in variable_keys):
+        return True
     if len(variable_values) == 1:
         return variable_values[0]
     return {"anyOf": variable_values}

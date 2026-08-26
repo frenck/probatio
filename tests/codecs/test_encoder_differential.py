@@ -59,9 +59,14 @@ def test_emitted_schema_is_valid_and_serializable(spec: Any) -> None:
     _VALIDATOR.check_schema(document)
 
 
+# A narrowing needs a spec and a value that meet: a variable key and a property
+# name it accepts, say. Those are drawn independently, so the pairing is rare and
+# the example count has to be high enough to reach it. At 500 a reintroduced
+# narrowing on a coercing key went undetected; at 2000 it is caught, for about
+# three extra seconds.
 @given(spec=strategies.specs(no_narrowing=True), value=strategies.data(booleans=False))
 @settings(
-    max_examples=500, derandomize=True, suppress_health_check=[HealthCheck.too_slow]
+    max_examples=2000, derandomize=True, suppress_health_check=[HealthCheck.too_slow]
 )
 def test_emitted_schema_never_narrows(spec: Any, value: Any) -> None:
     """The emitted schema never rejects an input probatio accepts."""
