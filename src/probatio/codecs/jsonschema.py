@@ -525,10 +525,14 @@ def _property_names(variable_keys: list[dict[str, Any]]) -> dict[str, Any] | Non
 def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
     """Whether a rendered key schema can match a string, the only kind of key.
 
-    A combinator is read through: one branch asserting a string is enough, since
-    that is what makes a property name possible at all. Anything else this cannot
-    read reports False and drops the keyword, which widens. Widening is the
-    direction the encoder is allowed to be wrong in.
+    A combinator is read through, with the quantifier its own semantics demand.
+    ``allOf`` holds every branch at once, so a property name has to satisfy all of
+    them; one string branch beside ``{"type": "integer"}`` describes a key nothing
+    can be, and emitting it would reject every object the mapping accepts. A union
+    only needs one branch to work out.
+
+    Anything else this cannot read reports False and drops the keyword, which
+    widens. Widening is the direction the encoder is allowed to be wrong in.
     """
     if key_schema.get("type") == "string":
         return True
@@ -540,11 +544,18 @@ def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
     # A merged ``All`` renders as ``allOf``, which is how a decoded pattern comes
     # back around on a second trip; without this the constraint would be dropped
     # there and the round trip would quietly widen.
-    for combinator in ("allOf", "anyOf", "oneOf"):
-        branches = key_schema.get(combinator)
-        if isinstance(branches, list) and any(
+    branches = key_schema.get("allOf")
+    if isinstance(branches, list) and branches:
+        return all(
             isinstance(branch, dict) and _matches_a_property_name(branch)
             for branch in branches
+        )
+
+    for combinator in ("anyOf", "oneOf"):
+        union = key_schema.get(combinator)
+        if isinstance(union, list) and any(
+            isinstance(branch, dict) and _matches_a_property_name(branch)
+            for branch in union
         ):
             return True
 
