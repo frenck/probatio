@@ -23,6 +23,7 @@ from probatio.validators import (
     Base64,
     Contains,
     ExactSequence,
+    In,
     Length,
     MultipleOf,
     Range,
@@ -659,7 +660,6 @@ def test_format_byte_decodes_to_base64() -> None:
     "node",
     [
         {"patternProperties": {"^x": {"type": "integer"}}},
-        {"propertyNames": {"maxLength": 3}},
         {"dependentRequired": {"a": ["b"]}},
         {"dependentSchemas": {"a": {"type": "object"}}},
         {"if": {"type": "string"}, "then": {"minLength": 1}},
@@ -1481,3 +1481,221 @@ def test_property_default_is_validated_after_it_is_applied() -> None:
     )
     with pytest.raises(MultipleInvalid):
         schema({})
+
+
+def test_property_names_constrains_undeclared_keys() -> None:
+    """propertyNames decodes to the mapping's key validator (Pydantic dict[Literal, str])."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"enum": ["energy_sources", "device_consumption"]},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    assert schema({"energy_sources": "abc"}) == {"energy_sources": "abc"}
+    with pytest.raises(Invalid):
+        schema({"nope": "abc"})
+
+
+def test_property_names_of_type_string_keeps_the_schema_usable() -> None:
+    """A key schema of {"type": "string"} is what Zod emits for a record; it decodes."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"type": "string"},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    assert schema({"anything": "x"}) == {"anything": "x"}
+    with pytest.raises(Invalid):
+        schema({"anything": 1})
+
+
+def test_property_names_without_additional_properties_leaves_values_free() -> None:
+    """propertyNames alone constrains the keys and lets any value through."""
+    schema = from_json_schema({"type": "object", "propertyNames": {"enum": ["a"]}})
+    assert schema({"a": object}) == {"a": object}
+    with pytest.raises(Invalid):
+        schema({"b": 1})
+
+
+def test_property_names_is_not_bypassed_by_additional_properties_true() -> None:
+    """An open object still has to satisfy propertyNames; ALLOW_EXTRA would skip it."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"enum": ["a"]},
+            "additionalProperties": True,
+        },
+    )
+    assert schema({"a": 1}) == {"a": 1}
+    with pytest.raises(Invalid):
+        schema({"b": 1})
+
+
+def test_property_names_forbids_a_declared_property_it_rejects() -> None:
+    """propertyNames covers declared names, so a contradicted property can never appear."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"a": {"type": "string"}},
+            "propertyNames": {"enum": ["b"]},
+        },
+    )
+    forbidden = [key for key in schema.schema if isinstance(key, Forbidden)]
+    assert len(forbidden) == 1
+    with pytest.raises(Invalid):
+        schema({"a": "x"})
+
+
+def test_property_names_applies_without_a_type() -> None:
+    """A typeless propertyNames constrains objects and passes other values through."""
+    schema = from_json_schema({"propertyNames": {"maxLength": 3}})
+    assert schema("not an object") == "not an object"
+    assert schema({"abc": 1}) == {"abc": 1}
+    with pytest.raises(Invalid):
+        schema({"toolong": 1})
+
+
+def test_property_names_round_trips_through_to_json_schema() -> None:
+    """A key validator survives the encode/decode round trip as propertyNames."""
+    encoded = to_json_schema(Schema({In(["a", "b"]): str}))
+    assert encoded["propertyNames"] == {"enum": ["a", "b"]}
+
+    schema = from_json_schema(encoded)
+    assert schema({"a": "x"}) == {"a": "x"}
+    with pytest.raises(Invalid):
+        schema({"zzz": "x"})
+
+
+def test_property_names_allows_a_declared_property_it_accepts() -> None:
+    """A declared name the key schema accepts stays an ordinary property."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"a": {"type": "string"}},
+            "propertyNames": {"enum": ["a"]},
+        },
+    )
+    assert schema({"a": "x"}) == {"a": "x"}
+    assert not [key for key in schema.schema if isinstance(key, Forbidden)]
+
+
+def test_property_names_rejecting_a_required_name_accepts_nothing() -> None:
+    """A required name the key schema forbids leaves the object unsatisfiable.
+
+    The name has to be present and may never be present. Forbidding just that key
+    would still accept every object that omits it, which is wider than the
+    document allows (see ``test_decoder_oracle``).
+    """
+    schema = from_json_schema(
+        {"type": "object", "required": ["a"], "propertyNames": {"enum": ["b"]}},
+    )
+    with pytest.raises(Invalid):
+        schema({"a": 1})
+    with pytest.raises(Invalid):
+        schema({"b": 1})
+    with pytest.raises(Invalid):
+        schema({})
+
+
+@pytest.mark.parametrize("key_schema", [{}, True])
+def test_property_names_that_accepts_anything_is_no_constraint(
+    key_schema: object,
+) -> None:
+    """An accept-anything key schema leaves the object's open shape untouched."""
+    schema = from_json_schema({"type": "object", "propertyNames": key_schema})
+    assert schema({"anything": 1}) == {"anything": 1}
+
+
+def test_property_names_that_cannot_be_a_key_is_refused() -> None:
+    """A key schema decoding to an unhashable mapping cannot take the key slot."""
+    with pytest.raises(SchemaError, match="propertyNames"):
+        from_json_schema(
+            {
+                "type": "object",
+                "propertyNames": {
+                    "type": "object",
+                    "properties": {"a": {"type": "string"}},
+                },
+            },
+        )
+
+
+def test_property_names_rejects_a_non_string_key() -> None:
+    """The key schema runs on the key itself, so a non-string key is caught.
+
+    voluptuous-openapi rendered this as ``{Extra: str}``, which constrains only the
+    values, so a non-string key passed. A key validator constrains the key.
+    """
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "propertyNames": {"type": "string"},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    with pytest.raises(Invalid):
+        schema({1: "x"})
+
+
+def test_zod_record_tool_schema_decodes() -> None:
+    """A Zod 4 record argument decodes; refusing it broke real MCP servers.
+
+    Verbatim ``z.toJSONSchema`` output for an object holding
+    ``z.record(z.string(), z.string())``. Zod emits ``propertyNames`` for every
+    record, so refusing the keyword took down any tool with a record argument.
+    """
+    schema = from_json_schema(
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "filters": {
+                    "type": "object",
+                    "propertyNames": {"type": "string"},
+                    "additionalProperties": {"type": "string"},
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    )
+    call = {"query": "climate", "filters": {"publication_year": "2020-2024"}}
+    assert schema(call) == call
+    with pytest.raises(Invalid):
+        schema({"query": "climate", "filters": {"publication_year": 2020}})
+
+
+def test_pydantic_literal_keyed_dict_tool_schema_enforces_its_keys() -> None:
+    """A Pydantic dict[Literal[...], str] argument keeps its key constraint.
+
+    Verbatim ``TypeAdapter(str | dict[Literal[...], str] | None).json_schema()``
+    output. The old converter dropped the key set entirely and accepted any key.
+    """
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {
+                "config_hash": {
+                    "anyOf": [
+                        {"type": "string"},
+                        {
+                            "additionalProperties": {"type": "string"},
+                            "propertyNames": {
+                                "enum": ["energy_sources", "device_consumption"],
+                            },
+                            "type": "object",
+                        },
+                        {"type": "null"},
+                    ],
+                },
+            },
+        },
+    )
+    ok = {"config_hash": {"energy_sources": "deadbeef"}}
+    assert schema(ok) == ok
+    assert schema({"config_hash": "deadbeef"}) == {"config_hash": "deadbeef"}
+    with pytest.raises(Invalid):
+        schema({"config_hash": {"bogus_key": "deadbeef"}})

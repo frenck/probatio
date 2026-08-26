@@ -19,7 +19,10 @@ import datetime
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from probatio._compile import recursion_guard
 from probatio.codecs._regex_safety import is_catastrophic
@@ -324,6 +327,9 @@ def _convert_mapping(
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
     variable_values: list[dict[str, Any]] = []
+    # ...and their *key* validators, which become ``propertyNames``: the mirror of
+    # the constraint ``from_json_schema`` reads back out of that keyword.
+    variable_keys: list[dict[str, Any]] = []
     # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
@@ -354,6 +360,7 @@ def _convert_mapping(
             # present value before dropping it, so its value schema still applies
             # to the keys it matches, the same as a plain variable key.
             variable_values.append(value_schema)
+            variable_keys.append(_child(name))
             continue
 
         if not isinstance(name, str):
@@ -396,6 +403,14 @@ def _convert_mapping(
         "properties": properties,
         "additionalProperties": additional,
     }
+    # ``propertyNames`` constrains *every* property name, declared ones included,
+    # but a probatio literal key is matched ahead of the variable keys and never
+    # sees them. Emitting it beside a declared property would therefore narrow the
+    # document, so it is only emitted for a mapping that declares none. Dropping it
+    # widens instead, which is the encoder's documented fallback.
+    property_names = _property_names(variable_keys) if not properties else None
+    if property_names is not None:
+        result["propertyNames"] = property_names
     if required:
         result["required"] = required
     dependent = groups.dependent_required()
@@ -470,6 +485,26 @@ def _additional_properties(
     if len(variable_values) == 1:
         return variable_values[0]
     return {"anyOf": variable_values}
+
+
+# Key schemas that constrain nothing. Every JSON object key is a string, so
+# ``{"type": "string"}`` accepts them all, exactly like the empty schema.
+_ANY_KEY: tuple[dict[str, Any], ...] = ({}, {"type": "string"})
+
+
+def _property_names(variable_keys: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Combine the variable-key validators into one ``propertyNames``, or None.
+
+    None means "no constraint to emit": either the mapping has no variable key,
+    or one of them accepts every key, which makes the union accept every key too.
+    Several restrictive keys ({In([...]): str, Match(...): int}) become an
+    ``anyOf``, since the engine accepts a key that matches any one of them.
+    """
+    if not variable_keys or any(key in _ANY_KEY for key in variable_keys):
+        return None
+    if len(variable_keys) == 1:
+        return variable_keys[0]
+    return {"anyOf": variable_keys}
 
 
 def _decorate_property(
@@ -1168,7 +1203,8 @@ def from_json_schema(schema: dict[str, Any]) -> Schema:
     """Build a ``Schema`` from a JSON Schema dictionary.
 
     This is the inverse of ``to_json_schema`` for the constructs that map cleanly:
-    objects (with ``properties``, ``required``, ``additionalProperties``), arrays
+    objects (with ``properties``, ``required``, ``additionalProperties``, and
+    ``propertyNames``, which becomes the mapping's key validator), arrays
     (``items``, ``minItems``/``maxItems``), the primitive types, ``enum``,
     ``const``, ``anyOf``, ``allOf``, ``oneOf`` (with its exact "one branch only"
     semantics), a ``type`` array like ``["string", "null"]``, and the string and
@@ -1314,8 +1350,11 @@ def _typed_facet(node: dict[str, Any], ctx: _Decode) -> Any:
 _UNSUPPORTED_KEYWORDS = frozenset(
     {
         "if",
-        "propertyNames",
         "patternProperties",
+        # ``propertyNames`` is not refused: a mapping key is itself validated by a
+        # schema, so it decodes to the key side of the mapping (see
+        # ``_from_property_names``).
+        #
         # ``dependentRequired`` is not blanket-refused: its symmetric all-or-none
         # form decodes to an ``Inclusive`` group (see ``_from_object``). The
         # asymmetric form it cannot honor is refused there instead.
@@ -1705,6 +1744,7 @@ _OBJECT_KEYWORDS = frozenset(
         "properties",
         "required",
         "additionalProperties",
+        "propertyNames",
         "minProperties",
         "maxProperties",
         "dependentRequired",
@@ -1930,10 +1970,24 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
         message = "JSON Schema 'required' must contain only property names (strings)"
         raise SchemaError(message)
 
+    key_validator = _from_property_names(node, ctx)
+    allowed = _key_filter(key_validator)
+
     required: set[Any] = set(required_raw)
+
+    # A required name the key schema rejects has to be present and may never be
+    # present, so nothing satisfies the object. Rendering the individual key as
+    # forbidden would still accept every object that simply omits it, which is
+    # wider than the document allows; refuse the lot instead.
+    if not all(map(allowed, required)):
+        return In([])
+
     mapping: dict[Any, Any] = {}
     for name, subschema in properties.items():
-        if subschema is False:
+        # ``propertyNames`` covers declared names too, so a property its key
+        # schema rejects can never legally appear. That is what ``Forbidden``
+        # says, and it is already how a ``properties`` entry of ``false`` renders.
+        if subschema is False or not allowed(name):
             mapping[Forbidden(name)] = object
             continue
         key = _from_key(name, subschema, required=name in required)
@@ -1953,13 +2007,25 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
             additional_schema if additional_schema is not None else object
         )
 
+    # An undeclared key is validated by the mapping's variable key. Without
+    # ``propertyNames`` that is plain ``str`` (every JSON key); with it, the
+    # decoded key schema, so the constraint reaches the keys it was written for.
     if additional_schema is not None:
-        mapping[str] = additional_schema
+        mapping[key_validator if key_validator is not None else str] = additional_schema
+    elif key_validator is not None and additional is not False:
+        # Names constrained, values not: undeclared keys stay allowed, but each
+        # one still has to satisfy the key schema.
+        mapping[key_validator] = object
 
     if "dependentRequired" in node:
         _apply_inclusive_groups(node["dependentRequired"], mapping)
 
-    base = _object_base(mapping, additional, declared="properties" in node)
+    base = _object_base(
+        mapping,
+        additional,
+        declared="properties" in node,
+        constrained_keys=key_validator is not None,
+    )
     min_props = _item_count(node, "minProperties")
     max_props = _item_count(node, "maxProperties")
     if min_props is not None or max_props is not None:
@@ -1968,7 +2034,70 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
     return base
 
 
-def _object_base(mapping: dict[Any, Any], additional: Any, *, declared: bool) -> Any:
+def _from_property_names(node: dict[str, Any], ctx: _Decode) -> Any:
+    """Decode ``propertyNames`` into a key validator for the mapping, or None.
+
+    A mapping key is itself validated by a schema, so ``propertyNames`` maps onto
+    the key side of the mapping directly. A key schema that accepts anything
+    (``{}`` or ``true``) constrains nothing, so it decodes to None and the object
+    keeps whatever shape ``additionalProperties`` alone would have given it.
+
+    Plain ``{"type": "string"}`` is *not* folded away, even though every JSON key
+    is a string: the decoded schema also runs against Python mappings, where a
+    non-string key is reachable. It costs nothing anyway, since ``str`` is the key
+    the mapping would use regardless.
+    """
+    if "propertyNames" not in node:
+        return None
+
+    key_validator = _from_node(node["propertyNames"], ctx)
+    if key_validator is object:
+        return None
+
+    # The key validator goes in as a dict key, so an unhashable decode (a nested
+    # mapping schema) cannot be installed at all. Refuse it rather than let the
+    # dict write raise, and rather than drop the constraint.
+    try:
+        hash(key_validator)
+    except TypeError:
+        message = (
+            "JSON Schema 'propertyNames' does not decode to a usable key "
+            "validator; refusing to silently ignore the constraint"
+        )
+        raise SchemaError(message) from None
+
+    return key_validator
+
+
+def _key_filter(key_validator: Any) -> Callable[[str], bool]:
+    """Build the "may this property name appear" test for a decoded key schema.
+
+    The key schema is compiled once here rather than per name, and a name it
+    rejects is reported as not allowed. Only ``Invalid`` counts as a rejection;
+    any other failure is a malformed schema and belongs to ``_decode``.
+    """
+    if key_validator is None:
+        return lambda _name: True
+
+    compiled = Schema(key_validator)
+
+    def allowed(name: str) -> bool:
+        try:
+            compiled(name)
+        except Invalid:
+            return False
+        return True
+
+    return allowed
+
+
+def _object_base(
+    mapping: dict[Any, Any],
+    additional: Any,
+    *,
+    declared: bool,
+    constrained_keys: bool,
+) -> Any:
     """Pick the base object schema from the property map and additionalProperties.
 
     A declared property set is a closed contract (probatio's deliberate strict
@@ -1977,7 +2106,14 @@ def _object_base(mapping: dict[Any, Any], additional: Any, *, declared: bool) ->
     explicit ``additionalProperties: false`` keeps an empty object closed. And a
     ``required`` list without a ``properties`` set constrains presence only, so
     undeclared extra keys stay allowed.
+
+    A ``propertyNames`` key schema is the exception to all of that: it constrains
+    every key, so the object can never render open. ``ALLOW_EXTRA`` would wave
+    through precisely the keys the key schema exists to reject.
     """
+    if constrained_keys:
+        return mapping
+
     if additional is True:
         return Schema(mapping, extra=ALLOW_EXTRA)
 

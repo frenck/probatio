@@ -378,6 +378,30 @@ def test_invalid_extra_policy_stays_interpreted() -> None:
     assert schema({"a": 1}) == {"a": 1}
 
 
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        {In(["a", "b"]): str},
+        {"x": int, In(["a", "b"]): str},
+        {Match(r"^[a-z]+$"): int},
+    ],
+    ids=["membership", "with_property", "match"],
+)
+def test_key_validator_mapping_stays_interpreted(mapping: dict) -> None:
+    """A validator key (what propertyNames decodes to) is not generated, and agrees.
+
+    The generator inlines a literal or type key; an arbitrary key validator has to
+    run per key, so it bails to the engine. Compilation declining is the safe
+    outcome, but only if the two paths still agree, so both are asserted here.
+    """
+    compiled = Schema(mapping, compile=True).compile()
+    assert not _is_compiled(compiled)
+
+    interpreted = Schema(mapping, compile=False)
+    for data in ({"a": "s"}, {"x": 1}, {"zz": "s"}, {"a": 1}, {1: "s"}, {}):
+        assert _outcome(interpreted, dict(data)) == _outcome(compiled, dict(data))
+
+
 def test_strenum_key_stays_interpreted() -> None:
     """A StrEnum key is a str, but its repr is not source to emit, so it bails."""
     schema = Schema({_Svc.ON: int}, compile=True).compile()
