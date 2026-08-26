@@ -1742,3 +1742,30 @@ def test_property_names_const_does_not_replace_a_declared_property() -> None:
         schema({"a": "x"})
     with pytest.raises(Invalid):
         schema({"zz": "x"})
+
+
+def test_property_names_referring_to_the_root_is_refused() -> None:
+    """A key schema pointing at the schema being built cannot be checked yet."""
+    with pytest.raises(SchemaError, match="schema being built"):
+        from_json_schema(
+            {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "propertyNames": {"$ref": "#"},
+            },
+        )
+
+
+def test_property_names_with_a_resolvable_ref_still_decodes() -> None:
+    """A $ref key schema that is not self-recursive resolves and constrains keys."""
+    schema = from_json_schema(
+        {
+            "$defs": {"name": {"enum": ["a", "b"]}},
+            "type": "object",
+            "propertyNames": {"$ref": "#/$defs/name"},
+            "additionalProperties": {"type": "string"},
+        },
+    )
+    assert schema({"a": "x"}) == {"a": "x"}
+    with pytest.raises(Invalid):
+        schema({"zz": "x"})

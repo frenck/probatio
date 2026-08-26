@@ -2129,6 +2129,11 @@ def _key_filter(key_validator: Any) -> Callable[[str], bool]:
     The key schema is compiled once here rather than per name, and a name it
     rejects is reported as not allowed. Only ``Invalid`` counts as a rejection;
     any other failure is a malformed schema and belongs to ``_decode``.
+
+    A key schema that refers to the schema still being built (``{"$ref": "#"}``)
+    is the one case this cannot answer: running it would re-enter a reference
+    whose target does not exist yet. Guessing would either forbid a property the
+    document allows or accept one it forbids, so the document is refused instead.
     """
     if key_validator is _NO_KEY_SCHEMA:
         return lambda _name: True
@@ -2140,6 +2145,13 @@ def _key_filter(key_validator: Any) -> Callable[[str], bool]:
             compiled(name)
         except Invalid:
             return False
+        except RuntimeError as exc:
+            message = (
+                "JSON Schema 'propertyNames' refers to the schema being built, so "
+                "it cannot be resolved against a declared property name; refusing "
+                "rather than guessing at the constraint"
+            )
+            raise SchemaError(message) from exc
         return True
 
     return allowed
