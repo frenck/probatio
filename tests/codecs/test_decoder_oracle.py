@@ -164,3 +164,99 @@ def test_property_names_roundtrip_reaches_a_behavioral_fixpoint(
         assert _accepts(twice, value) == _accepts(thrice, value), (
             f"round trip is not a fixpoint for {value!r} on {document!r}"
         )
+
+
+# Every standalone constraint keyword, with the JSON type it constrains. A value
+# of any other type satisfies it without inspection, so wrapping it in ``not``
+# must reject that value rather than accept it.
+_TYPE_SCOPED: list[tuple[str, dict[str, Any]]] = [
+    ("minLength", {"minLength": 5}),
+    ("maxLength", {"maxLength": 2}),
+    ("pattern", {"pattern": "x"}),
+    ("minimum", {"minimum": 10}),
+    ("maximum", {"maximum": 1}),
+    ("exclusiveMinimum", {"exclusiveMinimum": 10}),
+    ("exclusiveMaximum", {"exclusiveMaximum": 1}),
+    ("multipleOf", {"multipleOf": 2}),
+    ("minItems", {"minItems": 3}),
+    ("maxItems", {"maxItems": 1}),
+    ("uniqueItems", {"uniqueItems": True}),
+    ("contains", {"contains": {"const": 9}}),
+    ("minProperties", {"minProperties": 2}),
+    ("maxProperties", {"maxProperties": 1}),
+]
+
+_MIXED_TYPES: list[Any] = [
+    "str",
+    "",
+    "xy",
+    5,
+    5.5,
+    True,
+    False,
+    None,
+    [],
+    [1, 1],
+    [9],
+    {},
+    {"a": 1},
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "body"), _TYPE_SCOPED, ids=[n for n, _ in _TYPE_SCOPED]
+)
+@pytest.mark.parametrize("form", ["bare", "negated"])
+def test_a_standalone_keyword_is_scoped_to_its_own_type(
+    name: str,
+    body: dict[str, Any],
+    form: str,
+) -> None:
+    """A typeless keyword agrees with the reference on values of every JSON type.
+
+    Unscoped, these only narrowed, which is easy to miss. Under ``not`` the same
+    gap inverts into a widening, so both forms are checked.
+    """
+    document = {"not": body} if form == "negated" else body
+    _VALIDATOR.check_schema(document)
+    reference = _VALIDATOR(document)
+    schema = from_json_schema(document)
+
+    for value in _MIXED_TYPES:
+        assert _accepts(schema, value) == reference.is_valid(value), (
+            f"{name} disagrees with the reference on {value!r} ({form})"
+        )
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"pattern": "x"},
+        {"minLength": 5},
+        {"minimum": 10},
+        {"multipleOf": 2},
+        {"minItems": 3},
+        {"contains": {"const": 9}},
+        {"properties": {"a": {"type": "integer"}}},
+        {"maxProperties": 1},
+    ],
+    ids=str,
+)
+def test_a_typeless_keyword_survives_re_encoding(document: dict[str, Any]) -> None:
+    """Re-emitting a type-scoped keyword keeps it, and adds no type of its own.
+
+    The scoping wrapper means what a JSON Schema keyword already means, so it
+    re-emits as the bare keyword. Carrying the inner renderer's ``type`` out with
+    it would narrow, since the typeless form accepts other types vacuously.
+    """
+    schema = from_json_schema(document)
+    emitted = to_json_schema(schema)
+    _VALIDATOR.check_schema(emitted)
+    assert emitted, f"{document} re-encoded to an open schema, losing the keyword"
+
+    reference = _VALIDATOR(emitted)
+    for value in _MIXED_TYPES:
+        if _accepts(schema, value):
+            assert reference.is_valid(value), (
+                f"re-encoding {document} narrows: it rejects {value!r}"
+            )
