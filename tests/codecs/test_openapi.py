@@ -803,3 +803,11 @@ def test_strict_allows_a_faithfully_open_schema() -> None:
 def test_non_strict_still_widens_by_default() -> None:
     """Without strict, an unrepresentable construct still widens to an open schema."""
     assert to_openapi(Schema(frozenset[int])) == {}
+
+
+def test_decoded_pattern_emits_an_unanchored_openapi_pattern() -> None:
+    """OpenAPI pattern is an unanchored search too, so it round-trips as written."""
+    from probatio import from_json_schema  # noqa: PLC0415
+
+    decoded = from_json_schema({"type": "string", "pattern": "x"})
+    assert to_openapi(decoded)["pattern"] == "x"

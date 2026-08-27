@@ -1049,3 +1049,20 @@ def test_strict_refuses_a_key_validator_that_cannot_match_a_name() -> None:
 def test_strict_still_allows_an_open_string_key() -> None:
     """A plain str key constrains nothing, so there is no constraint to refuse."""
     assert "propertyNames" not in to_json_schema(Schema({str: int}), strict=True)
+
+
+def test_conjunction_key_needs_every_branch_to_match_a_name() -> None:
+    """allOf holds every branch at once, so one string branch is not enough.
+
+    ``All(str, Coerce(int))`` accepts the key "1" by coercing it, and renders as an
+    ``allOf`` of a string and an integer. Emitting that as propertyNames would
+    describe a key nothing can be, rejecting every object the mapping accepts.
+    """
+    encoded = to_json_schema(Schema({All(str, Coerce(int)): str}))
+    assert "propertyNames" not in encoded
+
+
+def test_union_key_needs_only_one_branch_to_match_a_name() -> None:
+    """anyOf is satisfied by a single branch, so one string branch is enough."""
+    encoded = to_json_schema(Schema({Any(In(["a"]), In(["b"])): str}))
+    assert encoded["propertyNames"] == {"anyOf": [{"enum": ["a"]}, {"enum": ["b"]}]}

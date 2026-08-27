@@ -37,7 +37,7 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
-from probatio.error import ContainsInvalid, Invalid, SchemaError
+from probatio.error import ContainsInvalid, Invalid, MatchInvalid, SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
@@ -525,9 +525,14 @@ def _property_names(variable_keys: list[dict[str, Any]]) -> dict[str, Any] | Non
 def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
     """Whether a rendered key schema can match a string, the only kind of key.
 
-    Deliberately conservative: a shape this cannot read as string-matching (an
-    ``allOf`` of merged constraints, say) reports False and drops the keyword,
-    which widens. Widening is the direction the encoder is allowed to be wrong in.
+    A combinator is read through, with the quantifier its own semantics demand.
+    ``allOf`` holds every branch at once, so a property name has to satisfy all of
+    them; one string branch beside ``{"type": "integer"}`` describes a key nothing
+    can be, and emitting it would reject every object the mapping accepts. A union
+    only needs one branch to work out.
+
+    Anything else this cannot read reports False and drops the keyword, which
+    widens. Widening is the direction the encoder is allowed to be wrong in.
     """
     if key_schema.get("type") == "string":
         return True
@@ -535,6 +540,25 @@ def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
         return all(isinstance(member, str) for member in key_schema["enum"])
     if "const" in key_schema:
         return isinstance(key_schema["const"], str)
+
+    # A merged ``All`` renders as ``allOf``, which is how a decoded pattern comes
+    # back around on a second trip; without this the constraint would be dropped
+    # there and the round trip would quietly widen.
+    branches = key_schema.get("allOf")
+    if isinstance(branches, list) and branches:
+        return all(
+            isinstance(branch, dict) and _matches_a_property_name(branch)
+            for branch in branches
+        )
+
+    for combinator in ("anyOf", "oneOf"):
+        union = key_schema.get(combinator)
+        if isinstance(union, list) and any(
+            isinstance(branch, dict) and _matches_a_property_name(branch)
+            for branch in union
+        ):
+            return True
+
     return False
 
 
@@ -803,7 +827,7 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
     if isinstance(node, Length):
         return _convert_length(node)
 
-    if isinstance(node, Match):
+    if isinstance(node, Match | _JsonPattern):
         return _convert_match(node)
 
     if isinstance(node, Maybe):
@@ -950,7 +974,7 @@ _PYTHON_ONLY_REGEX = re.compile(
 )
 
 
-def _convert_match(node: Match) -> dict[str, Any]:
+def _convert_match(node: Match | _JsonPattern) -> dict[str, Any]:
     """Render a Match as a string, with a JSON Schema ``pattern`` when ECMA-safe.
 
     JSON Schema patterns are ECMA-262 regular expressions, while ``Match`` holds a
@@ -961,7 +985,9 @@ def _convert_match(node: Match) -> dict[str, Any]:
     ``Match`` validates with ``re.match`` (anchored at the start), while a JSON
     Schema ``pattern`` is an unanchored ``re.search``. Wrapping an unanchored
     source as ``^(?:...)`` preserves the start anchoring, so the emitted schema
-    does not accept a value with a matching suffix that ``Match`` rejects.
+    does not accept a value with a matching suffix that ``Match`` rejects. A
+    ``_JsonPattern`` came *from* a JSON Schema ``pattern`` and already searches,
+    so it needs no wrapper and keeps its meaning across a round trip.
 
     A ``bytes`` pattern has no JSON Schema (JSON strings are text), so it renders
     as a plain string rather than crashing on the ``str``/``bytes`` mismatch.
@@ -969,6 +995,12 @@ def _convert_match(node: Match) -> dict[str, Any]:
     source = node.pattern.pattern
     if isinstance(source, bytes) or _PYTHON_ONLY_REGEX.search(source):
         return {"type": "string"}
+
+    # A decoded ``pattern`` already carries the spec's search semantics, so it
+    # goes back out exactly as it came in.
+    if isinstance(node, _JsonPattern):
+        return {"type": "string", "pattern": source}
+
     # A source already anchored at the start needs no wrapper; otherwise wrap it
     # (grouped, so a top-level alternation stays under the anchor).
     anchored = source if source.startswith("^") else f"^(?:{source})"
@@ -1540,6 +1572,41 @@ class _Not:
         raise Invalid(translation_key="must_not_match_not_schema")
 
 
+class _JsonPattern:
+    """Decode of JSON Schema ``pattern``: an unanchored search, not a match.
+
+    JSON Schema defines ``pattern`` as "the regular expression matches somewhere
+    in the string", the semantics of ``re.search``. ``Match`` mirrors voluptuous
+    and uses ``re.match``, which is anchored at the start, so decoding a pattern
+    to it rejected values the document allows. On its own that only narrowed, and
+    went unnoticed; under ``not`` it inverted into a widening, accepting exactly
+    what the document forbids.
+
+    The pattern is kept compiled (read the source as ``.pattern.pattern``) so the
+    encoder can re-emit it unanchored and the round trip keeps its meaning.
+    """
+
+    def __init__(self, pattern: str) -> None:
+        """Compile the pattern (already vetted by ``_safe_pattern``)."""
+        self.pattern = re.compile(pattern)
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return f"JsonPattern({self.pattern.pattern!r})"
+
+    def __call__(self, value: Any) -> Any:
+        """Return the value if the pattern is found anywhere in it."""
+        try:
+            found = self.pattern.search(value)
+        except TypeError as exc:
+            raise MatchInvalid(translation_key="expected_string") from exc
+
+        if not found:
+            raise MatchInvalid(translation_key="does_not_match_pattern")
+
+        return value
+
+
 def _unique_key(value: Any) -> Any:
     """Reduce a JSON value to a hashable key with JSON equality semantics.
 
@@ -1846,7 +1913,7 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
             ),
         )
     if "pattern" in node:
-        constraints.append(Match(_safe_pattern(node["pattern"])))
+        constraints.append(_JsonPattern(_safe_pattern(node["pattern"])))
     # When array keywords are present, the array facet below reads uniqueItems
     # and contains itself, scoped to arrays; adding them standalone here too
     # would double-apply them.
@@ -2460,7 +2527,7 @@ def _from_string(node: dict[str, Any]) -> Any:
             ),
         )
     if "pattern" in node:
-        constraints.append(Match(_safe_pattern(node["pattern"])))
+        constraints.append(_JsonPattern(_safe_pattern(node["pattern"])))
     if not constraints:
         return base
 
