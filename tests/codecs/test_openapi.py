@@ -811,3 +811,89 @@ def test_decoded_pattern_emits_an_unanchored_openapi_pattern() -> None:
 
     decoded = from_json_schema({"type": "string", "pattern": "x"})
     assert to_openapi(decoded)["pattern"] == "x"
+
+
+def test_remove_extra_mapping_with_a_partial_key_renders_open() -> None:
+    """REMOVE_EXTRA accepts a key the validator misses, with any value at all."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({int: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_remove_extra_mapping_with_a_str_key_keeps_its_value_schema() -> None:
+    """A str key covers every property name, so its value schema still applies."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_partial_key_on_an_open_mapping() -> None:
+    """Dropping the value constraint is a widening, which strict mode refuses."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({int: int}, extra=REMOVE_EXTRA)
+    assert to_openapi(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="partial variable key"):
+        to_openapi(schema, strict=True)
+
+
+def test_strict_refuses_a_partial_key_whose_value_is_an_open_object() -> None:
+    """The open-object shortcut drops the value constraint too, so strict refuses.
+
+    ``{In(["a"]): dict}`` requires the matched value to be an object, which
+    ``additionalProperties: true`` does not, whichever branch emitted it.
+    """
+    from probatio import REMOVE_EXTRA, In  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): dict}, extra=REMOVE_EXTRA)
+    assert to_openapi(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="partial variable key"):
+        to_openapi(schema, strict=True)
+
+
+def test_extra_marker_is_a_universal_key() -> None:
+    """Extra catches every unmatched key, so its value schema covers them all."""
+    from probatio import REMOVE_EXTRA, Extra  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({Extra: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_partial_key_does_not_undo_a_universal_one() -> None:
+    """Universality is decided across the mapping, not one entry at a time."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int, int: str}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
+
+
+def test_several_variable_keys_merge_into_any_of() -> None:
+    """Taking the first would reject what the other keys accept."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({int: int, str: str}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
+
+
+def test_transparent_wrapper_key_is_still_universal() -> None:
+    """Msg only swaps the error message, so its value schema stays representable."""
+    from probatio import REMOVE_EXTRA, Msg  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({Msg(str, "key"): int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_open_mapping_with_a_universal_key_keeps_its_value_schema() -> None:
+    """ALLOW_EXTRA seeds an open object, but a str key still matches every name."""
+    from probatio import ALLOW_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}

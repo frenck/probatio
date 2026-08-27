@@ -31,6 +31,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    covers_every_property_name,
     exclusive_constraint,
     merge_dependent_required,
 )
@@ -330,6 +331,10 @@ def _convert_mapping(
     # ...and their *key* validators, which become ``propertyNames``: the mirror of
     # the constraint ``from_json_schema`` reads back out of that keyword.
     variable_keys: list[dict[str, Any]] = []
+    # The raw keys as well. A rendered key schema cannot answer "does this cover
+    # every property name": an unrepresentable callable renders ``{}`` exactly as
+    # ``object`` does, and the two want opposite answers.
+    variable_key_names: list[Any] = []
     # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
@@ -359,8 +364,9 @@ def _convert_mapping(
             # A type/callable key is a variable key. ``Remove`` still validates a
             # present value before dropping it, so its value schema still applies
             # to the keys it matches, the same as a plain variable key.
-            variable_values.append(value_schema)
-            variable_keys.append(_child(name))
+            _record_variable_key(
+                name, value_schema, variable_values, variable_keys, variable_key_names
+            )
             continue
 
         if not isinstance(name, str):
@@ -396,22 +402,31 @@ def _convert_mapping(
     additional: Any = (
         False
         if forbid_extra
-        else _additional_properties(variable_values, allow_extra=allow_extra)
+        else _additional_properties(
+            variable_values, variable_key_names, allow_extra=allow_extra
+        )
     )
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
         "additionalProperties": additional,
     }
-    # ``propertyNames`` constrains *every* property name, declared ones included,
-    # but a probatio literal key is matched ahead of the variable keys and never
-    # sees them. Emitting it beside a declared property would therefore narrow the
-    # document, so it is only emitted for a mapping that declares none.
-    property_names = _property_names(variable_keys)
-    if property_names is not None and properties:
+    # ``propertyNames`` constrains *every* property name, so it can only be
+    # emitted where every name really is constrained. A declared property is
+    # matched ahead of the variable keys and never sees them, and an open mapping
+    # lets an unmatched key through with any value at all. Emitting it in either
+    # case would reject input the mapping accepts.
+    # One universal key means every name is already matched, so there is nothing
+    # a key schema could add and nothing to report dropping.
+    property_names = (
+        None
+        if any(map(covers_every_property_name, variable_key_names))
+        else _property_names(variable_keys)
+    )
+    if property_names is not None and (properties or allow_extra):
         # Dropping it widens, so strict mode refuses: ``_open`` raises there. Its
         # open-schema return is not wanted here, only that refusal.
-        _open("a key validator on a mapping that also declares properties")
+        _open("a key validator that does not constrain every property name")
         property_names = None
     if property_names is not None:
         result["propertyNames"] = property_names
@@ -475,6 +490,7 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
 
 def _additional_properties(
     variable_values: list[dict[str, Any]],
+    variable_keys: list[Any],
     *,
     allow_extra: bool,
 ) -> Any:
@@ -483,12 +499,55 @@ def _additional_properties(
     No variable key falls back to the extra policy (open or closed). One renders
     as its value schema; several ({str: int, int: str}) merge into an ``anyOf``
     so no pair is silently dropped.
+
+    An *open* mapping keeps its variable-key value schema as long as *some* key
+    covers every property name, which a plain ``str`` key does: no name can miss
+    it, so the extra policy never comes into play and the value schemas describe
+    every property there is. Only partial keys are different. ``{int: int}`` with
+    ``ALLOW_EXTRA`` accepts ``{"a": None}``, because "a" matches no schema key and
+    the policy lets it through with any value, so rendering it as
+    ``additionalProperties: {"type": "integer"}`` would reject what the mapping
+    accepts. There the object renders open instead.
+
+    ``variable_keys`` holds the keys themselves, not their rendered schemas, and
+    that is load-bearing: a callable with no JSON Schema form renders ``{}`` just
+    as ``object`` does, so the rendering cannot tell a key that matches everything
+    from one that merely could not be written down.
     """
     if not variable_values:
         return allow_extra
+
+    if allow_extra and not any(map(covers_every_property_name, variable_keys)):
+        # The value schemas go with the key constraint, and strict mode refuses a
+        # silent drop. ``_property_names`` reports the *key* side; this is the
+        # value side, and only when there is something to lose. An accept-anything
+        # value renders ``{}``, which ``additionalProperties: true`` already says.
+        if any(value != {} for value in variable_values):
+            _open("a variable key's value schema on an open mapping")
+        return True
     if len(variable_values) == 1:
         return variable_values[0]
     return {"anyOf": variable_values}
+
+
+def _record_variable_key(
+    name: Any,
+    value_schema: dict[str, Any],
+    values: list[dict[str, Any]],
+    keys: list[dict[str, Any]],
+    names: list[Any],
+) -> None:
+    """Record one variable key: its value schema, the key itself, its rendering.
+
+    A universal key is deliberately left unrendered. It constrains nothing, so
+    the mapping can emit no ``propertyNames`` at all, and asking for a rendering
+    would report a widening that is not happening: ``Extra`` has no leaf form, so
+    strict mode refused a mapping that renders exactly, as ``additionalProperties``.
+    """
+    values.append(value_schema)
+    names.append(name)
+    if not covers_every_property_name(name):
+        keys.append(_child(name))
 
 
 # Key schemas that constrain nothing. Every JSON object key is a string, so

@@ -1066,3 +1066,133 @@ def test_union_key_needs_only_one_branch_to_match_a_name() -> None:
     """anyOf is satisfied by a single branch, so one string branch is enough."""
     encoded = to_json_schema(Schema({Any(In(["a"]), In(["b"])): str}))
     assert encoded["propertyNames"] == {"anyOf": [{"enum": ["a"]}, {"enum": ["b"]}]}
+
+
+def test_open_mapping_with_a_partial_key_renders_open() -> None:
+    """A name the key misses falls through to the policy and may take any value."""
+    encoded = to_json_schema(Schema({int: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_open_mapping_with_a_str_key_keeps_its_value_schema() -> None:
+    """A str key covers every property name, so the policy never comes into play."""
+    encoded = to_json_schema(Schema({str: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_open_mapping_emits_no_property_names() -> None:
+    """An open mapping accepts a key the validator rejects, so it cannot constrain."""
+    assert "propertyNames" not in to_json_schema(
+        Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
+    )
+
+
+def test_one_universal_key_covers_every_name_for_an_open_mapping() -> None:
+    """A str key beside a partial one still catches every name, so values stand."""
+    encoded = to_json_schema(Schema({str: int, int: str}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
+
+
+def test_unrepresentable_key_is_not_mistaken_for_a_universal_one() -> None:
+    """A key with no JSON Schema form renders {} exactly as ``object`` does.
+
+    So the rendering cannot answer whether the key covers every property name,
+    and reading it as universal would keep a value schema the extra policy makes
+    wrong: this mapping accepts ``{"b": None}`` through ALLOW_EXTRA.
+    """
+
+    from probatio import Invalid  # noqa: PLC0415
+
+    def only_a(value: object) -> object:
+        if value != "a":
+            message = "only the key 'a'"
+            raise Invalid(message)
+        return value
+
+    encoded = to_json_schema(Schema({only_a: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_extra_marker_key_is_universal() -> None:
+    """Extra catches every unmatched key, so its value schema covers them all."""
+    encoded = to_json_schema(Schema({Extra: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_key_validator_on_an_open_mapping() -> None:
+    """An open mapping cannot constrain its keys, and strict refuses the drop."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
+    assert "propertyNames" not in to_json_schema(schema)
+    # Both the key constraint and the value schema are dropped here; the value
+    # side is reported first, and either is a correct refusal.
+    with pytest.raises(SchemaError, match="open mapping"):
+        to_json_schema(schema, strict=True)
+
+
+def test_transparent_wrapper_key_is_still_universal() -> None:
+    """Msg only swaps the error message, so Msg(str, ...) matches every name."""
+    from probatio import Msg  # noqa: PLC0415
+
+    encoded = to_json_schema(Schema({Msg(str, "key"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_schema_wrapped_key_is_still_universal() -> None:
+    """Schema only compiles what it wraps, so Schema(str) matches every name.
+
+    A bare Schema cannot be a mapping key (it is unhashable), but one inside a
+    Msg can, which is the route that reaches this.
+    """
+    from probatio import Msg  # noqa: PLC0415
+
+    encoded = to_json_schema(Schema({Msg(Schema(str), "key"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_dropped_value_schema_on_an_open_mapping() -> None:
+    """A key that renders vacuous is still partial, and its values are dropped.
+
+    ``All(object)`` matches every name but is not universal by identity, so the
+    key schema reports nothing and only this path can report the value drop.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({All(object): int}, extra=ALLOW_EXTRA)
+    assert to_json_schema(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="value schema"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_allows_a_drop_that_loses_nothing() -> None:
+    """An accept-anything value is what additionalProperties true already says."""
+    schema = Schema({All(object): object}, extra=ALLOW_EXTRA)
+    assert to_json_schema(schema, strict=True)["additionalProperties"] is True
+
+
+def test_a_wrapper_subclass_is_not_assumed_transparent() -> None:
+    """A subclass can override __call__ to match far less than what it wraps.
+
+    Unwrapping it would call the key universal and keep a value schema that
+    rejects the keys the extra policy lets through.
+    """
+    from probatio import Invalid, Msg  # noqa: PLC0415
+
+    class OnlyA(Msg):
+        def __call__(self, value: object) -> object:
+            if value != "a":
+                message = "only the key 'a'"
+                raise Invalid(message)
+            return value
+
+    encoded = to_json_schema(Schema({OnlyA(str, "only a"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_strict_allows_a_universal_key_with_no_leaf_rendering() -> None:
+    """Extra has no leaf form, but the mapping renders exactly as its values."""
+    encoded = to_json_schema(Schema({Extra: int}), strict=True)
+    assert encoded["additionalProperties"] == {"type": "integer"}

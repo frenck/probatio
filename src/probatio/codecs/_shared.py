@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+from probatio.markers import Extra
+from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
     E164,
@@ -34,6 +36,7 @@ from probatio.validators import (
     IPv6Address,
     IsRegex,
     MacAddress,
+    Msg,
     NormalizeMacAddress,
     NoWhitespace,
     PrintableASCII,
@@ -107,6 +110,37 @@ def merge_dependent_required(groups: Iterable[list[str]]) -> dict[str, list[str]
             for member in members:
                 dependent[member] = [other for other in members if other != member]
     return dependent
+
+
+def covers_every_property_name(key: Any) -> bool:
+    """Whether a mapping's variable key matches every property name it can carry.
+
+    ``Extra`` catches every unmatched key by definition, ``str`` matches every
+    JSON property name (they are all strings), and ``object`` matches anything.
+    Nothing else can be assumed to.
+
+    Transparent wrappers are unwrapped first. ``Msg`` only swaps the error
+    message and ``Schema`` only compiles what it is given, so ``Msg(str, "...")``
+    and ``Schema(str)`` match exactly what ``str`` matches; treating either as
+    partial would throw away a value schema that is perfectly representable. A
+    bare ``Schema`` cannot be a key (it is unhashable), but one wrapped in a
+    ``Msg`` can, so the loop handles both rather than either alone.
+
+    The comparison is by identity on purpose. A key validator's ``__eq__`` is
+    user code and can answer anything; a false "yes" would keep a value schema
+    that rejects what the mapping accepts.
+
+    Shared by both encoders: they ask the same question, and answering it in two
+    places is how they drifted apart before.
+    """
+    # Exact types, not ``isinstance``. A subclass can override ``__call__`` to
+    # match far less than what it wraps, and unwrapping one to ``str`` would call
+    # it universal and keep a value schema that rejects keys the mapping accepts.
+    # ``DataclassSchema`` and ``TypedDictSchema`` are two such subclasses already.
+    while type(key) in (Msg, Schema):
+        key = key.validator if type(key) is Msg else key.schema
+
+    return key is Extra or key is str or key is object
 
 
 def ordered_values(values: Any) -> list[Any]:

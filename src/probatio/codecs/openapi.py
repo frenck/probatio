@@ -27,6 +27,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    covers_every_property_name,
     exclusive_constraint,
     merge_dependent_required,
 )
@@ -308,6 +309,11 @@ def _oa_mapping(
     """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
     properties: dict[str, Any] = {}
     required: list[str] = []
+    # The variable keys and their value schemas, gathered so universality is
+    # decided across the whole mapping rather than one entry at a time: a partial
+    # key must not undo what a universal one established.
+    variable_keys: list[Any] = []
+    variable_values: list[dict[str, Any]] = []
     constraint_groups: list[list[str]] = []
     inclusive: dict[str, list[str]] = {}
     exclusive: dict[str, ExclusiveGroup] = {}
@@ -370,7 +376,12 @@ def _oa_mapping(
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
-            additional = _absorb_extra(pval, additional)
+            variable_keys.append(pkey)
+            variable_values.append(pval)
+
+    additional = _absorb_extra(
+        variable_values, variable_keys, additional, closed=closed
+    )
 
     dependent_required, group_constraints = _group_constraints(
         inclusive, exclusive, version
@@ -464,11 +475,52 @@ def _expand_any_key(
     return {name: pval.copy() for name in names}, None
 
 
-def _absorb_extra(pval: dict[str, Any], additional: Any) -> Any:
-    """Fold a type-key value into the object's ``additionalProperties``."""
-    if pval == _OPEN_OBJECT:
+def _absorb_extra(
+    variable_values: list[dict[str, Any]],
+    variable_keys: list[Any],
+    additional: Any,
+    *,
+    closed: bool,
+) -> Any:
+    """Fold the variable-key value schemas into the object's ``additionalProperties``.
+
+    An open mapping keeps them as long as *some* key covers every property name,
+    because then no name reaches the extra policy and the value schemas describe
+    every property there is. ``Extra`` is universal by definition (it catches
+    every unmatched key), as are ``str`` (every JSON property name is one) and
+    ``object``.
+
+    Only when every variable key is partial does the object render open.
+    ``{int: int}`` with ``REMOVE_EXTRA`` accepts ``{"a": None}``, since "a" matches
+    no schema key and the policy lets it through with any value, so
+    ``additionalProperties: {"type": "integer"}`` would reject what the mapping
+    accepts. That drop is a widening, and so an error under ``strict``.
+
+    Universality is judged by identity. ``key in (str, object)`` would ask an
+    arbitrary key validator whether it equals ``str``, and a validator's ``__eq__``
+    is user code that can answer anything.
+    """
+    if not variable_values:
+        return additional
+
+    if not (closed or any(map(covers_every_property_name, variable_keys))):
+        _open("a partial variable key on an open mapping")
         return True
-    return pval if additional is None else additional
+
+    # An "any object" value folds to the open ``additionalProperties``, matching
+    # voluptuous-openapi.
+    if any(pval == _OPEN_OBJECT for pval in variable_values):
+        return True
+
+    if len(variable_values) == 1:
+        return variable_values[0]
+
+    # Several variable keys, so a property matching any one of them is valid.
+    # Taking the first would reject what the others accept: ``{int: int, str: str}``
+    # takes ``{"key": "value"}`` through its ``str`` key, and every JSON property
+    # name is a string, so an integer-only rendering rejects most of what the
+    # mapping allows. The union is the only rendering that does not narrow.
+    return {"anyOf": variable_values}
 
 
 def _assemble_object(
