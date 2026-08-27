@@ -510,7 +510,14 @@ def _additional_properties(
     """
     if not variable_values:
         return allow_extra
+
     if allow_extra and not any(map(covers_every_property_name, variable_keys)):
+        # The value schemas go with the key constraint, and strict mode refuses a
+        # silent drop. ``_property_names`` reports the *key* side; this is the
+        # value side, and only when there is something to lose. An accept-anything
+        # value renders ``{}``, which ``additionalProperties: true`` already says.
+        if any(value != {} for value in variable_values):
+            _open("a variable key's value schema on an open mapping")
         return True
     if len(variable_values) == 1:
         return variable_values[0]

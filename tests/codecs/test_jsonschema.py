@@ -1127,7 +1127,9 @@ def test_strict_refuses_a_key_validator_on_an_open_mapping() -> None:
 
     schema = Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
     assert "propertyNames" not in to_json_schema(schema)
-    with pytest.raises(SchemaError, match="key validator"):
+    # Both the key constraint and the value schema are dropped here; the value
+    # side is reported first, and either is a correct refusal.
+    with pytest.raises(SchemaError, match="open mapping"):
         to_json_schema(schema, strict=True)
 
 
@@ -1149,3 +1151,23 @@ def test_a_schema_wrapped_key_is_still_universal() -> None:
 
     encoded = to_json_schema(Schema({Msg(Schema(str), "key"): int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_dropped_value_schema_on_an_open_mapping() -> None:
+    """A key that renders vacuous is still partial, and its values are dropped.
+
+    ``All(object)`` matches every name but is not universal by identity, so the
+    key schema reports nothing and only this path can report the value drop.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({All(object): int}, extra=ALLOW_EXTRA)
+    assert to_json_schema(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="value schema"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_allows_a_drop_that_loses_nothing() -> None:
+    """An accept-anything value is what additionalProperties true already says."""
+    schema = Schema({All(object): object}, extra=ALLOW_EXTRA)
+    assert to_json_schema(schema, strict=True)["additionalProperties"] is True
