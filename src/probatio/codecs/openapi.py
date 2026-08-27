@@ -212,22 +212,27 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
     if isinstance(enum, list) and None not in enum:
         result["enum"] = [*enum, None]
 
-    combinator = next((key for key in _COMBINATORS if key in result), None)
-    if combinator is not None:
-        # A combinator has no type to carry null, so admit it with a branch.
-        result[combinator] = [*result[combinator], _oa_null(version)]
-        result.pop("nullable", None)
-        return
-
     if "not" in result:
         # A negation has no type to carry null either, and 3.0 ignores the flag
         # beside one, so ``Maybe(NotIn([None]))`` came out rejecting the null it
         # exists to accept. Everything the schema asserted moves into one branch
         # of a union with null, which keeps the siblings honest: "all of this, or
         # null" rather than "all of this, and separately maybe null".
+        #
+        # Checked before the combinator below, and not instead of it: a result can
+        # carry both (``All(NotIn(...), Any(...))`` renders sibling ``not`` and
+        # ``anyOf`` keys), and adding a branch to the combinator leaves the
+        # negation still excluding null. Rewriting the whole thing covers both.
         asserted = {key: value for key, value in result.items() if key != "nullable"}
         result.clear()
         result["anyOf"] = [asserted, _oa_null(version)]
+        return
+
+    combinator = next((key for key in _COMBINATORS if key in result), None)
+    if combinator is not None:
+        # A combinator has no type to carry null, so admit it with a branch.
+        result[combinator] = [*result[combinator], _oa_null(version)]
+        result.pop("nullable", None)
         return
 
     if version == _V3_1:

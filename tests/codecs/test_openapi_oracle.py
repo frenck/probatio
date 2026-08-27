@@ -141,6 +141,16 @@ _NULLABLE_INNERS: list[tuple[str, Any]] = [
     ("negated_null", probatio.NotIn([None])),
     ("negated_null_in_any", probatio.Any(probatio.NotIn([None]))),
     ("negated_value", probatio.NotIn(["a"])),
+    # Renders sibling ``not`` and combinator keys, so appending a branch to the
+    # combinator alone leaves the negation still excluding null.
+    (
+        "negated_null_beside_a_union",
+        probatio.All(probatio.NotIn([None]), probatio.Any(int, str)),
+    ),
+    (
+        "negated_null_beside_an_enum",
+        probatio.All(probatio.NotIn([None]), probatio.In(["a", "b"])),
+    ),
     ("scalar", int),
     ("enum", probatio.In(["a", "b"])),
     ("pattern", probatio.Match("^x")),
