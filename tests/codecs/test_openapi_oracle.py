@@ -131,3 +131,49 @@ def test_exclusive_group_agrees_with_the_reference_validator(version: str) -> No
     assert validator.is_valid({"a": 1})
     assert validator.is_valid({"b": 2})
     assert not validator.is_valid({"a": 1, "b": 2})
+
+
+# ``Maybe(X)`` means "X or null", so every emitted document has to accept null,
+# on both versions. The wrappers with no type of their own are the interesting
+# ones: 3.0 spells null with a ``nullable`` flag, and a flag needs a type to sit
+# on, so a combinator or a negation has to grow a dedicated null branch instead.
+_NULLABLE_INNERS: list[tuple[str, Any]] = [
+    ("negated_null", probatio.NotIn([None])),
+    ("negated_null_in_any", probatio.Any(probatio.NotIn([None]))),
+    ("negated_value", probatio.NotIn(["a"])),
+    ("scalar", int),
+    ("enum", probatio.In(["a", "b"])),
+    ("pattern", probatio.Match("^x")),
+    ("bounded_string", probatio.All(str, probatio.Length(min=2))),
+    ("bare_range", probatio.Range(min=0)),
+    ("union", probatio.Any(int, str)),
+    ("union_with_null", probatio.Any(int, None)),
+    ("mapping", {"a": int}),
+    ("sequence", [int]),
+]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("name", "inner"), _NULLABLE_INNERS, ids=[n for n, _ in _NULLABLE_INNERS]
+)
+def test_a_nullable_schema_really_admits_null(
+    name: str,
+    inner: Any,
+    version: str,
+) -> None:
+    """A Maybe emits a document that accepts null, whatever it wraps.
+
+    ``Maybe(NotIn([None]))`` used to emit a 3.0 document rejecting null: the
+    negation's own enum admits null, so the ``not`` excluded it, and 3.0 ignores
+    a ``nullable`` flag with no type to carry it.
+    """
+    schema = probatio.Schema(probatio.Maybe(inner))
+    assert _probatio_accepts(schema, None), f"{name} should accept null"
+
+    document = probatio.to_openapi(schema, openapi_version=version)
+    json.dumps(document)
+    _VALIDATOR[version].check_schema(document)
+    assert _VALIDATOR[version](document).is_valid(None), (
+        f"{name} emits a {version} document that rejects null: {document!r}"
+    )

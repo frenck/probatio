@@ -219,6 +219,17 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
         result.pop("nullable", None)
         return
 
+    if "not" in result:
+        # A negation has no type to carry null either, and 3.0 ignores the flag
+        # beside one, so ``Maybe(NotIn([None]))`` came out rejecting the null it
+        # exists to accept. Everything the schema asserted moves into one branch
+        # of a union with null, which keeps the siblings honest: "all of this, or
+        # null" rather than "all of this, and separately maybe null".
+        asserted = {key: value for key, value in result.items() if key != "nullable"}
+        result.clear()
+        result["anyOf"] = [asserted, _oa_null(version)]
+        return
+
     if version == _V3_1:
         del result["nullable"]
         node_type = result.get("type")
