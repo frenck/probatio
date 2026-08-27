@@ -133,8 +133,12 @@ def covers_every_property_name(key: Any) -> bool:
     Shared by both encoders: they ask the same question, and answering it in two
     places is how they drifted apart before.
     """
-    while isinstance(key, Msg | Schema):
-        key = key.validator if isinstance(key, Msg) else key.schema
+    # Exact types, not ``isinstance``. A subclass can override ``__call__`` to
+    # match far less than what it wraps, and unwrapping one to ``str`` would call
+    # it universal and keep a value schema that rejects keys the mapping accepts.
+    # ``DataclassSchema`` and ``TypedDictSchema`` are two such subclasses already.
+    while type(key) in (Msg, Schema):
+        key = key.validator if type(key) is Msg else key.schema
 
     return key is Extra or key is str or key is object
 

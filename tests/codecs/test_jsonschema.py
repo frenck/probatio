@@ -1171,3 +1171,22 @@ def test_strict_allows_a_drop_that_loses_nothing() -> None:
     """An accept-anything value is what additionalProperties true already says."""
     schema = Schema({All(object): object}, extra=ALLOW_EXTRA)
     assert to_json_schema(schema, strict=True)["additionalProperties"] is True
+
+
+def test_a_wrapper_subclass_is_not_assumed_transparent() -> None:
+    """A subclass can override __call__ to match far less than what it wraps.
+
+    Unwrapping it would call the key universal and keep a value schema that
+    rejects the keys the extra policy lets through.
+    """
+    from probatio import Invalid, Msg  # noqa: PLC0415
+
+    class OnlyA(Msg):
+        def __call__(self, value: object) -> object:
+            if value != "a":
+                message = "only the key 'a'"
+                raise Invalid(message)
+            return value
+
+    encoded = to_json_schema(Schema({OnlyA(str, "only a"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
