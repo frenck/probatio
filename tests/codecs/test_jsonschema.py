@@ -1137,3 +1137,15 @@ def test_transparent_wrapper_key_is_still_universal() -> None:
 
     encoded = to_json_schema(Schema({Msg(str, "key"): int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_schema_wrapped_key_is_still_universal() -> None:
+    """Schema only compiles what it wraps, so Schema(str) matches every name.
+
+    A bare Schema cannot be a mapping key (it is unhashable), but one inside a
+    Msg can, which is the route that reaches this.
+    """
+    from probatio import Msg  # noqa: PLC0415
+
+    encoded = to_json_schema(Schema({Msg(Schema(str), "key"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}

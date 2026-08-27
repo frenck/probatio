@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 from probatio.markers import Extra
+from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
     E164,
@@ -119,9 +120,11 @@ def covers_every_property_name(key: Any) -> bool:
     Nothing else can be assumed to.
 
     Transparent wrappers are unwrapped first. ``Msg`` only swaps the error
-    message, so ``Msg(str, "...")`` matches exactly what ``str`` matches, and
-    treating it as partial would throw away a value schema that is perfectly
-    representable.
+    message and ``Schema`` only compiles what it is given, so ``Msg(str, "...")``
+    and ``Schema(str)`` match exactly what ``str`` matches; treating either as
+    partial would throw away a value schema that is perfectly representable. A
+    bare ``Schema`` cannot be a key (it is unhashable), but one wrapped in a
+    ``Msg`` can, so the loop handles both rather than either alone.
 
     The comparison is by identity on purpose. A key validator's ``__eq__`` is
     user code and can answer anything; a false "yes" would keep a value schema
@@ -130,8 +133,8 @@ def covers_every_property_name(key: Any) -> bool:
     Shared by both encoders: they ask the same question, and answering it in two
     places is how they drifted apart before.
     """
-    while isinstance(key, Msg):
-        key = key.validator
+    while isinstance(key, Msg | Schema):
+        key = key.validator if isinstance(key, Msg) else key.schema
 
     return key is Extra or key is str or key is object
 
