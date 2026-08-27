@@ -218,6 +218,19 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
             allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
         )
 
+    if isinstance(node, _WhenType):
+        # The wrapper carries "applies only to this JSON type", which is what a
+        # JSON Schema keyword already means, so it re-emits as its contents with
+        # the type dropped. Keeping the ``type`` the inner renderer adds would
+        # narrow: ``{"pattern": "x"}`` accepts the number 123 vacuously, and
+        # ``{"type": "string", "pattern": "x"}`` rejects it.
+        inner = _convert(
+            node.subschema,
+            required_default=required_default,
+            allow_extra=allow_extra,
+        )
+        return {key: value for key, value in inner.items() if key != "type"}
+
     custom = _options().custom
     if custom is not None:
         result = custom(node)
@@ -1930,6 +1943,8 @@ class _WhenType:
     def __init__(self, base: type | tuple[type, ...], subschema: Any) -> None:
         """Compile the subschema and remember the instance type it applies to."""
         self._base = base
+        # Kept raw (unwrapped) so the encoder can re-emit it.
+        self.subschema = subschema
         self._schema = Schema(subschema)
 
     def __repr__(self) -> str:

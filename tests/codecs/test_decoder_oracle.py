@@ -226,3 +226,37 @@ def test_a_standalone_keyword_is_scoped_to_its_own_type(
         assert _accepts(schema, value) == reference.is_valid(value), (
             f"{name} disagrees with the reference on {value!r} ({form})"
         )
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"pattern": "x"},
+        {"minLength": 5},
+        {"minimum": 10},
+        {"multipleOf": 2},
+        {"minItems": 3},
+        {"contains": {"const": 9}},
+        {"properties": {"a": {"type": "integer"}}},
+        {"maxProperties": 1},
+    ],
+    ids=str,
+)
+def test_a_typeless_keyword_survives_re_encoding(document: dict[str, Any]) -> None:
+    """Re-emitting a type-scoped keyword keeps it, and adds no type of its own.
+
+    The scoping wrapper means what a JSON Schema keyword already means, so it
+    re-emits as the bare keyword. Carrying the inner renderer's ``type`` out with
+    it would narrow, since the typeless form accepts other types vacuously.
+    """
+    schema = from_json_schema(document)
+    emitted = to_json_schema(schema)
+    _VALIDATOR.check_schema(emitted)
+    assert emitted, f"{document} re-encoded to an open schema, losing the keyword"
+
+    reference = _VALIDATOR(emitted)
+    for value in _MIXED_TYPES:
+        if _accepts(schema, value):
+            assert reference.is_valid(value), (
+                f"re-encoding {document} narrows: it rejects {value!r}"
+            )
