@@ -38,6 +38,7 @@ from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
+    Extra,
     Inclusive,
     Optional,
     Required,
@@ -308,6 +309,11 @@ def _oa_mapping(
     """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
     properties: dict[str, Any] = {}
     required: list[str] = []
+    # The variable keys and their value schemas, gathered so universality is
+    # decided across the whole mapping rather than one entry at a time: a partial
+    # key must not undo what a universal one established.
+    variable_keys: list[Any] = []
+    variable_values: list[dict[str, Any]] = []
     constraint_groups: list[list[str]] = []
     inclusive: dict[str, list[str]] = {}
     exclusive: dict[str, ExclusiveGroup] = {}
@@ -370,7 +376,12 @@ def _oa_mapping(
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
-            additional = _absorb_extra(pval, additional, pkey, closed=closed)
+            variable_keys.append(pkey)
+            variable_values.append(pval)
+
+    additional = _absorb_extra(
+        variable_values, variable_keys, additional, closed=closed
+    )
 
     dependent_required, group_constraints = _group_constraints(
         inclusive, exclusive, version
@@ -465,34 +476,52 @@ def _expand_any_key(
 
 
 def _absorb_extra(
-    pval: dict[str, Any], additional: Any, key: Any, *, closed: bool
+    variable_values: list[dict[str, Any]],
+    variable_keys: list[Any],
+    additional: Any,
+    *,
+    closed: bool,
 ) -> Any:
-    """Fold a type-key value into the object's ``additionalProperties``.
+    """Fold the variable-key value schemas into the object's ``additionalProperties``.
 
-    An open mapping keeps the value schema only where the key covers every
-    property name, which ``str`` does (every JSON key is one) as does ``object``.
-    A partial key is different: ``{int: int}`` with ``ALLOW_EXTRA`` accepts
-    ``{"a": None}``, because "a" matches no schema key and the policy lets it
-    through with any value, so ``additionalProperties: {"type": "integer"}`` would
-    reject what the mapping accepts. The object renders open there, dropping the
-    value constraint, which is a widening and so an error under ``strict``.
+    An open mapping keeps them as long as *some* key covers every property name,
+    because then no name reaches the extra policy and the value schemas describe
+    every property there is. ``Extra`` is universal by definition (it catches
+    every unmatched key), as are ``str`` (every JSON property name is one) and
+    ``object``.
 
-    The universal keys are recognized by identity. ``key in (str, object)`` would
-    ask an arbitrary key validator whether it equals ``str``, and a validator's
-    ``__eq__`` is user code that can answer anything.
+    Only when every variable key is partial does the object render open.
+    ``{int: int}`` with ``REMOVE_EXTRA`` accepts ``{"a": None}``, since "a" matches
+    no schema key and the policy lets it through with any value, so
+    ``additionalProperties: {"type": "integer"}`` would reject what the mapping
+    accepts. That drop is a widening, and so an error under ``strict``.
+
+    Universality is judged by identity. ``key in (str, object)`` would ask an
+    arbitrary key validator whether it equals ``str``, and a validator's ``__eq__``
+    is user code that can answer anything.
     """
-    # Checked ahead of the open-object shortcut below, which drops the value
-    # constraint just as thoroughly: ``{In(["a"]): dict}`` requires the matched
-    # value to be an object, and ``additionalProperties: true`` does not. Strict
-    # mode has to hear about that drop too, whichever branch performs it.
-    if not (closed or key is str or key is object):
+    if not variable_values:
+        return additional
+
+    if not (closed or any(map(_covers_every_name, variable_keys))):
         _open("a partial variable key on an open mapping")
         return True
 
-    if pval == _OPEN_OBJECT:
-        return True
+    for pval in variable_values:
+        # An "any object" value is folded to the open ``additionalProperties``,
+        # matching voluptuous-openapi. It drops the constraint just as the branch
+        # above does, so strict mode has already had its say by this point.
+        if pval == _OPEN_OBJECT:
+            return True
+        if additional is None:
+            additional = pval
 
-    return pval if additional is None else additional
+    return additional
+
+
+def _covers_every_name(key: Any) -> bool:
+    """Whether a variable key matches every property name a mapping can carry."""
+    return key is Extra or key is str or key is object
 
 
 def _assemble_object(

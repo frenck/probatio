@@ -853,3 +853,19 @@ def test_strict_refuses_a_partial_key_whose_value_is_an_open_object() -> None:
     assert to_openapi(schema)["additionalProperties"] is True
     with pytest.raises(SchemaError, match="partial variable key"):
         to_openapi(schema, strict=True)
+
+
+def test_extra_marker_is_a_universal_key() -> None:
+    """Extra catches every unmatched key, so its value schema covers them all."""
+    from probatio import REMOVE_EXTRA, Extra  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({Extra: int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_partial_key_does_not_undo_a_universal_one() -> None:
+    """Universality is decided across the mapping, not one entry at a time."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int, int: str}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
