@@ -512,9 +512,6 @@ def _absorb_extra(
     if any(pval == _OPEN_OBJECT for pval in variable_values):
         return True
 
-    if additional is not None:
-        return additional
-
     if len(variable_values) == 1:
         return variable_values[0]
 

@@ -364,9 +364,9 @@ def _convert_mapping(
             # A type/callable key is a variable key. ``Remove`` still validates a
             # present value before dropping it, so its value schema still applies
             # to the keys it matches, the same as a plain variable key.
-            variable_values.append(value_schema)
-            variable_keys.append(_child(name))
-            variable_key_names.append(name)
+            _record_variable_key(
+                name, value_schema, variable_values, variable_keys, variable_key_names
+            )
             continue
 
         if not isinstance(name, str):
@@ -416,7 +416,13 @@ def _convert_mapping(
     # matched ahead of the variable keys and never sees them, and an open mapping
     # lets an unmatched key through with any value at all. Emitting it in either
     # case would reject input the mapping accepts.
-    property_names = _property_names(variable_keys)
+    # One universal key means every name is already matched, so there is nothing
+    # a key schema could add and nothing to report dropping.
+    property_names = (
+        None
+        if any(map(covers_every_property_name, variable_key_names))
+        else _property_names(variable_keys)
+    )
     if property_names is not None and (properties or allow_extra):
         # Dropping it widens, so strict mode refuses: ``_open`` raises there. Its
         # open-schema return is not wanted here, only that refusal.
@@ -522,6 +528,26 @@ def _additional_properties(
     if len(variable_values) == 1:
         return variable_values[0]
     return {"anyOf": variable_values}
+
+
+def _record_variable_key(
+    name: Any,
+    value_schema: dict[str, Any],
+    values: list[dict[str, Any]],
+    keys: list[dict[str, Any]],
+    names: list[Any],
+) -> None:
+    """Record one variable key: its value schema, the key itself, its rendering.
+
+    A universal key is deliberately left unrendered. It constrains nothing, so
+    the mapping can emit no ``propertyNames`` at all, and asking for a rendering
+    would report a widening that is not happening: ``Extra`` has no leaf form, so
+    strict mode refused a mapping that renders exactly, as ``additionalProperties``.
+    """
+    values.append(value_schema)
+    names.append(name)
+    if not covers_every_property_name(name):
+        keys.append(_child(name))
 
 
 # Key schemas that constrain nothing. Every JSON object key is a string, so

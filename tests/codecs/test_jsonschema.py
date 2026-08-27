@@ -1190,3 +1190,9 @@ def test_a_wrapper_subclass_is_not_assumed_transparent() -> None:
 
     encoded = to_json_schema(Schema({OnlyA(str, "only a"): int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] is True
+
+
+def test_strict_allows_a_universal_key_with_no_leaf_rendering() -> None:
+    """Extra has no leaf form, but the mapping renders exactly as its values."""
+    encoded = to_json_schema(Schema({Extra: int}), strict=True)
+    assert encoded["additionalProperties"] == {"type": "integer"}

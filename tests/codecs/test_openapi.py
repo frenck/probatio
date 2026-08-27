@@ -889,3 +889,11 @@ def test_transparent_wrapper_key_is_still_universal() -> None:
 
     encoded = to_openapi(Schema({Msg(str, "key"): int}, extra=REMOVE_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_open_mapping_with_a_universal_key_keeps_its_value_schema() -> None:
+    """ALLOW_EXTRA seeds an open object, but a str key still matches every name."""
+    from probatio import ALLOW_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({str: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
