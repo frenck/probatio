@@ -63,6 +63,34 @@ _KEY_ALPHABET = ("a", "b", "c", "1", "2")
 # names outside, which is the interesting pairing.
 _IN_KEY_MEMBERS = ("a", "b")
 
+# A mapping can carry more than one variable key, and which one a name lands on
+# decides its value schema, so the pairing matters: with ``{int: int, str: str}``
+# the universal ``str`` key accepts a value the partial one does not. Every
+# *ordered* pair is generated, because order decides which key an encoder reaches
+# first, and enumerating beats picking the combinations that come to mind.
+_CATCHALL_PAIRS = (
+    ("extra", "str_key"),
+    ("extra", "int_key"),
+    ("extra", "in_key"),
+    ("extra", "coerce_key"),
+    ("str_key", "extra"),
+    ("str_key", "int_key"),
+    ("str_key", "in_key"),
+    ("str_key", "coerce_key"),
+    ("int_key", "extra"),
+    ("int_key", "str_key"),
+    ("int_key", "in_key"),
+    ("int_key", "coerce_key"),
+    ("in_key", "extra"),
+    ("in_key", "str_key"),
+    ("in_key", "int_key"),
+    ("in_key", "coerce_key"),
+    ("coerce_key", "extra"),
+    ("coerce_key", "str_key"),
+    ("coerce_key", "int_key"),
+    ("coerce_key", "in_key"),
+)
+
 
 def _names() -> st.SearchStrategy[str]:
     """Property names: the shared alphabet, plus free text for the odd shapes."""
@@ -123,6 +151,11 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
                 st.one_of(
                     st.none(),
                     st.tuples(st.sampled_from(_CATCHALL_KINDS), children),
+                    # A pair carries a value schema *each*. Sharing one makes the
+                    # pair useless for the thing it exists to check: taking the
+                    # first key's value and merging both produce the same document
+                    # when the values are identical.
+                    st.tuples(st.sampled_from(_CATCHALL_PAIRS), children, children),
                 ),
             ),
         ),
@@ -192,8 +225,13 @@ def _build_dict(spec: Any, lib: Any) -> Any:
         marker = (lib.Required if key_kind == "required" else lib.Optional)(key)
         mapping[marker] = build(child, lib)
     if catchall is not None:
-        kind, child = catchall
-        mapping[_catchall_key(kind, lib)] = build(child, lib)
+        kinds, *children = catchall
+        # A single kind comes with one child; a pair comes with one each, so a
+        # mapping can hold two variable keys wanting different values.
+        for one, child in zip(
+            (kinds,) if isinstance(kinds, str) else kinds, children, strict=True
+        ):
+            mapping[_catchall_key(one, lib)] = build(child, lib)
     if extra is None:
         return mapping
     policy = lib.ALLOW_EXTRA if extra == "allow" else lib.REMOVE_EXTRA

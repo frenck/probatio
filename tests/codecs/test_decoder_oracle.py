@@ -26,7 +26,18 @@ from typing import Any
 import jsonschema
 import pytest
 
-from probatio import Invalid, from_json_schema, to_json_schema
+from probatio import (
+    ALLOW_EXTRA,
+    REMOVE_EXTRA,
+    Coerce,
+    Extra,
+    In,
+    Invalid,
+    Schema,
+    from_json_schema,
+    to_json_schema,
+    to_openapi,
+)
 
 _VALIDATOR = jsonschema.Draft202012Validator
 
@@ -260,3 +271,59 @@ def test_a_typeless_keyword_survives_re_encoding(document: dict[str, Any]) -> No
             assert reference.is_valid(value), (
                 f"re-encoding {document} narrows: it rejects {value!r}"
             )
+
+
+# Every ordered pair of variable-key kinds. Order matters: it decides which key an
+# encoder reaches first, and taking the first key's value schema rejects what the
+# others accept. Enumerated rather than sampled, because the property fuzz draws
+# its schema and its value independently and the conjunction that exposes this is
+# rare (a partial key first, a universal one second, and a value whose key lands
+# on the second).
+_KEY_KINDS: dict[str, Any] = {
+    "extra": Extra,
+    "str": str,
+    "int": int,
+    "in": In(["a", "b"]),
+    "coerce": Coerce(int),
+}
+_KEY_PAIRS = [
+    (first, second) for first in _KEY_KINDS for second in _KEY_KINDS if first != second
+]
+_KEY_PROBES: list[dict[str, Any]] = [
+    {},
+    {"a": 1},
+    {"a": "s"},
+    {"c": 1},
+    {"c": "s"},
+    {"1": 1},
+    {"1": "s"},
+    {"zz": 1},
+    {"zz": "s"},
+]
+
+
+@pytest.mark.parametrize("policy", ["closed", "allow", "remove"])
+@pytest.mark.parametrize(("first", "second"), _KEY_PAIRS, ids=str)
+def test_a_pair_of_variable_keys_never_narrows(
+    first: str,
+    second: str,
+    policy: str,
+) -> None:
+    """Two variable keys keep both contracts, in either order and every policy."""
+    extra = {
+        "closed": {},
+        "allow": {"extra": ALLOW_EXTRA},
+        "remove": {"extra": REMOVE_EXTRA},
+    }[policy]
+    schema = Schema({_KEY_KINDS[first]: int, _KEY_KINDS[second]: str}, **extra)
+
+    for emit in (to_json_schema, to_openapi):
+        document = emit(schema)
+        _VALIDATOR.check_schema(document)
+        reference = _VALIDATOR(document)
+        for value in _KEY_PROBES:
+            if _accepts(schema, value):
+                assert reference.is_valid(value), (
+                    f"{emit.__name__} narrows for {first}+{second} ({policy}): "
+                    f"{value!r} is accepted but {document!r} rejects it"
+                )
