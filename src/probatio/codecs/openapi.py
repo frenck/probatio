@@ -481,11 +481,15 @@ def _absorb_extra(
     ask an arbitrary key validator whether it equals ``str``, and a validator's
     ``__eq__`` is user code that can answer anything.
     """
-    if pval == _OPEN_OBJECT:
-        return True
-
+    # Checked ahead of the open-object shortcut below, which drops the value
+    # constraint just as thoroughly: ``{In(["a"]): dict}`` requires the matched
+    # value to be an object, and ``additionalProperties: true`` does not. Strict
+    # mode has to hear about that drop too, whichever branch performs it.
     if not (closed or key is str or key is object):
         _open("a partial variable key on an open mapping")
+        return True
+
+    if pval == _OPEN_OBJECT:
         return True
 
     return pval if additional is None else additional

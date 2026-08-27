@@ -838,3 +838,18 @@ def test_strict_refuses_a_partial_key_on_an_open_mapping() -> None:
     assert to_openapi(schema)["additionalProperties"] is True
     with pytest.raises(SchemaError, match="partial variable key"):
         to_openapi(schema, strict=True)
+
+
+def test_strict_refuses_a_partial_key_whose_value_is_an_open_object() -> None:
+    """The open-object shortcut drops the value constraint too, so strict refuses.
+
+    ``{In(["a"]): dict}`` requires the matched value to be an object, which
+    ``additionalProperties: true`` does not, whichever branch emitted it.
+    """
+    from probatio import REMOVE_EXTRA, In  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): dict}, extra=REMOVE_EXTRA)
+    assert to_openapi(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="partial variable key"):
+        to_openapi(schema, strict=True)
