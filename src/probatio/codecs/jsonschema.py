@@ -31,6 +31,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    covers_every_property_name,
     exclusive_constraint,
     merge_dependent_required,
 )
@@ -41,7 +42,6 @@ from probatio.error import ContainsInvalid, Invalid, MatchInvalid, SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
-    Extra,
     Forbidden,
     Inclusive,
     Marker,
@@ -510,7 +510,7 @@ def _additional_properties(
     """
     if not variable_values:
         return allow_extra
-    if allow_extra and not any(map(_covers_every_name, variable_keys)):
+    if allow_extra and not any(map(covers_every_property_name, variable_keys)):
         return True
     if len(variable_values) == 1:
         return variable_values[0]
@@ -586,15 +586,6 @@ def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
             return True
 
     return False
-
-
-def _covers_every_name(key: Any) -> bool:
-    """Whether a variable key matches every property name a mapping can carry.
-
-    By identity, not equality: a key validator's ``__eq__`` is user code, and a
-    "yes" from it would keep a value schema that narrows.
-    """
-    return key is Extra or key is str or key is object
 
 
 def _decorate_property(

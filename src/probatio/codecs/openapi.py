@@ -27,6 +27,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    covers_every_property_name,
     exclusive_constraint,
     merge_dependent_required,
 )
@@ -38,7 +39,6 @@ from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
-    Extra,
     Inclusive,
     Optional,
     Required,
@@ -503,7 +503,7 @@ def _absorb_extra(
     if not variable_values:
         return additional
 
-    if not (closed or any(map(_covers_every_name, variable_keys))):
+    if not (closed or any(map(covers_every_property_name, variable_keys))):
         _open("a partial variable key on an open mapping")
         return True
 
@@ -524,11 +524,6 @@ def _absorb_extra(
     # name is a string, so an integer-only rendering rejects most of what the
     # mapping allows. The union is the only rendering that does not narrow.
     return {"anyOf": variable_values}
-
-
-def _covers_every_name(key: Any) -> bool:
-    """Whether a variable key matches every property name a mapping can carry."""
-    return key is Extra or key is str or key is object
 
 
 def _assemble_object(

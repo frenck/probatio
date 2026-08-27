@@ -881,3 +881,11 @@ def test_several_variable_keys_merge_into_any_of() -> None:
     assert encoded["additionalProperties"] == {
         "anyOf": [{"type": "integer"}, {"type": "string"}]
     }
+
+
+def test_transparent_wrapper_key_is_still_universal() -> None:
+    """Msg only swaps the error message, so its value schema stays representable."""
+    from probatio import REMOVE_EXTRA, Msg  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({Msg(str, "key"): int}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}

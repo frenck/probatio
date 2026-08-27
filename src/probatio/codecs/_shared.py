@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+from probatio.markers import Extra
 from probatio.validators import (
     ASCII,
     E164,
@@ -34,6 +35,7 @@ from probatio.validators import (
     IPv6Address,
     IsRegex,
     MacAddress,
+    Msg,
     NormalizeMacAddress,
     NoWhitespace,
     PrintableASCII,
@@ -107,6 +109,31 @@ def merge_dependent_required(groups: Iterable[list[str]]) -> dict[str, list[str]
             for member in members:
                 dependent[member] = [other for other in members if other != member]
     return dependent
+
+
+def covers_every_property_name(key: Any) -> bool:
+    """Whether a mapping's variable key matches every property name it can carry.
+
+    ``Extra`` catches every unmatched key by definition, ``str`` matches every
+    JSON property name (they are all strings), and ``object`` matches anything.
+    Nothing else can be assumed to.
+
+    Transparent wrappers are unwrapped first. ``Msg`` only swaps the error
+    message, so ``Msg(str, "...")`` matches exactly what ``str`` matches, and
+    treating it as partial would throw away a value schema that is perfectly
+    representable.
+
+    The comparison is by identity on purpose. A key validator's ``__eq__`` is
+    user code and can answer anything; a false "yes" would keep a value schema
+    that rejects what the mapping accepts.
+
+    Shared by both encoders: they ask the same question, and answering it in two
+    places is how they drifted apart before.
+    """
+    while isinstance(key, Msg):
+        key = key.validator
+
+    return key is Extra or key is str or key is object
 
 
 def ordered_values(values: Any) -> list[Any]:

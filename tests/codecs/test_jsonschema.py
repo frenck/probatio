@@ -1119,3 +1119,21 @@ def test_extra_marker_key_is_universal() -> None:
     """Extra catches every unmatched key, so its value schema covers them all."""
     encoded = to_json_schema(Schema({Extra: int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_key_validator_on_an_open_mapping() -> None:
+    """An open mapping cannot constrain its keys, and strict refuses the drop."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
+    assert "propertyNames" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="key validator"):
+        to_json_schema(schema, strict=True)
+
+
+def test_transparent_wrapper_key_is_still_universal() -> None:
+    """Msg only swaps the error message, so Msg(str, ...) matches every name."""
+    from probatio import Msg  # noqa: PLC0415
+
+    encoded = to_json_schema(Schema({Msg(str, "key"): int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
