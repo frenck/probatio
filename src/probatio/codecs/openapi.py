@@ -507,16 +507,23 @@ def _absorb_extra(
         _open("a partial variable key on an open mapping")
         return True
 
-    for pval in variable_values:
-        # An "any object" value is folded to the open ``additionalProperties``,
-        # matching voluptuous-openapi. It drops the constraint just as the branch
-        # above does, so strict mode has already had its say by this point.
-        if pval == _OPEN_OBJECT:
-            return True
-        if additional is None:
-            additional = pval
+    # An "any object" value folds to the open ``additionalProperties``, matching
+    # voluptuous-openapi.
+    if any(pval == _OPEN_OBJECT for pval in variable_values):
+        return True
 
-    return additional
+    if additional is not None:
+        return additional
+
+    if len(variable_values) == 1:
+        return variable_values[0]
+
+    # Several variable keys, so a property matching any one of them is valid.
+    # Taking the first would reject what the others accept: ``{int: int, str: str}``
+    # takes ``{"key": "value"}`` through its ``str`` key, and every JSON property
+    # name is a string, so an integer-only rendering rejects most of what the
+    # mapping allows. The union is the only rendering that does not narrow.
+    return {"anyOf": variable_values}
 
 
 def _covers_every_name(key: Any) -> bool:

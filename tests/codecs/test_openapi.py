@@ -868,4 +868,16 @@ def test_a_partial_key_does_not_undo_a_universal_one() -> None:
     from probatio import REMOVE_EXTRA  # noqa: PLC0415
 
     encoded = to_openapi(Schema({str: int, int: str}, extra=REMOVE_EXTRA))
-    assert encoded["additionalProperties"] == {"type": "integer"}
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
+
+
+def test_several_variable_keys_merge_into_any_of() -> None:
+    """Taking the first would reject what the other keys accept."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+
+    encoded = to_openapi(Schema({int: int, str: str}, extra=REMOVE_EXTRA))
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
