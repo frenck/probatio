@@ -878,11 +878,16 @@ def test_min_and_max_contains() -> None:
 
 
 def test_contains_count_on_a_non_collection() -> None:
-    """A counted contains on a non-iterable is refused cleanly, not leaked."""
-    # Typeless so the count validator (not a list-type guard) sees the raw value.
+    """A counted contains passes a non-array vacuously, and never leaks a TypeError.
+
+    ``contains`` constrains arrays; the spec has every other type satisfy it
+    without inspection, which the reference implementation agrees with.
+    """
     schema = from_json_schema({"contains": {"const": 5}, "minContains": 1})
+    assert schema(5) == 5
+    assert schema([5]) == [5]
     with pytest.raises(Invalid):
-        schema(5)
+        schema([1, 2])
 
 
 def test_max_and_exclusive_maximum_keep_the_tighter_one() -> None:
@@ -1796,10 +1801,13 @@ def test_negated_pattern_does_not_widen() -> None:
         schema("ax")
 
 
-def test_pattern_rejects_a_non_string() -> None:
-    """A non-string cannot be searched, so it is a clean Invalid, not a TypeError."""
+def test_pattern_passes_a_non_string_vacuously() -> None:
+    """pattern constrains strings; every other type satisfies it without inspection."""
+    schema = from_json_schema({"pattern": "x"})
+    assert schema(123) == 123
+    assert schema("axb") == "axb"
     with pytest.raises(Invalid):
-        from_json_schema({"pattern": "x"})(123)
+        schema("nope")
 
 
 def test_decoded_pattern_repr_names_its_source() -> None:

@@ -1657,7 +1657,9 @@ class _JsonPattern:
         """Return the value if the pattern is found anywhere in it."""
         try:
             found = self.pattern.search(value)
-        except TypeError as exc:
+        except TypeError as exc:  # pragma: no cover - scoped to strings already
+            # Unreachable: both construction sites sit behind a string check now.
+            # Kept so the class cannot leak a raw TypeError if that ever changes.
             raise MatchInvalid(translation_key="expected_string") from exc
 
         if not found:
@@ -1909,6 +1911,11 @@ _OBJECT_KEYWORDS = frozenset(
 )
 _ARRAY_KEYWORDS = frozenset({"items", "prefixItems", "minItems", "maxItems"})
 
+# The Python types a JSON number can arrive as, for scoping the numeric keywords.
+# ``bool`` is absent by design; ``_WhenType`` passes booleans through, since
+# Python calls one an ``int`` and JSON does not.
+_JSON_NUMBER_TYPES = (int, float)
+
 
 class _WhenType:
     """Apply a subschema only to instances of one JSON type.
@@ -1920,18 +1927,26 @@ class _WhenType:
     rest.
     """
 
-    def __init__(self, base: type, subschema: Any) -> None:
+    def __init__(self, base: type | tuple[type, ...], subschema: Any) -> None:
         """Compile the subschema and remember the instance type it applies to."""
         self._base = base
         self._schema = Schema(subschema)
 
     def __repr__(self) -> str:
         """Render readably for error paths."""
-        return f"WhenType({self._base.__name__}, {self._schema.schema!r})"
+        names = (
+            self._base.__name__
+            if isinstance(self._base, type)
+            else "|".join(base.__name__ for base in self._base)
+        )
+        return f"WhenType({names}, {self._schema.schema!r})"
 
     def __call__(self, value: Any) -> Any:
         """Validate instances of the type; pass every other value through."""
-        if not isinstance(value, self._base):
+        # A JSON boolean is not a string, a number, an array or an object, so it
+        # passes vacuously like any other value of the wrong type. Spelled out
+        # because Python calls a boolean an ``int`` and JSON does not.
+        if isinstance(value, bool) or not isinstance(value, self._base):
             return value
         return self._schema(value)
 
@@ -1962,24 +1977,30 @@ def _from_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
     constraints: list[Any] = []
     has_array = bool(_ARRAY_KEYWORDS & node.keys())
     if _NUMERIC_BOUND_KEYS & node.keys():
-        constraints.append(_from_range(node))
+        constraints.append(_WhenType(_JSON_NUMBER_TYPES, _from_range(node)))
     if "multipleOf" in node:
-        constraints.append(MultipleOf(_numeric(node, "multipleOf")))
+        constraints.append(
+            _WhenType(_JSON_NUMBER_TYPES, MultipleOf(_numeric(node, "multipleOf"))),
+        )
     if "minLength" in node or "maxLength" in node:
         constraints.append(
-            Length(
-                min=_item_count(node, "minLength"), max=_item_count(node, "maxLength")
+            _WhenType(
+                str,
+                Length(
+                    min=_item_count(node, "minLength"),
+                    max=_item_count(node, "maxLength"),
+                ),
             ),
         )
     if "pattern" in node:
-        constraints.append(_JsonPattern(_safe_pattern(node["pattern"])))
+        constraints.append(_WhenType(str, _JsonPattern(_safe_pattern(node["pattern"]))))
     # When array keywords are present, the array facet below reads uniqueItems
     # and contains itself, scoped to arrays; adding them standalone here too
     # would double-apply them.
     if node.get("uniqueItems") is True and not has_array:
         constraints.append(_JsonUnique())
     if "contains" in node and not has_array:
-        constraints.append(_from_contains(node, ctx))
+        constraints.append(_WhenType(list, _from_contains(node, ctx)))
     if _OBJECT_KEYWORDS & node.keys():
         constraints.append(_WhenType(dict, _from_object(node, ctx)))
     if has_array:
@@ -2469,7 +2490,9 @@ class _ContainsCount:
         """Return the value if the matching-item count is in range, else raise."""
         try:
             items = list(value)
-        except TypeError as exc:
+        except TypeError as exc:  # pragma: no cover - scoped to arrays already
+            # Unreachable: both construction sites sit behind a list check now.
+            # Kept so the class cannot leak a raw TypeError if that ever changes.
             raise ContainsInvalid(translation_key="not_a_collection") from exc
 
         count = 0
