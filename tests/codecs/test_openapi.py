@@ -827,3 +827,14 @@ def test_remove_extra_mapping_with_a_str_key_keeps_its_value_schema() -> None:
 
     encoded = to_openapi(Schema({str: int}, extra=REMOVE_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_strict_refuses_a_partial_key_on_an_open_mapping() -> None:
+    """Dropping the value constraint is a widening, which strict mode refuses."""
+    from probatio import REMOVE_EXTRA  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({int: int}, extra=REMOVE_EXTRA)
+    assert to_openapi(schema)["additionalProperties"] is True
+    with pytest.raises(SchemaError, match="partial variable key"):
+        to_openapi(schema, strict=True)

@@ -474,10 +474,20 @@ def _absorb_extra(
     A partial key is different: ``{int: int}`` with ``ALLOW_EXTRA`` accepts
     ``{"a": None}``, because "a" matches no schema key and the policy lets it
     through with any value, so ``additionalProperties: {"type": "integer"}`` would
-    reject what the mapping accepts.
+    reject what the mapping accepts. The object renders open there, dropping the
+    value constraint, which is a widening and so an error under ``strict``.
+
+    The universal keys are recognized by identity. ``key in (str, object)`` would
+    ask an arbitrary key validator whether it equals ``str``, and a validator's
+    ``__eq__`` is user code that can answer anything.
     """
-    if pval == _OPEN_OBJECT or not (closed or key in (str, object)):
+    if pval == _OPEN_OBJECT:
         return True
+
+    if not (closed or key is str or key is object):
+        _open("a partial variable key on an open mapping")
+        return True
+
     return pval if additional is None else additional
 
 

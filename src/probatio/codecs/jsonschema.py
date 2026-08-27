@@ -488,17 +488,18 @@ def _additional_properties(
     as its value schema; several ({str: int, int: str}) merge into an ``anyOf``
     so no pair is silently dropped.
 
-    An *open* mapping keeps its variable-key value schema only where those keys
-    cover every property name, which a plain ``str`` key does: no name can miss
-    it, so the extra policy never comes into play. A partial key is different.
-    ``{int: int}`` with ``ALLOW_EXTRA`` accepts ``{"a": None}``, because "a"
-    matches no schema key and the policy lets it through with any value, so
-    rendering it as ``additionalProperties: {"type": "integer"}`` would reject
-    what the mapping accepts. There the object renders open instead.
+    An *open* mapping keeps its variable-key value schema as long as *some* key
+    covers every property name, which a plain ``str`` key does: no name can miss
+    it, so the extra policy never comes into play and the value schemas describe
+    every property there is. Only partial keys are different. ``{int: int}`` with
+    ``ALLOW_EXTRA`` accepts ``{"a": None}``, because "a" matches no schema key and
+    the policy lets it through with any value, so rendering it as
+    ``additionalProperties: {"type": "integer"}`` would reject what the mapping
+    accepts. There the object renders open instead.
     """
     if not variable_values:
         return allow_extra
-    if allow_extra and not all(key in _ANY_KEY for key in variable_keys):
+    if allow_extra and not any(key in _ANY_KEY for key in variable_keys):
         return True
     if len(variable_values) == 1:
         return variable_values[0]

@@ -1085,3 +1085,11 @@ def test_open_mapping_emits_no_property_names() -> None:
     assert "propertyNames" not in to_json_schema(
         Schema({In(["a"]): int}, extra=ALLOW_EXTRA)
     )
+
+
+def test_one_universal_key_covers_every_name_for_an_open_mapping() -> None:
+    """A str key beside a partial one still catches every name, so values stand."""
+    encoded = to_json_schema(Schema({str: int, int: str}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
