@@ -41,6 +41,7 @@ from probatio.error import ContainsInvalid, Invalid, MatchInvalid, SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
+    Extra,
     Forbidden,
     Inclusive,
     Marker,
@@ -330,6 +331,10 @@ def _convert_mapping(
     # ...and their *key* validators, which become ``propertyNames``: the mirror of
     # the constraint ``from_json_schema`` reads back out of that keyword.
     variable_keys: list[dict[str, Any]] = []
+    # The raw keys as well. A rendered key schema cannot answer "does this cover
+    # every property name": an unrepresentable callable renders ``{}`` exactly as
+    # ``object`` does, and the two want opposite answers.
+    variable_key_names: list[Any] = []
     # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
@@ -361,6 +366,7 @@ def _convert_mapping(
             # to the keys it matches, the same as a plain variable key.
             variable_values.append(value_schema)
             variable_keys.append(_child(name))
+            variable_key_names.append(name)
             continue
 
         if not isinstance(name, str):
@@ -397,7 +403,7 @@ def _convert_mapping(
         False
         if forbid_extra
         else _additional_properties(
-            variable_values, variable_keys, allow_extra=allow_extra
+            variable_values, variable_key_names, allow_extra=allow_extra
         )
     )
     result: dict[str, Any] = {
@@ -478,7 +484,7 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
 
 def _additional_properties(
     variable_values: list[dict[str, Any]],
-    variable_keys: list[dict[str, Any]],
+    variable_keys: list[Any],
     *,
     allow_extra: bool,
 ) -> Any:
@@ -496,10 +502,15 @@ def _additional_properties(
     the policy lets it through with any value, so rendering it as
     ``additionalProperties: {"type": "integer"}`` would reject what the mapping
     accepts. There the object renders open instead.
+
+    ``variable_keys`` holds the keys themselves, not their rendered schemas, and
+    that is load-bearing: a callable with no JSON Schema form renders ``{}`` just
+    as ``object`` does, so the rendering cannot tell a key that matches everything
+    from one that merely could not be written down.
     """
     if not variable_values:
         return allow_extra
-    if allow_extra and not any(key in _ANY_KEY for key in variable_keys):
+    if allow_extra and not any(map(_covers_every_name, variable_keys)):
         return True
     if len(variable_values) == 1:
         return variable_values[0]
@@ -575,6 +586,15 @@ def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
             return True
 
     return False
+
+
+def _covers_every_name(key: Any) -> bool:
+    """Whether a variable key matches every property name a mapping can carry.
+
+    By identity, not equality: a key validator's ``__eq__`` is user code, and a
+    "yes" from it would keep a value schema that narrows.
+    """
+    return key is Extra or key is str or key is object
 
 
 def _decorate_property(

@@ -1093,3 +1093,29 @@ def test_one_universal_key_covers_every_name_for_an_open_mapping() -> None:
     assert encoded["additionalProperties"] == {
         "anyOf": [{"type": "integer"}, {"type": "string"}]
     }
+
+
+def test_unrepresentable_key_is_not_mistaken_for_a_universal_one() -> None:
+    """A key with no JSON Schema form renders {} exactly as ``object`` does.
+
+    So the rendering cannot answer whether the key covers every property name,
+    and reading it as universal would keep a value schema the extra policy makes
+    wrong: this mapping accepts ``{"b": None}`` through ALLOW_EXTRA.
+    """
+
+    from probatio import Invalid  # noqa: PLC0415
+
+    def only_a(value: object) -> object:
+        if value != "a":
+            message = "only the key 'a'"
+            raise Invalid(message)
+        return value
+
+    encoded = to_json_schema(Schema({only_a: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] is True
+
+
+def test_extra_marker_key_is_universal() -> None:
+    """Extra catches every unmatched key, so its value schema covers them all."""
+    encoded = to_json_schema(Schema({Extra: int}, extra=ALLOW_EXTRA))
+    assert encoded["additionalProperties"] == {"type": "integer"}
