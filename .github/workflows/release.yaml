@@ -57,7 +57,7 @@ jobs:
           echo "WHEEL_PROBATIO=$(ls dist/probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
           echo "WHEEL_PYTEST=$(ls dist/pytest_probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
       - name: 📝 Generate a CycloneDX SBOM for probatio
-        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           file: ${{ env.WHEEL_PROBATIO }}
           format: cyclonedx-json
@@ -65,7 +65,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: 📝 Generate a CycloneDX SBOM for pytest-probatio
-        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           file: ${{ env.WHEEL_PYTEST }}
           format: cyclonedx-json
