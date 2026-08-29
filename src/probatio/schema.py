@@ -438,9 +438,17 @@ class Schema:
             calls += 1
             if calls == _AUTO_COMPILE_THRESHOLD:
                 self._compiled = self._compile_from(interpreted)
-            if calls >= _AUTO_COMPILE_THRESHOLD:
-                return self._compiled(data)
-            return interpreted(data)
+
+            # Read once, and never call it if it is still this counter. Another
+            # caller can cross the threshold while the generation above is still
+            # running, and code generation is not quick; delegating to
+            # ``_compiled`` then lands back here, increments again, and recurses
+            # until the stack gives out. Validating interpreted for the few calls
+            # that fall in that window costs nothing and cannot recurse.
+            compiled = self._compiled
+            if compiled is validate:
+                return interpreted(data)
+            return compiled(data)
 
         return validate
 
