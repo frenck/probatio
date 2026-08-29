@@ -714,3 +714,36 @@ def test_tuple_sequence_schema_stays_interpreted() -> None:
     schema = Schema((str,), compile=True).compile()
     assert not _is_compiled(schema)
     assert schema(("a", "b")) == ("a", "b")
+
+
+def test_a_call_arriving_during_generation_does_not_recurse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second caller crossing the threshold mid-generation must not re-enter.
+
+    Generation is real work, so another caller can arrive while it runs and find
+    ``_compiled`` still holding the counter. Delegating to it there lands back on
+    the counter, which increments and delegates again, until the stack gives out.
+    Reported against Home Assistant blueprint validation, where config is
+    validated from an executor thread.
+    """
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema({"a": int})
+    data = {"a": 1}
+
+    original = Schema._compile_from
+    arrived: list[bool] = []
+
+    def reentrant(self: Schema, interpreted: object) -> object:
+        # Stands in for the caller that arrives while generation is running.
+        if not arrived:
+            arrived.append(True)
+            schema(data)
+        return original(self, interpreted)
+
+    monkeypatch.setattr(Schema, "_compile_from", reentrant)
+
+    for _ in range(_AUTO_COMPILE_THRESHOLD + 5):
+        assert schema(data) == data
+
+    assert arrived, "the re-entrant call never happened, so nothing was proven"
