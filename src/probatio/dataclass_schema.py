@@ -581,7 +581,13 @@ def _key_from_spec(  # noqa: PLR0913
             name, "Exclusive", constructs=constructs, present=False, has=has_default
         )
     elif required:
-        base = Required(name, msg=spec.msg, description=spec.description)
+        # A required field with a default is the mapping form's
+        # ``Required(key, default=...)``: the key is guaranteed in the result, filled
+        # from the default when the input omits it. Without a default the key must be
+        # supplied, since there is nothing to fall back on.
+        base = Required(
+            name, default=default, msg=spec.msg, description=spec.description
+        )
     else:
         base = Optional(
             name, default=default, msg=spec.msg, description=spec.description
