@@ -81,8 +81,10 @@ TypedDict's absence), so validation and `construct()` never diverge on it.
 - **A field absent from the validated mapping keeps the dataclass's own default,
   untouched.** `optional`/`alias`/`inclusive`/`exclusive`-when-the-group-is-empty carry
   their default into the validated mapping, so the value schema validates and coerces
-  it. But a `forbidden` field (always absent), a `remove` field (always dropped), and an
-  unselected `exclusive` member (absent because a sibling won) leave no entry, so
+  it, and so does a `required` field that has one (the dict form's
+  `Required(key, default=...)`). But a `forbidden` field (always absent), a `remove`
+  field (always dropped), and an unselected `exclusive` member (absent because a
+  sibling won) leave no entry, so
   construction falls back to the raw dataclass default, which the schema never validates
   or coerces. This is a boundary, not a bug: a dataclass's construction defaults are
   Python-level, outside the schema, which validates _input_, and a value the schema
