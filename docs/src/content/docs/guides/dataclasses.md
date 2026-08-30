@@ -252,8 +252,12 @@ works for one), emitting it under the field name; `accept_canonical=False` makes
 a strict rename. `Key(inclusive="grp")` / `Key(exclusive="grp")` group fields the
 way the [dict form](/guides/dict-schemas-and-markers/) does. `Key(required=True)`
 (or `required=False`) overrides the presence the field's default would imply.
-`required=False` marks a field optional, so on a dataclass it still needs a
-default for the constructor to fall back on; without one it raises `SchemaError`.
+`required=True` on a field that has a default matches the dict form's
+`Required(key, default=...)`: the key is guaranteed in the result, filled from the
+default when the input omits it. Without a default there is nothing to fall back
+on, so the key must be supplied. `required=False` marks a field optional, so on a
+dataclass it still needs a default for the constructor to fall back on; without one
+it raises `SchemaError`.
 
 `Key` is a field-only spec; a plain dict schema keeps using the markers directly
 (`{Secret("password"): str}`, `{Alias("user_name", "user-name"): str}`). It works
@@ -266,8 +270,9 @@ there they need no default.
 
 One boundary to know, on which defaults pass through the schema:
 
-- An `optional` field, or a selected `exclusive` member, carries its default
-  through the schema, so it is validated and coerced like input.
+- An `optional` field, a `required` field that has one, or a selected `exclusive`
+  member, carries its default through the schema, so it is validated and coerced
+  like input.
 - A field the schema keeps out of the input (a `forbidden` field, a `remove`
   field, an unselected `exclusive` member) takes the dataclass's own default
   exactly as declared: no validation, no coercion.

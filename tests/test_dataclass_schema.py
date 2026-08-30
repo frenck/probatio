@@ -38,10 +38,13 @@ from probatio import (
     Maybe,
     MultipleInvalid,
     Range,
+    Required,
+    Schema,
     SchemaError,
     Self,
     create_dataclass_schema,
     is_dataclass,
+    to_field_list,
     to_json_schema,
 )
 from probatio import Any as AnyOf
@@ -1232,8 +1235,8 @@ def test_key_inclusive_group() -> None:
         schema({"x": 1})
 
 
-def test_key_required_overrides_a_default() -> None:
-    """Key(required=True) forces presence even when the field has a default."""
+def test_key_required_keeps_the_field_default() -> None:
+    """Key(required=True) fills an absent key from the default, like the dict form."""
 
     @dataclass
     class Cfg:
@@ -1241,8 +1244,34 @@ def test_key_required_overrides_a_default() -> None:
 
     schema = create_dataclass_schema(Cfg)
     assert schema({"mode": "manual"}).mode == "manual"
-    with pytest.raises(MultipleInvalid):
-        schema({})
+    assert schema({}).mode == "auto"
+    assert Schema({Required("mode", default="auto"): str})({}) == {"mode": "auto"}
+
+
+def test_key_required_without_a_default_still_demands_the_key() -> None:
+    """With no default there is nothing to fall back on, so the key is required."""
+
+    @dataclass
+    class Cfg:
+        mode: Annotated[str, Key(required=True)]
+
+    with pytest.raises(MultipleInvalid, match="required key not provided"):
+        create_dataclass_schema(Cfg)({})
+
+
+def test_key_required_serializes_as_required_with_its_default() -> None:
+    """A required field carries its default into the field list, marked required."""
+
+    @dataclass
+    class Cfg:
+        mode: Annotated[str, Key(required=True)] = "auto"
+
+    # The mapping is reached directly because to_field_list cannot unwrap a
+    # constructing schema yet (frenck/probatio#313).
+    mapping = create_dataclass_schema(Cfg).schema.validators[0]
+    assert to_field_list(mapping) == [
+        {"type": "string", "name": "mode", "required": True, "default": "auto"}
+    ]
 
 
 def test_key_optional_without_default_is_a_schema_error() -> None:
