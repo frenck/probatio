@@ -181,6 +181,18 @@ def test_recursive_typeddict() -> None:
     assert result == {"value": 1, "children": [{"value": 2, "children": []}]}
 
 
+def test_key_required_has_no_default_to_keep() -> None:
+    """A TypedDict field has no default, so Key(required=True) only demands the key."""
+
+    class Cfg(TypedDict):
+        mode: Annotated[NotRequired[str], Key(required=True)]
+
+    schema = TypedDictSchema(Cfg)
+    assert schema({"mode": "manual"}) == {"mode": "manual"}
+    with pytest.raises(MultipleInvalid, match="required key not provided"):
+        schema({})
+
+
 def test_additional_constraints_layer_onto_a_field() -> None:
     """A per-field constraint runs after the type check."""
     schema = TypedDictSchema(Config, {"port": Range(min=1, max=65535)})
