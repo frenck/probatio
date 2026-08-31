@@ -144,21 +144,24 @@ def covers_every_property_name(key: Any) -> bool:
 
 
 def foreign_schema_detail(node: Any) -> str | None:
-    """Describe a ``Schema`` that came from some module other than probatio's.
+    """Describe a ``voluptuous`` ``Schema`` that has reached a codec.
 
     Two ``Schema`` classes live in one process when a real ``voluptuous`` is
     imported before ``install_as_voluptuous`` aliases it away. Every
     ``isinstance`` check that unwraps a schema then stops matching, and the codecs
-    fail somewhere far from the cause: the field-list codec reports a schema it
-    cannot serialize, and the JSON Schema and OpenAPI codecs raise a bare
-    ``TypeError: unhashable type: 'Schema'``. Neither names the actual problem,
-    and the two classes even share a ``repr``, so the traceback cannot be told
-    apart from an ordinary bug.
+    fail far from the cause: an unserializable-schema error, or a bare
+    ``TypeError: unhashable type: 'Schema'``. The two classes share a ``repr`` by
+    design, so the traceback cannot be told apart from an ordinary bug.
 
-    Returns None for anything else, including probatio's own ``Schema``.
+    Provenance is checked rather than guessed: only a class from a ``voluptuous``
+    module qualifies. A class that merely happens to be named ``Schema`` belongs
+    to somebody else, and each codec renders it the way it renders any other
+    node it does not know, which is what it did before this check existed.
     """
     cls = type(node)
-    if cls.__name__ != "Schema" or cls is Schema or not hasattr(node, "schema"):
+    if cls is Schema or cls.__module__.split(".")[0] != "voluptuous":
+        return None
+    if cls.__name__ != "Schema" or not hasattr(node, "schema"):
         return None
 
     return (

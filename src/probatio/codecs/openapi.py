@@ -166,10 +166,6 @@ def to_openapi(
     finite rendering, so the runaway recursion is reported as a clean
     ``SchemaError`` rather than a bare ``RecursionError``.
     """
-    detail = foreign_schema_detail(schema)
-    if detail is not None:
-        raise SchemaError(detail)
-
     token = _STRICT.set(strict)
     try:
         rendered = _oa(schema, custom_serializer, openapi_version)
@@ -279,6 +275,12 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         result = custom(node)
         if result is not UNSUPPORTED:
             return cast("dict[str, Any]", result)
+
+    # After the hook, so an override still wins, and on every node rather than
+    # only the argument: a foreign schema nested in a mapping reaches here too.
+    detail = foreign_schema_detail(node)
+    if detail is not None:
+        raise SchemaError(detail)
 
     if node is Self:
         # ``Self`` is the recursive reference to the whole enclosing schema; ``#``

@@ -178,10 +178,6 @@ def to_json_schema(
     recursion is caught and reported as a clean ``SchemaError`` instead of a bare
     ``RecursionError``.
     """
-    detail = foreign_schema_detail(schema)
-    if detail is not None:
-        raise SchemaError(detail)
-
     token = _OPTIONS.set(_Options(strict=strict, custom=custom_serializer))
     try:
         return _convert(schema, required_default=False, allow_extra=False)
@@ -241,6 +237,12 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
         result = custom(node)
         if result is not UNSUPPORTED:
             return cast("dict[str, Any]", result)
+
+    # After the hook, so an override still wins, and on every node rather than
+    # only the argument: a foreign schema nested in a mapping reaches here too.
+    detail = foreign_schema_detail(node)
+    if detail is not None:
+        raise SchemaError(detail)
 
     if isinstance(node, dict):
         return _convert_mapping(

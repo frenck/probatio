@@ -899,13 +899,39 @@ def test_open_mapping_with_a_universal_key_keeps_its_value_schema() -> None:
     assert encoded["additionalProperties"] == {"type": "integer"}
 
 
-def test_a_foreign_schema_is_refused_with_the_module_named() -> None:
-    """A Schema from another module fails clearly, not as an unhashable TypeError."""
+class _VoluptuousSchema:
+    """Stands in for ``voluptuous.schema_builder.Schema``, provenance included."""
+
+    __module__ = "voluptuous.schema_builder"
+
+    def __init__(self, schema: object) -> None:
+        self.schema = schema
+
+
+_VoluptuousSchema.__name__ = "Schema"
+
+
+def test_a_voluptuous_schema_is_refused_with_the_module_named() -> None:
+    """A Schema from voluptuous fails clearly, not as an unhashable TypeError."""
     from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_openapi(_VoluptuousSchema({"a": int}))
+
+
+def test_a_nested_voluptuous_schema_is_refused_too() -> None:
+    """The check sits on every node, so a foreign schema inside a mapping is caught."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_openapi(Schema({"a": _VoluptuousSchema({"x": int})}))
+
+
+def test_an_unrelated_class_named_schema_still_renders_open() -> None:
+    """Provenance is checked, so an unknown node renders as it always did."""
 
     class Schema:
         def __init__(self, schema: object) -> None:
             self.schema = schema
 
-    with pytest.raises(SchemaError, match="not probatio's"):
-        to_openapi(Schema({"a": int}))
+    assert to_openapi(Schema({"a": int})) == {}

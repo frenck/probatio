@@ -195,10 +195,6 @@ def to_field_list(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
     is called first for each node and may return a dict to override the default,
     or ``UNSUPPORTED`` to defer.
     """
-    detail = foreign_schema_detail(schema)
-    if detail is not None:
-        raise ValueError(detail)
-
     if isinstance(schema, Schema):
         schema = schema.schema
     return _serialize_node(schema, custom_serializer)
