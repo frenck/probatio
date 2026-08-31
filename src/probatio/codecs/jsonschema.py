@@ -33,6 +33,7 @@ from probatio.codecs._shared import (
     ExclusiveGroup,
     covers_every_property_name,
     exclusive_constraint,
+    foreign_schema_detail,
     merge_dependent_required,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -177,6 +178,10 @@ def to_json_schema(
     recursion is caught and reported as a clean ``SchemaError`` instead of a bare
     ``RecursionError``.
     """
+    detail = foreign_schema_detail(schema)
+    if detail is not None:
+        raise SchemaError(detail)
+
     token = _OPTIONS.set(_Options(strict=strict, custom=custom_serializer))
     try:
         return _convert(schema, required_default=False, allow_extra=False)

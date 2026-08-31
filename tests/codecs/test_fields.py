@@ -329,3 +329,29 @@ def test_serialize_marks_allow_none_for_either_any_order() -> None:
         "type": "string",
         "allow_none": True,
     }
+
+
+def test_a_foreign_schema_names_the_module_it_came_from() -> None:
+    """A Schema from another module reports that, not "unable to serialize".
+
+    Two Schema classes live in one process when a real voluptuous is imported
+    before the compat shim aliases it away. The two share a repr, so without the
+    module name the traceback is indistinguishable from an ordinary bug. Reported
+    against Home Assistant, where it cost a long diagnosis.
+    """
+
+    class Schema:
+        def __init__(self, schema: object) -> None:
+            self.schema = schema
+
+    with pytest.raises(ValueError, match="not probatio's") as caught:
+        to_field_list(Schema({"a": int}))
+
+    assert __name__ in str(caught.value), "the message must name the source module"
+
+
+def test_probatio_own_schema_is_not_mistaken_for_a_foreign_one() -> None:
+    """The check keys on the class, so probatio's own Schema passes through."""
+    assert to_field_list(Schema({"a": int})) == [
+        {"type": "integer", "name": "a", "required": False}
+    ]

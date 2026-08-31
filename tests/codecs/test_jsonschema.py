@@ -1196,3 +1196,15 @@ def test_strict_allows_a_universal_key_with_no_leaf_rendering() -> None:
     """Extra has no leaf form, but the mapping renders exactly as its values."""
     encoded = to_json_schema(Schema({Extra: int}), strict=True)
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_foreign_schema_is_refused_with_the_module_named() -> None:
+    """A Schema from another module fails clearly, not as an unhashable TypeError."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    class Schema:
+        def __init__(self, schema: object) -> None:
+            self.schema = schema
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_json_schema(Schema({"a": int}))

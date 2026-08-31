@@ -29,6 +29,7 @@ from probatio.codecs._shared import (
     ExclusiveGroup,
     covers_every_property_name,
     exclusive_constraint,
+    foreign_schema_detail,
     merge_dependent_required,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -165,6 +166,10 @@ def to_openapi(
     finite rendering, so the runaway recursion is reported as a clean
     ``SchemaError`` rather than a bare ``RecursionError``.
     """
+    detail = foreign_schema_detail(schema)
+    if detail is not None:
+        raise SchemaError(detail)
+
     token = _STRICT.set(strict)
     try:
         rendered = _oa(schema, custom_serializer, openapi_version)

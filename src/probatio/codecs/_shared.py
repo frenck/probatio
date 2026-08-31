@@ -143,6 +143,32 @@ def covers_every_property_name(key: Any) -> bool:
     return key is Extra or key is str or key is object
 
 
+def foreign_schema_detail(node: Any) -> str | None:
+    """Describe a ``Schema`` that came from some module other than probatio's.
+
+    Two ``Schema`` classes live in one process when a real ``voluptuous`` is
+    imported before ``install_as_voluptuous`` aliases it away. Every
+    ``isinstance`` check that unwraps a schema then stops matching, and the codecs
+    fail somewhere far from the cause: the field-list codec reports a schema it
+    cannot serialize, and the JSON Schema and OpenAPI codecs raise a bare
+    ``TypeError: unhashable type: 'Schema'``. Neither names the actual problem,
+    and the two classes even share a ``repr``, so the traceback cannot be told
+    apart from an ordinary bug.
+
+    Returns None for anything else, including probatio's own ``Schema``.
+    """
+    cls = type(node)
+    if cls.__name__ != "Schema" or cls is Schema or not hasattr(node, "schema"):
+        return None
+
+    return (
+        f"got a Schema from {cls.__module__!r}, which is not probatio's. Two "
+        f"Schema classes are live in this process, so probatio cannot recognize "
+        f"this one. Call probatio.compat.install_as_voluptuous() before anything "
+        f"imports voluptuous, or take the real voluptuous out of the environment"
+    )
+
+
 def ordered_values(values: Any) -> list[Any]:
     """List a container's values, sorting a set so the emitted schema is stable.
 

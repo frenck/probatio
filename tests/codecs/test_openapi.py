@@ -897,3 +897,15 @@ def test_open_mapping_with_a_universal_key_keeps_its_value_schema() -> None:
 
     encoded = to_openapi(Schema({str: int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_foreign_schema_is_refused_with_the_module_named() -> None:
+    """A Schema from another module fails clearly, not as an unhashable TypeError."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    class Schema:
+        def __init__(self, schema: object) -> None:
+            self.schema = schema
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_openapi(Schema({"a": int}))

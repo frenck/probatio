@@ -16,7 +16,7 @@ import enum
 from collections.abc import Hashable, Mapping
 from typing import Any, cast
 
-from probatio.codecs._shared import UNSUPPORTED
+from probatio.codecs._shared import UNSUPPORTED, foreign_schema_detail
 from probatio.markers import (
     Forbidden,
     Optional,
@@ -195,6 +195,10 @@ def to_field_list(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
     is called first for each node and may return a dict to override the default,
     or ``UNSUPPORTED`` to defer.
     """
+    detail = foreign_schema_detail(schema)
+    if detail is not None:
+        raise ValueError(detail)
+
     if isinstance(schema, Schema):
         schema = schema.schema
     return _serialize_node(schema, custom_serializer)
@@ -267,7 +271,11 @@ def _serialize_value(node: Any, custom: Any) -> dict[str, Any]:
         # is an ``int`` subclass, so it is covered. ``None`` is not a constant
         # there, so it falls through to the error, matching the oracle.
         return {"type": "constant", "value": node}
-    message = f"unable to serialize schema: {node!r}"
+    # A ``Schema`` reaching here is a nested one the caller has to unwrap, or a
+    # foreign class; either way the repr alone does not say which, so name the
+    # module it came from.
+    detail = foreign_schema_detail(node)
+    message = detail or f"unable to serialize schema: {node!r}"
     raise ValueError(message)
 
 
