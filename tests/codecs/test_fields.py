@@ -329,3 +329,49 @@ def test_serialize_marks_allow_none_for_either_any_order() -> None:
         "type": "string",
         "allow_none": True,
     }
+
+
+class _VoluptuousSchema:
+    """Stands in for ``voluptuous.schema_builder.Schema``, provenance included."""
+
+    __module__ = "voluptuous.schema_builder"
+    __qualname__ = "Schema"
+    __name__ = "Schema"
+
+    def __init__(self, schema: object) -> None:
+        self.schema = schema
+
+
+_VoluptuousSchema.__name__ = "Schema"
+
+
+def test_a_voluptuous_schema_names_the_module_it_came_from() -> None:
+    """A Schema from voluptuous reports that, not "unable to serialize"."""
+    with pytest.raises(ValueError, match="not probatio's") as caught:
+        to_field_list(_VoluptuousSchema({"a": int}))
+
+    assert "voluptuous.schema_builder" in str(caught.value)
+
+
+def test_an_unrelated_class_named_schema_is_left_alone() -> None:
+    """Provenance is checked, so somebody else's Schema is not claimed as ours."""
+
+    class Schema:
+        def __init__(self, schema: object) -> None:
+            self.schema = schema
+
+    with pytest.raises(ValueError, match="unable to serialize"):
+        to_field_list(Schema({"a": int}))
+
+
+def test_the_custom_serializer_still_wins_over_the_diagnosis() -> None:
+    """The documented hook runs first, so an override always comes first."""
+
+    def hook(node: object) -> object:
+        if isinstance(node, _VoluptuousSchema):
+            return [{"name": "handled"}]
+        return UNSUPPORTED
+
+    assert to_field_list(_VoluptuousSchema({"a": int}), custom_serializer=hook) == [
+        {"name": "handled"}
+    ]

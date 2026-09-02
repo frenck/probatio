@@ -1196,3 +1196,54 @@ def test_strict_allows_a_universal_key_with_no_leaf_rendering() -> None:
     """Extra has no leaf form, but the mapping renders exactly as its values."""
     encoded = to_json_schema(Schema({Extra: int}), strict=True)
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+class _VoluptuousSchema:
+    """Stands in for ``voluptuous.schema_builder.Schema``, provenance included."""
+
+    __module__ = "voluptuous.schema_builder"
+
+    def __init__(self, schema: object) -> None:
+        self.schema = schema
+
+
+_VoluptuousSchema.__name__ = "Schema"
+
+
+def test_a_voluptuous_schema_is_refused_with_the_module_named() -> None:
+    """A Schema from voluptuous fails clearly, not as an unhashable TypeError."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_json_schema(_VoluptuousSchema({"a": int}))
+
+
+def test_a_nested_voluptuous_schema_is_refused_too() -> None:
+    """The check sits on every node, so a foreign schema inside a mapping is caught."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="not probatio's"):
+        to_json_schema(Schema({"a": _VoluptuousSchema({"x": int})}))
+
+
+def test_an_unrelated_class_named_schema_still_renders_open() -> None:
+    """Provenance is checked, so an unknown node renders as it always did."""
+
+    class Schema:
+        def __init__(self, schema: object) -> None:
+            self.schema = schema
+
+    assert to_json_schema(Schema({"a": int})) == {}
+
+
+def test_a_non_schema_from_voluptuous_is_not_reported_as_a_schema() -> None:
+    """Only a Schema gets the mixed-install message; another validator does not.
+
+    A foreign ``In`` or marker reaching a codec is a different problem, and
+    claiming two Schema classes are live would send the reader somewhere useless.
+    """
+
+    class In:
+        __module__ = "voluptuous.validators"
+
+    assert to_json_schema(In()) == {}
