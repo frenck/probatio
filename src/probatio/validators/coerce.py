@@ -7,7 +7,7 @@ import typing
 from decimal import Decimal, InvalidOperation
 
 from probatio.error import BooleanInvalid, CoerceInvalid, Invalid, SchemaError
-from probatio.markers import UNDEFINED
+from probatio.markers import UNDEFINED, default_factory
 from probatio.validators._base import _SafeValidator
 from probatio.validators.decorators import message
 
@@ -142,16 +142,25 @@ def Boolean(value: typing.Any) -> bool:
 
 
 class SetTo(_SafeValidator):
-    """Ignore the input and always produce a fixed value."""
+    """Ignore the input and always produce a fixed value.
+
+    A callable is read as a factory, so ``SetTo(list)`` produces a new empty list
+    on every call rather than the ``list`` type itself.
+    """
 
     def __init__(self, value: typing.Any) -> None:
-        """Store the value to set."""
-        self.value = value
+        """Store the value to set, normalized into a zero-argument factory."""
+        # ``Any`` rather than the factory union, so the call below reads plainly.
+        self.value: typing.Any = default_factory(value)
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the value, matching voluptuous."""
+        return f"SetTo({self.value()})"
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the configured value, regardless of the input."""
         del value
-        return self.value
+        return self.value()
 
 
 class Number(_SafeValidator):
@@ -210,17 +219,27 @@ class Number(_SafeValidator):
 
 
 class DefaultTo(_SafeValidator):
-    """Replace ``None`` with a default, passing other values through."""
+    """Replace ``None`` with a default, passing other values through.
+
+    A callable default is read as a factory, so ``DefaultTo(list)`` substitutes a
+    new empty list rather than the ``list`` type itself, and two validated values
+    never share one mutable default.
+    """
 
     def __init__(self, default: typing.Any, msg: str | None = None) -> None:
-        """Store the default to use when the value is None."""
-        self.default = default
+        """Store the default for a None value, as a zero-argument factory."""
+        # ``Any`` rather than the factory union, so the call below reads plainly.
+        self.default: typing.Any = default_factory(default)
         self.msg = msg
+
+    def __repr__(self) -> str:
+        """Render as a constructor call showing the default, matching voluptuous."""
+        return f"DefaultTo({self.default()})"
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the default when the value is None, else the value."""
         if value is None:
-            return self.default
+            return self.default()
         return value
 
 

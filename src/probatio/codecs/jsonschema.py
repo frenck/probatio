@@ -977,7 +977,7 @@ def _convert_misc(node: Any) -> dict[str, Any] | None:
     if isinstance(node, DefaultTo):
         # ``DefaultTo`` accepts any value and substitutes its default for a missing
         # one, so the only JSON Schema it carries is the ``default`` annotation.
-        default = _json_safe(node.default)
+        default = _json_safe(node.default())
         return {} if default is _UNREPRESENTABLE else {"default": default}
 
     return None

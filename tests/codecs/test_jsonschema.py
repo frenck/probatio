@@ -906,6 +906,13 @@ def test_default_to_exports_a_default() -> None:
     assert to_json_schema(Schema(DefaultTo(5))) == {"default": 5}
 
 
+def test_default_to_exports_a_callable_default() -> None:
+    """A callable default is called, so the annotation carries the value it makes."""
+    from probatio.validators import DefaultTo  # noqa: PLC0415
+
+    assert to_json_schema(Schema(DefaultTo(list))) == {"default": []}
+
+
 def test_strict_raises_on_an_unrepresentable_validator() -> None:
     """strict=True refuses a construct that would silently widen to an open schema."""
     from probatio.error import SchemaError  # noqa: PLC0415
