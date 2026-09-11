@@ -17,6 +17,7 @@ from collections.abc import Hashable, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
+from probatio.dataclass_schema import constructed_mapping
 from probatio.markers import (
     Forbidden,
     Optional,
@@ -196,7 +197,9 @@ def to_field_list(schema: Any, *, custom_serializer: Any = None) -> _Serialized:
     or ``UNSUPPORTED`` to defer.
     """
     if isinstance(schema, Schema):
-        schema = schema.schema
+        # A dataclass schema wraps its mapping in the construction step; the fields
+        # being described live in the mapping.
+        schema = (constructed_mapping(schema) or schema).schema
     return _serialize_node(schema, custom_serializer)
 
 
