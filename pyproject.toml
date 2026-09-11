@@ -106,10 +106,10 @@ test = [
   "mashumaro==3.22",
   # Hypothesis drives the property-based and differential fuzz tests (the engine
   # and the codecs are hammered with generated schemas and data). Dev-only.
-  "hypothesis==6.167.1",
+  "hypothesis==6.168.0",
 ]
-typing = ["mypy==2.3.1", "ty==0.0.78"]
-lint = ["ruff==0.16.6", "codespell==2.4.3", "zizmor==1.30.0"]
+typing = ["mypy==2.3.1", "ty==0.0.80"]
+lint = ["ruff==0.16.7", "codespell==2.4.3", "zizmor==1.30.1"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
 codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
@@ -120,14 +120,14 @@ codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
 # from one install.
 bench-world = [
   { include-group = "test" },
-  "cattrs==26.1.0",
+  "cattrs==26.2.0",
   "dacite==1.9.2",
   "dataclasses-json==0.6.7",
   "marshmallow==3.26.2",
   "pydantic==2.13.5",
   # Renders the benchmark charts (just charts) into the docs assets, themed to the
   # docs. Benchmark-only; never a runtime or test dependency.
-  "matplotlib==3.11.1",
+  "matplotlib==3.11.2",
 ]
 # Everything needed for local development, in one install. Includes the `just`
 # task runner (the `rust-just` wheel bundles the binary), so `uv run just` works
