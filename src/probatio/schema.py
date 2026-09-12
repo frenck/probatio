@@ -167,6 +167,49 @@ def _not_built(data: Any) -> Any:  # noqa: ARG001  # pragma: no cover
     raise SchemaError(message)
 
 
+# "no key in the base schema matched", for the merge in ``extend``. A private
+# object rather than ``UNDEFINED``, which is public and can itself be a mapping key:
+# a base schema keyed on it would read as unmatched and keep the key the extension
+# meant to replace.
+_NO_MATCH = object()
+
+
+def _key_literal(key: Any) -> Any:
+    """Return the bare key under a (possibly nested) marker chain.
+
+    ``Required("a")``, ``Remove("a")`` and ``Optional(Secret("a"))`` all describe
+    the same key, ``"a"``. Merging schemas matches on that literal rather than on
+    the marker objects, because marker hashing does not line them up:
+    ``Remove`` hashes by identity, so a dict lookup keyed by one never finds
+    another marker for the same key.
+
+    This deliberately does not go through ``resolve_key``: merging must not reject
+    a contradictory chain that the schema it came from has not built yet.
+    """
+    while isinstance(key, Marker):
+        key = key.schema
+    return key
+
+
+def _literal_index(keys: dict[Any, Any]) -> dict[Any, Any]:
+    """Index a mapping schema's keys by the literal underneath their markers.
+
+    A key whose literal is unhashable is left out. ``Remove`` hashes by identity,
+    so it can legally wrap a key schema that is not itself hashable (a callable
+    validator whose class defines ``__eq__``, say); indexing it would raise, and
+    the index is the wrong place to fail, since the merge may not touch that key at
+    all. Nothing is lost: matching an extension key means hashing its literal too,
+    so an unhashable one could never have matched. It just survives the merge.
+    """
+    index: dict[Any, Any] = {}
+    for key in keys:
+        try:
+            index[_key_literal(key)] = key
+        except TypeError:
+            continue
+    return index
+
+
 class Schema:
     """A compiled, callable schema.
 
@@ -553,9 +596,11 @@ class Schema:
     ) -> Schema:
         """Return a new Schema with ``schema``'s keys merged into this mapping.
 
-        Keys in ``schema`` replace equal keys in this schema (marker and value
-        both), so a bare key can override a ``Required`` one. ``required`` and
-        ``extra`` override this schema's settings, or inherit them when omitted.
+        Keys are matched by the bare key underneath any marker, and a key in
+        ``schema`` replaces the matching one here (marker and value both), so a
+        bare key can override a ``Required`` one and a ``Remove`` overrides both.
+        ``required`` and ``extra`` override this schema's settings, or inherit them
+        when omitted.
 
         ``schema`` may be a plain mapping or another ``Schema`` (voluptuous PR
         #538). Extending with a ``Schema`` carries its ``required`` intent across
@@ -590,10 +635,29 @@ class Schema:
             raise SchemaError(message)
 
         merged = dict(self.schema)
+        # Match on the bare key underneath every marker, so an extension key
+        # replaces the existing one whatever marker either side wears: a bare key
+        # overrides a ``Required`` one, and a ``Remove`` overrides both. Popping by
+        # the key object instead would rely on marker hashing, which ``Remove``
+        # breaks by hashing on identity: the pop misses and the shadowed key stays
+        # in the merged schema, neither removed nor optional (issue #352).
+        existing_keys = _literal_index(merged)
+
         for key, value in schema.items():
-            # ``pop`` finds the existing key by its literal (markers hash by their
-            # underlying key), so a bare key overrides a ``Required`` one.
-            existing = merged.pop(key, None)
+            try:
+                # Consumed from the map as well as from ``merged``, so a second
+                # extension key for the same literal adds rather than pops twice.
+                existing_key = existing_keys.pop(_key_literal(key), _NO_MATCH)
+            except TypeError:
+                # An unhashable literal is not in the index, so nothing matches
+                # there. The marker around it is still hashable (``Remove`` hashes
+                # by identity), so fall back to the key object: an extension that
+                # reuses the very same marker addresses the entry it already keys,
+                # and a nested mapping under it still merges rather than replaces.
+                existing_key = key if key in merged else _NO_MATCH
+            existing = (
+                merged.pop(existing_key) if existing_key is not _NO_MATCH else _NO_MATCH
+            )
             # When both sides are mappings, merge them recursively rather than
             # replacing wholesale, so an extension touching one nested key keeps
             # the base's other nested keys (voluptuous semantics).
