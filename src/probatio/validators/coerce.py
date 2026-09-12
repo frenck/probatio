@@ -5,17 +5,35 @@ from __future__ import annotations
 import enum
 import typing
 from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING
 
 from probatio.error import BooleanInvalid, CoerceInvalid, Invalid, SchemaError
-from probatio.markers import UNDEFINED, default_factory
+from probatio.markers import UNDEFINED
 from probatio.validators._base import _SafeValidator
 from probatio.validators.decorators import message
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _TRUE_STRINGS = frozenset({"1", "true", "yes", "on", "enable"})
 _FALSE_STRINGS = frozenset({"0", "false", "no", "off", "disable"})
 # The empty values ``EmptyToNone`` maps to ``None``: a string or a container with no
 # items. A falsy scalar (``0``, ``False``) is a value, not an absence, so it is left.
 _EMPTY_CONTAINERS = (str, bytes, list, tuple, dict, set, frozenset)
+
+
+def _value_factory(value: typing.Any) -> Callable[[], typing.Any]:
+    """Normalize a substitution value into a zero-argument factory.
+
+    This is ``markers.default_factory`` minus the sentinel: that one passes
+    ``UNDEFINED`` through uncalled, because a marker uses it to mean "no default
+    was given". Here the value is a required argument, so there is no absence to
+    preserve and every input normalizes into something callable.
+    """
+    if callable(value):
+        factory: Callable[[], typing.Any] = value
+        return factory
+    return lambda: value
 
 
 class Coerce[T](_SafeValidator):
@@ -150,8 +168,7 @@ class SetTo(_SafeValidator):
 
     def __init__(self, value: typing.Any) -> None:
         """Store the value to set, normalized into a zero-argument factory."""
-        # ``Any`` rather than the factory union, so the call below reads plainly.
-        self.value: typing.Any = default_factory(value)
+        self.value = _value_factory(value)
 
     def __repr__(self) -> str:
         """Render as a constructor call showing the value, matching voluptuous."""
@@ -228,8 +245,7 @@ class DefaultTo(_SafeValidator):
 
     def __init__(self, default: typing.Any, msg: str | None = None) -> None:
         """Store the default for a None value, as a zero-argument factory."""
-        # ``Any`` rather than the factory union, so the call below reads plainly.
-        self.default: typing.Any = default_factory(default)
+        self.default = _value_factory(default)
         self.msg = msg
 
     def __repr__(self) -> str:
