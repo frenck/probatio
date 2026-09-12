@@ -704,6 +704,15 @@ Schema(EmptyToNone())(0)  # 0
 Schema(SetTo(42))("anything")  # 42
 ```
 
+A callable given to `DefaultTo` or `SetTo` is read as a factory, not as the value
+itself, so `DefaultTo(list)` substitutes a new empty list and two validated values
+never share one mutable default. This is the same normalization a marker default
+gets (`Optional("tags", default=list)`), through the same `default_factory` helper.
+
+```python
+Schema(DefaultTo(list))(None)  # [] (a new list each time, not the list type)
+```
+
 `Map` translates a value through a table you supply, like a device status code to a
 name. It is the bring-your-own-mapping answer to a domain conversion: probatio does
 not pick the table, so a disputed or app-specific lookup stays yours. A value not in

@@ -338,8 +338,10 @@ Apply these after a dict schema with `All`; they inspect the whole mapping.
 
 ### Defaults and messages
 
-- `DefaultTo(default, msg=None)`: replace `None` with a default.
-- `SetTo(value)`: ignore the input and always produce a fixed value.
+- `DefaultTo(default, msg=None)`: replace `None` with a default. A callable
+  default is a factory, so `DefaultTo(list)` substitutes a new empty list.
+- `SetTo(value)`: ignore the input and always produce a fixed value. A callable
+  value is a factory, the same way.
 - `Msg(validator, msg, cls=None)`: wrap a validator and replace its failure
   message.
 

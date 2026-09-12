@@ -102,6 +102,36 @@ def test_default_to_replaces_none() -> None:
     assert Schema(DefaultTo("fallback"))("given") == "given"
 
 
+def test_set_to_calls_a_callable_value() -> None:
+    """SetTo(list) produces an empty list, not the list type."""
+    assert Schema(SetTo(list))("anything") == []
+
+
+def test_default_to_calls_a_callable_default() -> None:
+    """DefaultTo(list) substitutes an empty list, not the list type."""
+    assert Schema(DefaultTo(list))(None) == []
+
+
+def test_a_callable_default_is_not_shared_between_values() -> None:
+    """Each substitution calls the factory again, so no mutable default is shared."""
+    schema = Schema(DefaultTo(list))
+    first, second = schema(None), schema(None)
+    first.append(1)
+    assert second == []
+
+
+def test_set_to_repr() -> None:
+    """SetTo reprs as a constructor call showing the value it produces."""
+    assert repr(SetTo(42)) == "SetTo(42)"
+    assert repr(SetTo(list)) == "SetTo([])"
+
+
+def test_default_to_repr() -> None:
+    """DefaultTo reprs as a constructor call showing the default it produces."""
+    assert repr(DefaultTo("fallback")) == "DefaultTo(fallback)"
+    assert repr(DefaultTo(list)) == "DefaultTo([])"
+
+
 def test_coerce_converts_the_value() -> None:
     """Coerce returns the value converted to the target type."""
     assert Schema(Coerce(int))("42") == 42
