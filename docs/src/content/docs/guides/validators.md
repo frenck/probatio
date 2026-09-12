@@ -707,7 +707,7 @@ Schema(SetTo(42))("anything")  # 42
 A callable given to `DefaultTo` or `SetTo` is read as a factory, not as the value
 itself, so `DefaultTo(list)` substitutes a new empty list and two validated values
 never share one mutable default. This is the same normalization a marker default
-gets (`Optional("tags", default=list)`), through the same `default_factory` helper.
+gets (`Optional("tags", default=list)`).
 
 ```python
 Schema(DefaultTo(list))(None)  # [] (a new list each time, not the list type)
