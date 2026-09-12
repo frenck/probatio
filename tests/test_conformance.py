@@ -127,6 +127,20 @@ def nested_schema_subclass(lib: Any) -> Any:
     return lib.Schema({lib.Required("device"): Defaulting({lib.Required("name"): str})})
 
 
+def extend_with_remove(lib: Any) -> Any:
+    """A Remove marker merged in over an existing Required key."""
+    base = lib.Schema({lib.Required("a"): int, lib.Required("b"): int})
+    return base.extend({lib.Remove("b"): int}, extra=lib.ALLOW_EXTRA)
+
+
+def extend_over_remove(lib: Any) -> Any:
+    """A Required marker merged in over an existing Remove key."""
+    base = lib.Schema(
+        {lib.Required("a"): int, lib.Remove("b"): int}, extra=lib.ALLOW_EXTRA
+    )
+    return base.extend({lib.Required("b"): int})
+
+
 def some_of(lib: Any) -> Any:
     """A SomeOf with a minimum pass count."""
     return lib.Schema(lib.SomeOf(min_valid=2, validators=[lib.Range(1, 5), int, 3]))
@@ -175,6 +189,10 @@ CASES: list[tuple[Any, Any]] = [
     (unordered_pair, [1, 2]),
     (nested_schema_subclass, {"device": {"name": "Lamp"}}),
     (nested_schema_subclass, {"device": {"name": 5}}),
+    (extend_with_remove, {"a": 1, "b": 2}),
+    (extend_with_remove, {"a": 1}),
+    (extend_over_remove, {"a": 1, "b": 2}),
+    (extend_over_remove, {"a": 1}),
     (some_of, 3),
     (some_of, 7),
 ]

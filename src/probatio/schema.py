@@ -41,6 +41,7 @@ from probatio.error import (
     SchemaError,
 )
 from probatio.markers import (
+    UNDEFINED,
     Extra,
     Marker,
     Optional,
@@ -165,6 +166,23 @@ def _not_built(data: Any) -> Any:  # noqa: ARG001  # pragma: no cover
     """
     message = "internal: a deferred schema's validator was read before it built"
     raise SchemaError(message)
+
+
+def _key_literal(key: Any) -> Any:
+    """Return the bare key under a (possibly nested) marker chain.
+
+    ``Required("a")``, ``Remove("a")`` and ``Optional(Secret("a"))`` all describe
+    the same key, ``"a"``. Merging schemas matches on that literal rather than on
+    the marker objects, because marker hashing does not line them up:
+    ``Remove`` hashes by identity, so a dict lookup keyed by one never finds
+    another marker for the same key.
+
+    This deliberately does not go through ``resolve_key``: merging must not reject
+    a contradictory chain that the schema it came from has not built yet.
+    """
+    while isinstance(key, Marker):
+        key = key.schema
+    return key
 
 
 class Schema:
@@ -553,9 +571,11 @@ class Schema:
     ) -> Schema:
         """Return a new Schema with ``schema``'s keys merged into this mapping.
 
-        Keys in ``schema`` replace equal keys in this schema (marker and value
-        both), so a bare key can override a ``Required`` one. ``required`` and
-        ``extra`` override this schema's settings, or inherit them when omitted.
+        Keys are matched by the bare key underneath any marker, and a key in
+        ``schema`` replaces the matching one here (marker and value both), so a
+        bare key can override a ``Required`` one and a ``Remove`` overrides both.
+        ``required`` and ``extra`` override this schema's settings, or inherit them
+        when omitted.
 
         ``schema`` may be a plain mapping or another ``Schema`` (voluptuous PR
         #538). Extending with a ``Schema`` carries its ``required`` intent across
@@ -590,10 +610,21 @@ class Schema:
             raise SchemaError(message)
 
         merged = dict(self.schema)
+        # Match on the bare key underneath every marker, so an extension key
+        # replaces the existing one whatever marker either side wears: a bare key
+        # overrides a ``Required`` one, and a ``Remove`` overrides both. Popping by
+        # the key object instead would rely on marker hashing, which ``Remove``
+        # breaks by hashing on identity: the pop misses and the shadowed key stays
+        # in the merged schema, neither removed nor optional (issue #352).
+        existing_keys = {_key_literal(key): key for key in merged}
+
         for key, value in schema.items():
-            # ``pop`` finds the existing key by its literal (markers hash by their
-            # underlying key), so a bare key overrides a ``Required`` one.
-            existing = merged.pop(key, None)
+            # Consumed from the map as well as from ``merged``, so a second
+            # extension key for the same literal adds rather than pops twice.
+            existing_key = existing_keys.pop(_key_literal(key), UNDEFINED)
+            existing = (
+                merged.pop(existing_key) if existing_key is not UNDEFINED else UNDEFINED
+            )
             # When both sides are mappings, merge them recursively rather than
             # replacing wholesale, so an extension touching one nested key keeps
             # the base's other nested keys (voluptuous semantics).

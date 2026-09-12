@@ -8,6 +8,7 @@ from probatio import (
     ALLOW_EXTRA,
     MultipleInvalid,
     Optional,
+    Remove,
     Required,
     Schema,
     SchemaError,
@@ -151,6 +152,47 @@ def test_extend_merges_nested_mappings_recursively() -> None:
     base = Schema({"a": {"b": int, "c": float}})
     extended = base.extend({"d": str, "a": {"b": str, "e": int}})
     assert extended.schema == {"a": {"b": str, "c": float, "e": int}, "d": str}
+
+
+def test_extend_with_remove_replaces_the_shadowed_key() -> None:
+    """A Remove in the extension takes over the base key's slot (issue #352).
+
+    Remove hashes by identity, so matching the extension's keys against the base
+    by the key object misses and leaves the shadowed key in the merged schema:
+    the key is then neither stripped from the output nor allowed to be absent.
+    Matching on the bare key underneath the marker is what keeps ``extend`` and
+    the same schema written out in one go equivalent, as voluptuous has them.
+    """
+    base = Schema({Required("a"): int, Required("b"): int})
+    extended = base.extend({Remove("b"): int}, extra=ALLOW_EXTRA)
+    direct = Schema({Required("a"): int, Remove("b"): int}, extra=ALLOW_EXTRA)
+
+    # Remove compares by identity, so the merged keys are checked by repr.
+    assert [repr(key) for key in extended.schema] == ["'a'", "Remove('b')"]
+    assert extended({"a": 1, "b": 2}) == direct({"a": 1, "b": 2}) == {"a": 1}
+    assert extended({"a": 1}) == direct({"a": 1}) == {"a": 1}
+
+
+def test_extend_over_a_remove_key_restores_it() -> None:
+    """A marker in the extension takes back a key the base removed."""
+    base = Schema({Required("a"): int, Remove("b"): int}, extra=ALLOW_EXTRA)
+    extended = base.extend({Required("b"): int})
+
+    assert list(extended.schema) == ["a", "b"]
+    assert extended({"a": 1, "b": 2}) == {"a": 1, "b": 2}
+
+    with pytest.raises(MultipleInvalid) as caught:
+        extended({"a": 1})
+    (error,) = caught.value.errors
+    assert error.path == ["b"]
+
+
+def test_extend_keeps_unrelated_remove_keys() -> None:
+    """Remove keys the extension does not name survive the merge intact."""
+    base = Schema({"a": int, Remove(int): str, Remove(float): str}, extra=ALLOW_EXTRA)
+    extended = base.extend({"c": int})
+
+    assert extended({"a": 1, 5: "x", 2.5: "y", "c": 3}) == {"a": 1, "c": 3}
 
 
 def test_extend_returns_the_same_schema_subclass() -> None:

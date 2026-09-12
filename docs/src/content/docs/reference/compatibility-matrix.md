@@ -325,6 +325,14 @@ Probatio does.
   pathologically deep document with `SchemaError`.
 - **`MultipleInvalid.error_type`.** voluptuous has no such attribute. Probatio
   proxies the first error's type. Additive, so existing code is unaffected.
+- **Comparing a `Remove` marker (`Remove("b") == Required("b")`).** voluptuous
+  compares a `Remove` to the key underneath it, so this is `True`, while hashing it
+  by identity, so equal markers hash differently and the hash/equality contract is
+  broken. Probatio both compares and hashes `Remove` by identity, so this is
+  `False` and the contract holds. Schema behavior is unaffected: a `Remove` still
+  replaces the key it shadows when merged with `extend`, and several `Remove`
+  markers still coexist in one schema. Only a direct `==` between two markers
+  differs.
 - **Missing complex required key (`Required(Any("a", "b"))`).** voluptuous reports
   it twice (the "at least one of [...]" error plus a redundant "required key not
   provided"). Probatio reports the single meaningful error; the first error matches
