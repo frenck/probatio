@@ -191,6 +191,25 @@ def _key_literal(key: Any) -> Any:
     return key
 
 
+def _literal_index(keys: dict[Any, Any]) -> dict[Any, Any]:
+    """Index a mapping schema's keys by the literal underneath their markers.
+
+    A key whose literal is unhashable is left out. ``Remove`` hashes by identity,
+    so it can legally wrap a key schema that is not itself hashable (a callable
+    validator whose class defines ``__eq__``, say); indexing it would raise, and
+    the index is the wrong place to fail, since the merge may not touch that key at
+    all. Nothing is lost: matching an extension key means hashing its literal too,
+    so an unhashable one could never have matched. It just survives the merge.
+    """
+    index: dict[Any, Any] = {}
+    for key in keys:
+        try:
+            index[_key_literal(key)] = key
+        except TypeError:
+            continue
+    return index
+
+
 class Schema:
     """A compiled, callable schema.
 
@@ -622,12 +641,17 @@ class Schema:
         # the key object instead would rely on marker hashing, which ``Remove``
         # breaks by hashing on identity: the pop misses and the shadowed key stays
         # in the merged schema, neither removed nor optional (issue #352).
-        existing_keys = {_key_literal(key): key for key in merged}
+        existing_keys = _literal_index(merged)
 
         for key, value in schema.items():
-            # Consumed from the map as well as from ``merged``, so a second
-            # extension key for the same literal adds rather than pops twice.
-            existing_key = existing_keys.pop(_key_literal(key), _NO_MATCH)
+            try:
+                # Consumed from the map as well as from ``merged``, so a second
+                # extension key for the same literal adds rather than pops twice.
+                existing_key = existing_keys.pop(_key_literal(key), _NO_MATCH)
+            except TypeError:
+                # An unhashable literal is not in the index either, so it matches
+                # nothing; the extension key is added rather than replacing one.
+                existing_key = _NO_MATCH
             existing = (
                 merged.pop(existing_key) if existing_key is not _NO_MATCH else _NO_MATCH
             )

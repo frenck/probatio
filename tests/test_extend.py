@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
 from probatio import (
     ALLOW_EXTRA,
     UNDEFINED,
+    Invalid,
     MultipleInvalid,
     Optional,
     Remove,
@@ -203,6 +206,41 @@ def test_extend_matches_a_key_that_is_itself_a_public_sentinel() -> None:
 
     assert [repr(key) for key in extended.schema] == ["'a'", "Remove(<undefined>)"]
     assert extended({UNDEFINED: 1, "a": 2}) == {"a": 2}
+
+
+def test_extend_keeps_a_remove_wrapping_an_unhashable_key_schema() -> None:
+    """A Remove around an unhashable validator survives a merge that ignores it.
+
+    Remove hashes by identity, so it can legally wrap a key schema that is not
+    itself hashable. Indexing the merge by the bare key underneath every marker
+    must not hash that one, or extending the schema over an unrelated key would
+    fail with a TypeError.
+    """
+
+    @dataclass  # eq=True with no frozen=True, so instances are unhashable.
+    class ShorterThan:
+        """A callable key validator whose instances cannot be hashed."""
+
+        limit: int
+
+        def __call__(self, value: str) -> str:
+            """Accept a key shorter than the limit."""
+            if len(value) >= self.limit:
+                message = "too long"
+                raise Invalid(message)
+            return value
+
+    unhashable = Remove(ShorterThan(3))
+    base = Schema({"a": int, unhashable: str}, extra=ALLOW_EXTRA)
+
+    extended = base.extend({"c": int})
+    assert list(extended.schema) == ["a", unhashable, "c"]
+    assert extended({"a": 1, "xy": "dropped", "c": 2}) == {"a": 1, "c": 2}
+
+    # The same on the extension side: an unhashable literal cannot match anything,
+    # so the key is added rather than replacing one.
+    other = Remove(ShorterThan(5))
+    assert list(base.extend({other: str}).schema) == ["a", unhashable, other]
 
 
 def test_extend_returns_the_same_schema_subclass() -> None:
