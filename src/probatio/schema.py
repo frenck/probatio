@@ -649,9 +649,12 @@ class Schema:
                 # extension key for the same literal adds rather than pops twice.
                 existing_key = existing_keys.pop(_key_literal(key), _NO_MATCH)
             except TypeError:
-                # An unhashable literal is not in the index either, so it matches
-                # nothing; the extension key is added rather than replacing one.
-                existing_key = _NO_MATCH
+                # An unhashable literal is not in the index, so nothing matches
+                # there. The marker around it is still hashable (``Remove`` hashes
+                # by identity), so fall back to the key object: an extension that
+                # reuses the very same marker addresses the entry it already keys,
+                # and a nested mapping under it still merges rather than replaces.
+                existing_key = key if key in merged else _NO_MATCH
             existing = (
                 merged.pop(existing_key) if existing_key is not _NO_MATCH else _NO_MATCH
             )

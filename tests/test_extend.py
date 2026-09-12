@@ -20,6 +20,20 @@ from probatio import (
 from probatio.markers import Marker
 
 
+@dataclass  # eq=True without frozen=True, so instances are unhashable.
+class ShorterThan:
+    """A callable key validator whose instances cannot be hashed."""
+
+    limit: int
+
+    def __call__(self, value: str) -> str:
+        """Accept a key shorter than the limit."""
+        if len(value) >= self.limit:
+            message = "too long"
+            raise Invalid(message)
+        return value
+
+
 def test_extend_adds_keys() -> None:
     """Extending merges new keys into the mapping schema."""
     base = Schema({"a": int})
@@ -216,20 +230,6 @@ def test_extend_keeps_a_remove_wrapping_an_unhashable_key_schema() -> None:
     must not hash that one, or extending the schema over an unrelated key would
     fail with a TypeError.
     """
-
-    @dataclass  # eq=True with no frozen=True, so instances are unhashable.
-    class ShorterThan:
-        """A callable key validator whose instances cannot be hashed."""
-
-        limit: int
-
-        def __call__(self, value: str) -> str:
-            """Accept a key shorter than the limit."""
-            if len(value) >= self.limit:
-                message = "too long"
-                raise Invalid(message)
-            return value
-
     unhashable = Remove(ShorterThan(3))
     base = Schema({"a": int, unhashable: str}, extra=ALLOW_EXTRA)
 
@@ -241,6 +241,23 @@ def test_extend_keeps_a_remove_wrapping_an_unhashable_key_schema() -> None:
     # so the key is added rather than replacing one.
     other = Remove(ShorterThan(5))
     assert list(base.extend({other: str}).schema) == ["a", unhashable, other]
+
+
+def test_extend_reusing_an_unhashable_remove_still_merges_its_mapping() -> None:
+    """Reusing the same Remove object addresses the entry it already keys.
+
+    The literal under the marker cannot be indexed, but the marker itself hashes
+    by identity, so an extension that passes the very same object must still find
+    the base entry. Missing it would replace a nested mapping wholesale instead of
+    merging into it, silently dropping the base's other keys.
+    """
+    marker = Remove(ShorterThan(3))
+    base = Schema({"z": int, marker: {"a": int, "b": int}}, extra=ALLOW_EXTRA)
+
+    extended = base.extend({marker: {"b": str}})
+
+    assert list(extended.schema) == ["z", marker]
+    assert extended.schema[marker] == {"a": int, "b": str}
 
 
 def test_extend_returns_the_same_schema_subclass() -> None:
