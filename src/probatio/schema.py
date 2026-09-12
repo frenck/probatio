@@ -41,7 +41,6 @@ from probatio.error import (
     SchemaError,
 )
 from probatio.markers import (
-    UNDEFINED,
     Extra,
     Marker,
     Optional,
@@ -166,6 +165,13 @@ def _not_built(data: Any) -> Any:  # noqa: ARG001  # pragma: no cover
     """
     message = "internal: a deferred schema's validator was read before it built"
     raise SchemaError(message)
+
+
+# "no key in the base schema matched", for the merge in ``extend``. A private
+# object rather than ``UNDEFINED``, which is public and can itself be a mapping key:
+# a base schema keyed on it would read as unmatched and keep the key the extension
+# meant to replace.
+_NO_MATCH = object()
 
 
 def _key_literal(key: Any) -> Any:
@@ -621,9 +627,9 @@ class Schema:
         for key, value in schema.items():
             # Consumed from the map as well as from ``merged``, so a second
             # extension key for the same literal adds rather than pops twice.
-            existing_key = existing_keys.pop(_key_literal(key), UNDEFINED)
+            existing_key = existing_keys.pop(_key_literal(key), _NO_MATCH)
             existing = (
-                merged.pop(existing_key) if existing_key is not UNDEFINED else UNDEFINED
+                merged.pop(existing_key) if existing_key is not _NO_MATCH else _NO_MATCH
             )
             # When both sides are mappings, merge them recursively rather than
             # replacing wholesale, so an extension touching one nested key keeps

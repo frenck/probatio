@@ -99,6 +99,21 @@ def test_remove_markers_are_distinct_keys() -> None:
     assert "Remove(" in repr(Remove(str))
 
 
+def test_remove_does_not_compare_equal_to_its_own_key() -> None:
+    """A Remove compares by identity, so it is unequal to the key it wraps.
+
+    A documented deviation: voluptuous compares a Remove to its underlying key
+    while hashing it by identity, which breaks the hash/equality contract. Nothing
+    in schema building leans on the comparison, so probatio keeps both by identity.
+    """
+    marker = Remove("b")
+    key = "b"
+    assert marker != key
+    # Reflected: str.__eq__ defers, so the marker's __eq__ answers here too.
+    assert key != marker
+    assert marker != Required("b")
+
+
 def test_default_factory_handles_each_case() -> None:
     """default_factory returns UNDEFINED, the callable, or a value factory."""
     assert default_factory(UNDEFINED) is UNDEFINED

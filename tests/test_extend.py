@@ -6,6 +6,7 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    UNDEFINED,
     MultipleInvalid,
     Optional,
     Remove,
@@ -193,6 +194,15 @@ def test_extend_keeps_unrelated_remove_keys() -> None:
     extended = base.extend({"c": int})
 
     assert extended({"a": 1, 5: "x", 2.5: "y", "c": 3}) == {"a": 1, "c": 3}
+
+
+def test_extend_matches_a_key_that_is_itself_a_public_sentinel() -> None:
+    """The merge tells "no match" apart from a base key that is a public value."""
+    base = Schema({UNDEFINED: int, "a": int})
+    extended = base.extend({Remove(UNDEFINED): int}, extra=ALLOW_EXTRA)
+
+    assert [repr(key) for key in extended.schema] == ["'a'", "Remove(<undefined>)"]
+    assert extended({UNDEFINED: 1, "a": 2}) == {"a": 2}
 
 
 def test_extend_returns_the_same_schema_subclass() -> None:
