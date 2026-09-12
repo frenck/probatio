@@ -112,6 +112,21 @@ def unordered_pair(lib: Any) -> Any:
     return lib.Schema(lib.Unordered([str, int]))
 
 
+def nested_schema_subclass(lib: Any) -> Any:
+    """A Schema subclass that post-processes in __call__, nested as a value."""
+
+    class Defaulting(lib.Schema):  # type: ignore[misc, name-defined]
+        """Fill in a missing key once the wrapped schema has validated."""
+
+        def __call__(self, data: Any) -> Any:
+            """Validate, then default the icon key."""
+            result = super().__call__(data)
+            result.setdefault("icon", None)
+            return result
+
+    return lib.Schema({lib.Required("device"): Defaulting({lib.Required("name"): str})})
+
+
 def some_of(lib: Any) -> Any:
     """A SomeOf with a minimum pass count."""
     return lib.Schema(lib.SomeOf(min_valid=2, validators=[lib.Range(1, 5), int, 3]))
@@ -158,6 +173,8 @@ CASES: list[tuple[Any, Any]] = [
     (unordered_pair, [1, "a"]),
     (unordered_pair, ["a", 1]),
     (unordered_pair, [1, 2]),
+    (nested_schema_subclass, {"device": {"name": "Lamp"}}),
+    (nested_schema_subclass, {"device": {"name": 5}}),
     (some_of, 3),
     (some_of, 7),
 ]
