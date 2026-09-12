@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from probatio import (
@@ -214,6 +216,40 @@ def test_composed_schema_matches_the_inline_form() -> None:
         assert type(composed_error) is type(inline_error)
         assert composed_error.msg == inline_error.msg
         assert composed_error.path == inline_error.path
+
+
+def test_nested_schema_subclass_runs_its_overridden_call() -> None:
+    """A nested Schema subclass keeps running its own __call__ (issue #350).
+
+    Composition normally delegates straight to the inner engine, which would skip
+    an overridden ``__call__`` and silently drop whatever it does. voluptuous
+    compiles a nested Schema as a plain callable, so the override runs in every
+    position; this pins that it does here too, nested and direct.
+    """
+
+    class Defaulting(Schema):
+        """Fill in a missing key once the wrapped schema has validated."""
+
+        def __call__(self, data: Any) -> Any:
+            """Validate, then default the icon key."""
+            result = super().__call__(data)
+            result.setdefault("icon", None)
+            return result
+
+    inner = Defaulting({Required("name"): str})
+    payload = {"name": "Lamp"}
+    expected = {"name": "Lamp", "icon": None}
+
+    assert inner(dict(payload)) == expected
+    assert Schema({Required("device"): inner})({"device": dict(payload)}) == {
+        "device": expected
+    }
+    assert Schema([inner])([dict(payload)]) == [expected]
+
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema({Required("device"): inner})({"device": {"name": 5}})
+    (error,) = caught.value.errors
+    assert error.path == ["device", "name"]
 
 
 def test_combinator_branch_schema_keeps_its_branch_error() -> None:

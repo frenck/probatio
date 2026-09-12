@@ -682,13 +682,22 @@ def _compile_nested_schema(schema: Any) -> CompiledSchema | None:
     composition costs one delegating frame instead. Reading ``_compiled`` live
     (not capturing it) follows the inner schema's own bootstrap and compile swaps.
 
-    ``None`` means "keep the wrapper", in two cases. Inside a combinator, because
+    ``None`` means "keep the wrapper", in three cases. Inside a combinator, because
     voluptuous resolves ``Any(Schema(int), float)`` on a miss to the branch's own
     error ("expected int"), and the ``MultipleInvalid`` the wrapper raises is what
-    preserves that; unwrapping would turn it into the combined ``AnyInvalid``. And
-    for a ``Self``-using inner, whose ``__call__`` records the active root that
-    ``Self`` resolves against.
+    preserves that; unwrapping would turn it into the combined ``AnyInvalid``. For
+    a ``Self``-using inner, whose ``__call__`` records the active root that ``Self``
+    resolves against. And for a subclass that overrides ``__call__``, where the
+    override is the whole point of the instance.
     """
+    # A subclass that overrides ``__call__`` post-processes (or replaces) what
+    # validation returns, and voluptuous runs that override in every position
+    # because it compiles a nested Schema as a plain callable. Delegating to the
+    # engine would skip it, silently: the data comes back unprocessed and nothing
+    # says so. So keep the wrapper and call the instance (issue #350).
+    if type(schema).__call__ is not _SCHEMA_CLS.__call__:
+        return None
+
     # A lazily-deferred inner must build now: its ``_uses_self`` and engine are read
     # here to decide the delegation, so a half-built one cannot be reasoned about.
     schema._ensure_built()  # noqa: SLF001
