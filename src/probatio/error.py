@@ -315,8 +315,15 @@ class Invalid(Error):
 # that share a prefix and nothing else clear it on the prefix alone (``device_class``
 # against ``device_info`` scores 0.609, and their distinguishing halves have not one
 # character in common). A wrong hint is worse than no hint, because it sends the
-# reader after the wrong field. Genuine single-edit typos score well clear of this,
-# so the higher bar drops the misleading matches without losing the useful ones.
+# reader after the wrong field.
+#
+# The bill is paid by the short names. One edit in a four-letter key still scores
+# 0.75 ("nmae" for "name") and is hinted; one in a three-letter value scores 0.667
+# ("rid" for "red") and is not. That is the right way round. At that length nothing
+# separates a typo from a different word, and the short name is readable in the
+# error as it stands. The value pools pay least of all: an ``In`` or enum error
+# already lists every allowed value, so the hint there decorates an answer the
+# reader can already see, where an unknown key has only the hint to go on.
 _SUGGESTION_CUTOFF = 0.7
 
 _NO_SUGGESTION = object()
