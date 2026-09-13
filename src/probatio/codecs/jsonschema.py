@@ -269,9 +269,13 @@ class _Groups:
 
     def __init__(self) -> None:
         """Start with no groups recorded."""
-        self.alias_required: list[list[str]] = []
+        self.required_any: list[list[str]] = []
         self.inclusive: dict[str, list[str]] = {}
         self.exclusive: dict[str, ExclusiveGroup] = {}
+
+    def add_required_any(self, names: list[str]) -> None:
+        """Record a group of names of which at least one must be present."""
+        self.required_any.append(names)
 
     def add_alias(self, marker: Alias) -> None:
         """Record a required ``Alias`` (one of its names must be present).
@@ -281,7 +285,7 @@ class _Groups:
         and a required-with-default ``Exclusive`` group); it adds no constraint.
         """
         if marker.required and isinstance(marker.default, Undefined):
-            self.alias_required.append(list(marker.input_names))
+            self.add_required_any(list(marker.input_names))
 
     def add_inclusive(self, marker: Inclusive, name: str) -> None:
         """Record an ``Inclusive`` member (all-or-none within its group)."""
@@ -297,15 +301,15 @@ class _Groups:
         )
 
     def constraints(self) -> list[dict[str, Any]]:
-        """Build the ``allOf`` object-level constraints (alias and exclusive groups).
+        """Build the ``allOf`` object-level constraints (at-least-one and exclusive groups).
 
         ``Inclusive`` groups are not here: they render as a ``dependentRequired``
         sibling (see ``dependent_required``), the idiomatic all-or-none keyword.
         """
         constraints: list[dict[str, Any]] = [
-            # At least one of the alias names must be present.
+            # At least one of the group's names must be present.
             {"anyOf": [{"required": [name]} for name in names]}
-            for names in self.alias_required
+            for names in self.required_any
         ]
         constraints += [
             exclusive_constraint(group) for group in self.exclusive.values()
@@ -321,7 +325,7 @@ class _Groups:
         return merge_dependent_required(self.inclusive.values())
 
 
-def _convert_mapping(
+def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     node: dict[Any, Any],
     *,
     required_default: bool,
@@ -332,8 +336,8 @@ def _convert_mapping(
     Nested dict values and variable-key values inherit the enclosing schema's
     required/extra policy, mirroring the validation engine, so a nested object
     keeps its own ``required`` list and open/closed shape. The group markers
-    (``Alias``, ``Inclusive``, ``Exclusive``) add object-level constraints,
-    combined under ``allOf``.
+    (``Alias``, ``Inclusive``, ``Exclusive``) and a required ``Any`` key add
+    object-level constraints, combined under ``allOf``.
     """
     properties: dict[Any, Any] = {}
     required: list[Any] = []
@@ -371,6 +375,26 @@ def _convert_mapping(
                 properties[name] = False
             else:
                 forbid_extra = True
+            continue
+
+        if (names := _literal_any_names(name)) is not None:
+            # ``Any`` over literal names is a fixed set of properties, not a
+            # variable key. Collapsing it to ``additionalProperties`` would hide
+            # the names from the reader of the schema.
+            decorated = _decorate_property(
+                value_schema,
+                marker,
+                secret=facets.secret,
+                description=facets.description,
+            )
+            _emit_any_key(
+                names,
+                decorated,
+                marker,
+                properties,
+                groups,
+                required_default=required_default,
+            )
             continue
 
         if isinstance(name, type) or callable(name):
@@ -485,6 +509,43 @@ def _emit_named_key(  # noqa: PLR0913, PLR0917
     # keyword already conveys it.
     elif _is_required(marker, required_default=required_default):
         required.append(name)
+
+
+def _literal_any_names(key: Any) -> list[str] | None:
+    """Return the names an ``Any`` key lists, or None when it is not such a key.
+
+    Only an ``Any`` made entirely of string literals expands into properties.
+    One holding a type or validator (``Any(str, int)``) is a variable key like
+    any other callable, and a non-string literal never matches a JSON key.
+    """
+    if not isinstance(key, AnyValidator) or not key.validators:
+        return None
+    if not all(isinstance(item, str) for item in key.validators):
+        return None
+    return list(key.validators)
+
+
+def _emit_any_key(  # noqa: PLR0913
+    names: list[str],
+    decorated: dict[str, Any],
+    marker: Marker | None,
+    properties: dict[Any, Any],
+    groups: _Groups,
+    *,
+    required_default: bool,
+) -> None:
+    """Place one property per name an ``Any`` key lists, and its presence rule.
+
+    ``Required(Any("a", "b"))`` accepts either name and demands at least one of
+    them, the same object-level constraint a required ``Alias`` adds. A
+    ``Remove`` key validates a present value but never demands one.
+    """
+    for name in names:
+        properties[name] = decorated
+    if not isinstance(marker, Remove) and _is_required(
+        marker, required_default=required_default
+    ):
+        groups.add_required_any(names)
 
 
 def _is_required(marker: Marker | None, *, required_default: bool) -> bool:

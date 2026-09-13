@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
+import jsonschema
 import pytest
 
 from probatio import (
@@ -34,6 +35,7 @@ from probatio import (
     FromEpoch,
     Hostname,
     In,
+    Invalid,
     IPAddress,
     IPNetwork,
     IPv4Address,
@@ -802,6 +804,83 @@ def test_required_alias_with_default_adds_no_constraint() -> None:
     result = to_json_schema(schema)
     assert "allOf" not in result
     assert result["properties"]["name"]["default"] == 5
+
+
+def test_any_key_emits_every_listed_name() -> None:
+    """An Any key over literal names renders each name as a property, not a variable key."""
+    result = to_json_schema(Schema({Any("hours", "minutes"): int}))
+    assert result["properties"] == {
+        "hours": {"type": "integer"},
+        "minutes": {"type": "integer"},
+    }
+    assert result["additionalProperties"] is False
+    assert "allOf" not in result
+
+
+def test_required_any_key_demands_one_name() -> None:
+    """A required Any key adds an anyOf requiring at least one of its names."""
+    result = to_json_schema(
+        Schema(
+            {Required(Any("hours", "minutes", "seconds")): int, Optional("name"): str}
+        )
+    )
+    assert sorted(result["properties"]) == ["hours", "minutes", "name", "seconds"]
+    assert "required" not in result
+    assert result["allOf"] == [
+        {
+            "anyOf": [
+                {"required": ["hours"]},
+                {"required": ["minutes"]},
+                {"required": ["seconds"]},
+            ],
+        },
+    ]
+
+
+def test_required_any_key_follows_the_schema_required_default() -> None:
+    """A bare Any key on a required=True schema demands a name like a bare literal key."""
+    result = to_json_schema(Schema({Any("a", "b"): int}, required=True))
+    assert result["allOf"] == [{"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}]
+
+
+def test_required_any_key_with_default_adds_no_constraint() -> None:
+    """A required Any key with a default fills the empty case, so it demands no name."""
+    result = to_json_schema(Schema({Required(Any("a", "b"), default=1): int}))
+    assert "allOf" not in result
+    assert result["properties"]["a"]["default"] == 1
+    assert result["properties"]["b"]["default"] == 1
+
+
+def test_any_key_with_a_description_decorates_every_name() -> None:
+    """A description on an Any key lands on each of its properties."""
+    result = to_json_schema(Schema({Optional(Any("a", "b"), description="d"): int}))
+    assert result["properties"]["a"]["description"] == "d"
+    assert result["properties"]["b"]["description"] == "d"
+
+
+def test_any_key_over_validators_stays_a_variable_key() -> None:
+    """An Any key holding a type or validator is a variable key, not a set of names."""
+    result = to_json_schema(Schema({Required(Any("a", str)): int}))
+    assert result["properties"] == {}
+    assert result["additionalProperties"] == {"type": "integer"}
+    assert "allOf" not in result
+
+
+def test_any_key_never_narrows() -> None:
+    """The emitted document accepts exactly what the mapping accepts."""
+    schema = Schema({Required(Any("hours", "minutes")): int, Optional("name"): str})
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+    for value in (
+        {"hours": 1},
+        {"minutes": 2, "name": "tea"},
+        {"hours": 1, "minutes": 2},
+    ):
+        schema(value)
+        assert validator.is_valid(value)
+    for value in ({}, {"name": "tea"}, {"hours": "x"}):
+        with pytest.raises(Invalid):
+            schema(value)
+        assert not validator.is_valid(value)
 
 
 def test_union_becomes_any_of() -> None:
