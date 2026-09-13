@@ -12,8 +12,8 @@ not a published standard. It is the shape
 [voluptuous-serialize](https://github.com/home-assistant-libs/voluptuous-serialize)
 emits, an internal format from the Home Assistant ecosystem, where the config-flow
 frontend turns a schema into a form. Probatio matches it so anything built against
-voluptuous-serialize keeps working on a Probatio schema, with [one deliberate
-difference](#a-match-renders-as-a-string-field). That is who this codec is for:
+voluptuous-serialize keeps working on a Probatio schema, apart from [a couple of
+deliberate differences](#where-probatio-differs). That is who this codec is for:
 Home Assistant and the libraries around it. If you are not in that world, reach for
 JSON Schema or OpenAPI instead.
 
@@ -43,7 +43,7 @@ Each field carries what the frontend needs to render it: the `type`, the `name`,
 which is how a config-flow form renders a dropdown; pass `In` a mapping to give
 each value its own label.
 
-## A `Match` renders as a string field
+## Where Probatio differs
 
 voluptuous-serialize raises on a `Match`, which takes down the whole field list.
 That hurts most where the regex is a detail of a field the rest of the schema
@@ -57,10 +57,16 @@ to_field_list(schema)
 # [{'type': 'string', 'name': 'pin', 'required': True}]
 ```
 
-A regex constraint only ever accepts a string, so Probatio says `string` and moves
-on. The pattern itself is dropped: the field list has no key to carry one. Use
+A text regex only ever accepts a string, so Probatio says `string` and moves on.
+The pattern itself is dropped: the field list has no key to carry one. Use
 [JSON Schema](/guides/json-schema/) or [OpenAPI](/guides/openapi/) if you need the
-pattern to survive; both emit it.
+pattern to survive; both emit it. A `bytes` pattern is the exception. It rejects
+every string a form can submit, so it still raises rather than describing a field
+nothing typed into it could satisfy.
+
+The other difference is nullability: `Any(X, None)` renders as a nullable field,
+where the oracle only recognizes the shape when `None` comes first. Both orders
+mean the same thing, so both serialize.
 
 ## A custom-serializer hook
 

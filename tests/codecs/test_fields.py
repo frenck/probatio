@@ -409,9 +409,10 @@ def test_match_inside_all_keeps_the_other_members() -> None:
     ]
 
 
-def test_bytes_match_serializes_as_a_string_field() -> None:
-    """A bytes pattern has no field shape of its own, so it renders as a string."""
-    assert to_field_list(Schema(Match(rb"^\d+$"))) == {"type": "string"}
+def test_bytes_match_still_raises() -> None:
+    """A bytes pattern rejects every string a form submits, so it is not a field."""
+    with pytest.raises(ValueError, match="unable to serialize"):
+        to_field_list(Schema(Match(rb"^\d+$")))
 
 
 def test_decoded_json_pattern_serializes_as_a_string_field() -> None:
