@@ -375,7 +375,17 @@ def test_key_group_custom_message() -> None:
 
 
 @pytest.mark.parametrize(
-    "validator", [AtLeastOne, AtMostOne, ExactlyOne, AllOrNone, Check]
+    "validator",
+    [
+        AtLeastOne,
+        AtMostOne,
+        ExactlyOne,
+        AllOrNone,
+        Check,
+        RequiredWith,
+        RequiredWithout,
+        RequiredIf,
+    ],
 )
 def test_call_keeps_the_callers_type(validator: type) -> None:
     """A rule that returns its input unchanged reuses one type parameter."""

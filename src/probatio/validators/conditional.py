@@ -107,13 +107,14 @@ class RequiredWith(_SafeValidator):
         self.mode = _check_mode(mode)
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if a required key is missing."""
         if isinstance(value, Mapping):
-            flags = [key in value for key in self.triggers]
+            mapping: Mapping[typing.Any, typing.Any] = value
+            flags = [key in mapping for key in self.triggers]
             if _fires(flags, self.mode):
                 for key in self.required:
-                    if key not in value:
+                    if key not in mapping:
                         raise RequiredFieldInvalid(
                             self.msg,
                             path=[key],
@@ -148,13 +149,14 @@ class RequiredWithout(_SafeValidator):
         self.mode = _check_mode(mode)
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if a required key is missing."""
         if isinstance(value, Mapping):
-            flags = [key not in value for key in self.triggers]
+            mapping: Mapping[typing.Any, typing.Any] = value
+            flags = [key not in mapping for key in self.triggers]
             if _fires(flags, self.mode):
                 for key in self.required:
-                    if key not in value:
+                    if key not in mapping:
                         raise RequiredFieldInvalid(
                             self.msg,
                             path=[key],
@@ -207,16 +209,17 @@ class RequiredIf(_SafeValidator):
         self.mode = _check_mode(mode)
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if a required key is missing."""
         if isinstance(value, Mapping):
+            mapping: Mapping[typing.Any, typing.Any] = value
             flags = [
-                _matches(value, key, expected)
+                _matches(mapping, key, expected)
                 for key, expected in self.conditions.items()
             ]
             if _fires(flags, self.mode):
                 for key in self.required:
-                    if key not in value:
+                    if key not in mapping:
                         raise RequiredFieldInvalid(
                             self.msg,
                             path=[key],
