@@ -120,6 +120,11 @@ except Invalid as err:
     print(error.candidates)  # ['name']
 ```
 
+The bar is a real misspelling, not a family resemblance. Two keys that share a
+prefix and differ after it (`device_class` against `device_info`) are different
+fields, not a typo of one another, so no suggestion is offered: a hint pointing at
+the wrong field costs more than no hint at all.
+
 The three policies are `PREVENT_EXTRA` (the default), `ALLOW_EXTRA` (keep unknown
 keys untouched), and `REMOVE_EXTRA` (drop them from the result):
 

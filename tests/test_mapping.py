@@ -220,6 +220,15 @@ def test_unknown_key_without_a_close_match_has_no_suggestion() -> None:
     assert error.candidates == []
 
 
+def test_unknown_key_sharing_only_a_prefix_is_not_suggested() -> None:
+    """Two keys alike only in their prefix are not close enough to suggest."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema({Required("device_info"): str})({"device_class": "x"})
+    error = caught.value.errors[0]
+    assert error.error_message == "not a valid option"
+    assert error.candidates == []
+
+
 def test_unknown_non_string_key_is_never_suggested() -> None:
     """A non-string unknown key cannot match close strings, so no suggestion."""
     with pytest.raises(MultipleInvalid) as caught:
