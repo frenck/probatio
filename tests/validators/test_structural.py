@@ -239,7 +239,13 @@ def test_ensure_list_turns_none_into_empty() -> None:
 def test_ensure_list_keeps_the_element_type() -> None:
     """EnsureList overloads __call__ so a caller keeps its element type."""
     none_case, list_case, scalar_case = (
-        get_type_hints(overload) for overload in get_overloads(EnsureList.__call__)
+        # A type parameter is scoped to its own overload, so resolving the
+        # annotations needs it in the local namespace.
+        get_type_hints(
+            overload,
+            localns={param.__name__: param for param in overload.__type_params__},
+        )
+        for overload in get_overloads(EnsureList.__call__)
     )
 
     assert none_case == {"value": type(None), "return": list[Any]}
