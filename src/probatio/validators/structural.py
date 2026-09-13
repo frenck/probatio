@@ -272,6 +272,15 @@ class EnsureList(_SafeValidator):
     common "one value or a list of them" config shape.
     """
 
+    @typing.overload
+    def __call__(self, value: None) -> list[typing.Any]: ...
+
+    @typing.overload
+    def __call__[T](self, value: list[T]) -> list[T]: ...
+
+    @typing.overload
+    def __call__[T](self, value: T) -> list[T]: ...
+
     def __call__(self, value: typing.Any) -> list[typing.Any]:
         """Return the value as a list."""
         if value is None:
