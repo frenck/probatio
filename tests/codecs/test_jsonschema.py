@@ -64,6 +64,7 @@ from probatio import (
     Url,
 )
 from probatio.codecs.jsonschema import from_json_schema, to_json_schema
+from probatio.codecs.openapi import to_openapi
 
 
 def test_primitive_types() -> None:
@@ -881,6 +882,120 @@ def test_any_key_never_narrows() -> None:
         with pytest.raises(Invalid):
             schema(value)
         assert not validator.is_valid(value)
+
+
+# Home Assistant's intent slot schemas, as they key a duration or a target on an
+# ``Any`` over literal slot names. ``cv.positive_int`` is
+# ``All(Coerce(int), Range(min=0))``; the string validators render as ``str``.
+_POSITIVE_INT = All(Coerce(int), Range(min=0))
+_HA_START_TIMER = {
+    Required(Any("hours", "minutes", "seconds")): _POSITIVE_INT,
+    Optional("name"): str,
+    Optional("conversation_command"): str,
+}
+_HA_CANCEL_TIMER = {
+    Any("start_hours", "start_minutes", "start_seconds"): _POSITIVE_INT,
+    Optional("name"): str,
+    Optional("area"): str,
+}
+_HA_INCREASE_TIMER = {
+    Any("hours", "minutes", "seconds"): _POSITIVE_INT,
+    Any("start_hours", "start_minutes", "start_seconds"): _POSITIVE_INT,
+    Optional("name"): str,
+    Optional("area"): str,
+}
+_HA_SERVICE_INTENT = {
+    Any("name", "area", "floor"): str,
+    Optional("domain"): [In(["light"])],
+    Optional("preferred_area_id"): str,
+    Optional("preferred_floor_id"): str,
+}
+
+
+def test_home_assistant_start_timer_lists_every_duration_slot() -> None:
+    """HassStartTimer names hours, minutes, and seconds and demands one of them."""
+    duration = {"type": "integer", "minimum": 0}
+    assert to_json_schema(Schema(_HA_START_TIMER)) == {
+        "type": "object",
+        "properties": {
+            "hours": duration,
+            "minutes": duration,
+            "seconds": duration,
+            "name": {"type": "string"},
+            "conversation_command": {"type": "string"},
+        },
+        "additionalProperties": False,
+        "allOf": [
+            {
+                "anyOf": [
+                    {"required": ["hours"]},
+                    {"required": ["minutes"]},
+                    {"required": ["seconds"]},
+                ],
+            },
+        ],
+    }
+
+
+def test_home_assistant_start_timer_document_agrees_with_the_schema() -> None:
+    """The HassStartTimer document accepts and rejects exactly what the schema does."""
+    schema = Schema(_HA_START_TIMER)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+    for value in ({"minutes": 5}, {"hours": 1, "seconds": 2, "name": "tea"}):
+        schema(value)
+        assert validator.is_valid(value)
+    for value in ({}, {"name": "tea"}, {"minutes": -1}):
+        with pytest.raises(Invalid):
+            schema(value)
+        assert not validator.is_valid(value)
+
+
+def test_home_assistant_optional_duration_slots_add_no_constraint() -> None:
+    """HassCancelTimer's bare Any key lists its slots without demanding one."""
+    result = to_json_schema(Schema(_HA_CANCEL_TIMER))
+    assert sorted(result["properties"]) == [
+        "area",
+        "name",
+        "start_hours",
+        "start_minutes",
+        "start_seconds",
+    ]
+    assert "allOf" not in result
+
+
+def test_home_assistant_increase_timer_keeps_both_any_keys() -> None:
+    """HassIncreaseTimer's two Any keys each expand into their own slots."""
+    result = to_json_schema(Schema(_HA_INCREASE_TIMER))
+    assert sorted(result["properties"]) == [
+        "area",
+        "hours",
+        "minutes",
+        "name",
+        "seconds",
+        "start_hours",
+        "start_minutes",
+        "start_seconds",
+    ]
+
+
+def test_home_assistant_service_intent_lists_every_target_slot() -> None:
+    """A service intent's name, area, and floor slots are properties, not a variable key."""
+    result = to_json_schema(Schema(_HA_SERVICE_INTENT))
+    assert result["properties"]["floor"] == {"type": "string"}
+    assert result["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    "slots",
+    [_HA_START_TIMER, _HA_CANCEL_TIMER, _HA_INCREASE_TIMER, _HA_SERVICE_INTENT],
+    ids=["start_timer", "cancel_timer", "increase_timer", "service_intent"],
+)
+def test_home_assistant_slots_name_the_same_properties_as_openapi(slots: dict) -> None:
+    """Both codecs list the same slot names, so a tool schema reads the same either way."""
+    schema = Schema(slots)
+    assert set(to_json_schema(schema)["properties"]) == set(
+        to_openapi(schema)["properties"]
+    )
 
 
 def test_union_becomes_any_of() -> None:
