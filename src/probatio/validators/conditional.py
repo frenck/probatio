@@ -262,7 +262,7 @@ class Check(_SafeValidator):
         self.predicate = predicate
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if the predicate holds, else raise Invalid."""
         try:
             holds = self.predicate(value)
@@ -320,7 +320,7 @@ class AtLeastOne(_KeyGroup):
     A non-mapping is rejected unless ``require_mapping=False``.
     """
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if none of the keys are present."""
         mapping = self._mapping(value)
         if mapping is not None and not _present(mapping, self.keys):
@@ -342,7 +342,7 @@ class AtMostOne(_KeyGroup):
     is rejected unless ``require_mapping=False``.
     """
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising one error per key when more than one appears."""
         mapping = self._mapping(value)
         if mapping is not None:
@@ -373,7 +373,7 @@ class ExactlyOne(_KeyGroup):
     specific key to blame. A non-mapping is rejected unless ``require_mapping=False``.
     """
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if not exactly one of the keys is present."""
         mapping = self._mapping(value)
         if mapping is not None:
@@ -410,7 +410,7 @@ class AllOrNone(_KeyGroup):
     path. A non-mapping is rejected unless ``require_mapping=False``.
     """
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if some but not all of the keys are present."""
         mapping = self._mapping(value)
         if mapping is not None:
