@@ -11,10 +11,11 @@ Unlike [JSON Schema](/guides/json-schema/) and [OpenAPI](/guides/openapi/), this
 not a published standard. It is the shape
 [voluptuous-serialize](https://github.com/home-assistant-libs/voluptuous-serialize)
 emits, an internal format from the Home Assistant ecosystem, where the config-flow
-frontend turns a schema into a form. Probatio matches it byte for byte so anything
-built against voluptuous-serialize keeps working on a Probatio schema. That is who
-this codec is for: Home Assistant and the libraries around it. If you are not in
-that world, reach for JSON Schema or OpenAPI instead.
+frontend turns a schema into a form. Probatio matches it so anything built against
+voluptuous-serialize keeps working on a Probatio schema, with [one deliberate
+difference](#a-match-renders-as-a-string-field). That is who this codec is for:
+Home Assistant and the libraries around it. If you are not in that world, reach for
+JSON Schema or OpenAPI instead.
 
 ## The field list
 
@@ -41,6 +42,25 @@ Each field carries what the frontend needs to render it: the `type`, the `name`,
 `In(...)` becomes a `select` field with its `options` as (value, label) pairs,
 which is how a config-flow form renders a dropdown; pass `In` a mapping to give
 each value its own label.
+
+## A `Match` renders as a string field
+
+voluptuous-serialize raises on a `Match`, which takes down the whole field list.
+That hurts most where the regex is a detail of a field the rest of the schema
+already described:
+
+```python
+from probatio import All, Match, Required, Schema, to_field_list
+
+schema = Schema({Required("pin"): All(str, Match(r"^\d{6}$"))})
+to_field_list(schema)
+# [{'type': 'string', 'name': 'pin', 'required': True}]
+```
+
+A regex constraint only ever accepts a string, so Probatio says `string` and moves
+on. The pattern itself is dropped: the field list has no key to carry one. Use
+[JSON Schema](/guides/json-schema/) or [OpenAPI](/guides/openapi/) if you need the
+pattern to survive; both emit it.
 
 ## A custom-serializer hook
 

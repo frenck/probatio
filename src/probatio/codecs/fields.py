@@ -8,6 +8,9 @@ which returns a dict to override a node or ``UNSUPPORTED`` to defer.
 The format is output-only: the field list drops detail a schema cannot be rebuilt
 from, so there is no ``from_field_list`` inverse (voluptuous-serialize has none
 either).
+
+One deliberate divergence from the oracle: a ``Match`` renders as a string field
+rather than raising, so a regex-constrained text field still produces a form.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from collections.abc import Hashable, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
+from probatio.codecs.jsonschema import _JsonPattern
 from probatio.dataclass_schema import constructed_mapping
 from probatio.markers import (
     Forbidden,
@@ -69,6 +73,7 @@ from probatio.validators import (
     Length,
     Lower,
     MacAddress,
+    Match,
     Maybe,
     MultipleOf,
     NonEmpty,
@@ -360,8 +365,8 @@ def _serialize_typed(node: Any) -> dict[str, Any] | None:
     return None
 
 
-def _serialize_constraint(node: Any) -> dict[str, Any] | None:
-    """Render Range/Clamp/Length/Datetime, or None if not recognized."""
+def _serialize_constraint(node: Any) -> dict[str, Any] | None:  # noqa: PLR0911
+    """Render Range/Clamp/Length/Datetime/Match, or None if not recognized."""
     if isinstance(node, Range | Clamp):
         bounds: dict[str, Any] = {}
         if node.min is not None:
@@ -388,6 +393,14 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:
         if node.format is not None:
             field["format"] = node.format
         return field
+
+    if isinstance(node, Match | _JsonPattern):
+        # A regex constraint only ever accepts a string, and "string" is field
+        # vocabulary a frontend can render. voluptuous-serialize raises here, which
+        # takes down the whole form over a validator the rest of the field already
+        # described (a PIN behind a text selector, a serial number). The pattern
+        # itself is dropped: the field list has no key to carry one.
+        return {"type": "string"}
 
     if isinstance(node, FromEpoch):
         # A Unix timestamp arrives as a number (``FromEpoch`` takes an int or a

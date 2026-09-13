@@ -31,6 +31,7 @@ from probatio import (
     FromEpoch,
     HexInt,
     IPAddress,
+    Match,
     MultipleOf,
     NonEmpty,
     Optional,
@@ -41,6 +42,7 @@ from probatio import (
     Secret,
     TypedDictSchema,
     create_dataclass_schema,
+    from_json_schema,
     to_field_list,
 )
 from probatio import Any as ProbAny
@@ -369,6 +371,62 @@ def test_create_dataclass_schema_serializes_too() -> None:
 def test_all_without_a_constructor_is_left_alone() -> None:
     """Only a constructing schema is unwrapped; any other All is serialized as one."""
     assert to_field_list(Schema(All(str, Alpha()))) == {"type": "string"}
+
+
+def test_match_serializes_as_a_string_field() -> None:
+    """A Match renders as a string field, where voluptuous-serialize raises."""
+    assert to_field_list(Schema({Required("pin"): Match(r"^\d{6}$")})) == [
+        {"type": "string", "name": "pin", "required": True}
+    ]
+
+    # The deviation, pinned: the oracle refuses the same schema outright.
+    with pytest.raises(ValueError, match="Unable to convert schema"):
+        voluptuous_serialize.convert(
+            voluptuous.Schema(
+                {voluptuous.Required("pin"): voluptuous.Match(r"^\d{6}$")}
+            )
+        )
+
+
+def test_match_inside_all_keeps_the_other_members() -> None:
+    """A Match in an All no longer takes down the field the rest described."""
+    selector = object()
+
+    def custom(node: Any) -> Any:
+        if node is selector:
+            return {"selector": {"text": {"type": "password"}}}
+        return UNSUPPORTED
+
+    schema = Schema({Required("pin"): All(selector, Match(r"^\d{6}$"))})
+
+    assert to_field_list(schema, custom_serializer=custom) == [
+        {
+            "selector": {"text": {"type": "password"}},
+            "type": "string",
+            "name": "pin",
+            "required": True,
+        }
+    ]
+
+
+def test_bytes_match_serializes_as_a_string_field() -> None:
+    """A bytes pattern has no field shape of its own, so it renders as a string."""
+    assert to_field_list(Schema(Match(rb"^\d+$"))) == {"type": "string"}
+
+
+def test_decoded_json_pattern_serializes_as_a_string_field() -> None:
+    """A pattern decoded from JSON Schema renders as a string field, like Match."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {"code": {"type": "string", "pattern": "ab"}},
+            "required": ["code"],
+        }
+    )
+
+    assert to_field_list(schema) == [
+        {"type": "string", "name": "code", "required": True}
+    ]
 
 
 def test_nested_mapping_still_raises() -> None:
