@@ -867,6 +867,25 @@ def test_any_key_over_validators_stays_a_variable_key() -> None:
     assert "allOf" not in result
 
 
+@pytest.mark.parametrize(
+    "schema",
+    [
+        Schema({"hours": str, Any("hours", "minutes"): int}),
+        Schema({Any("hours", "minutes"): int, "hours": str}),
+    ],
+    ids=["literal_first", "any_first"],
+)
+def test_literal_key_wins_over_an_any_key_listing_the_same_name(schema: Schema) -> None:
+    """A literal key is matched ahead of an Any key, so its value schema is the one emitted."""
+    result = to_json_schema(schema)
+    assert result["properties"] == {
+        "hours": {"type": "string"},
+        "minutes": {"type": "integer"},
+    }
+    schema({"hours": "text"})
+    assert jsonschema.Draft202012Validator(result).is_valid({"hours": "text"})
+
+
 def test_any_key_never_narrows() -> None:
     """The emitted document accepts exactly what the mapping accepts."""
     schema = Schema({Required(Any("hours", "minutes")): int, Optional("name"): str})

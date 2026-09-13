@@ -539,9 +539,13 @@ def _emit_any_key(  # noqa: PLR0913
     ``Required(Any("a", "b"))`` accepts either name and demands at least one of
     them, the same object-level constraint a required ``Alias`` adds. A
     ``Remove`` key validates a present value but never demands one.
+
+    The engine matches a literal key ahead of any validator key, so a name a
+    literal key already declares keeps that key's value schema, whatever the
+    declaration order. Overwriting it would reject values the mapping accepts.
     """
     for name in names:
-        properties[name] = decorated
+        properties.setdefault(name, decorated)
     if not isinstance(marker, Remove) and _is_required(
         marker, required_default=required_default
     ):
