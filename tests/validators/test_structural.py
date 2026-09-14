@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from collections.abc import Collection, Iterator
 from decimal import Decimal
 from typing import Any, Self, get_args, get_overloads, get_type_hints
 
@@ -219,6 +220,32 @@ def test_unique_handles_a_generator_without_leaking() -> None:
 
     # A unique generator passes (materialized to a list so the result is usable).
     assert Schema(Unique())(gen_ok()) == [1, 2]
+
+
+def test_unique_keeps_the_collection_type() -> None:
+    """Unique overloads __call__ so a caller keeps the type it handed in."""
+    sized_case, iterator_case, fallback_case = (
+        # A type parameter is scoped to its own overload, and the collection
+        # protocols are imported only for typing, so resolving the annotations
+        # needs both in the local namespace.
+        get_type_hints(
+            overload,
+            localns={
+                "Collection": Collection,
+                "Iterator": Iterator,
+                **{param.__name__: param for param in overload.__type_params__},
+            },
+        )
+        for overload in get_overloads(Unique.__call__)
+    )
+
+    # A collection is handed back as it came, down to its own type.
+    assert sized_case["value"] is sized_case["return"]
+    # An iterator has no length, so it is materialized: the item type survives.
+    assert get_args(iterator_case["value"])[0] is get_args(iterator_case["return"])[0]
+    assert iterator_case["return"].__origin__ is list
+    # Anything else still type-checks, and still fails cleanly at runtime.
+    assert fallback_case == {"value": Any, "return": Any}
 
 
 def test_ensure_list_wraps_a_scalar() -> None:

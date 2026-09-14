@@ -43,7 +43,7 @@ class ULID(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid ULID, else raise ValueInvalid."""
         if not isinstance(value, str):
             raise ValueInvalid(self.msg, code="ulid", translation_key="expected_ulid")
@@ -72,7 +72,7 @@ class UUID(_SafeValidator):
         self.msg = msg
         self.version = version
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid UUID, else raise UuidInvalid."""
         try:
             parsed = (
@@ -117,7 +117,7 @@ class MacAddress(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid MAC address, else raise MacAddressInvalid."""
         _clean_mac(value, self.msg)
         return value

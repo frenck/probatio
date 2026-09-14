@@ -15,6 +15,16 @@ class _SafeValidator:
     a stylistic one. A validator that calls into code which may raise must catch and
     re-raise as ``Invalid``.
 
+    A validator that only inspects its input and hands it back is generic in the
+    caller's type (``def __call__[T](self, value: T) -> T``), so a schema built on
+    it does not erase what went in. Inside such a body the value is passed on
+    through a local annotated ``typing.Any``, because the runtime check *is* the
+    type check: ``strptime`` on a non-string, ``len`` on something unsized, and
+    ``in`` on a non-container all raise, and the contract above turns that into an
+    ``Invalid``. Narrowing the parameter instead would reject statically what the
+    validator is there to reject at runtime. ``test_passthrough_typing.py`` finds
+    every pass-through and enforces the signature.
+
     Carrying ``__probatio_safe__`` lets the compiler call the validator directly and
     skip the generic ``ValueError``-to-``Invalid`` guard it wraps arbitrary
     callables in. Set it only on a validator that genuinely upholds the contract;

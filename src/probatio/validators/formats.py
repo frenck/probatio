@@ -136,7 +136,7 @@ class DataURI(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a well-formed data URI, else raise."""
         if not isinstance(value, str):
             raise ValueInvalid(

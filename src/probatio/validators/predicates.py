@@ -47,7 +47,7 @@ class IsTrue(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is truthy, else raise TrueInvalid."""
         try:
             truthy = bool(value)
@@ -66,7 +66,7 @@ class IsFalse(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is falsy, else raise FalseInvalid."""
         try:
             truthy = bool(value)
@@ -97,7 +97,7 @@ class _FilesystemCheck(_SafeValidator):
         """Store an optional custom message for the failing-test case."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if the path test passes, else raise its error."""
         try:
             if not value:

@@ -57,7 +57,7 @@ class Immutable(_SafeValidator):
         self.fields = _fields(fields, "Immutable")
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if an immutable field changed."""
         previous = current_context()
 
@@ -92,7 +92,7 @@ class WriteOnce(_SafeValidator):
         self.fields = _fields(fields, "WriteOnce")
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the mapping, raising if an already-set field changed."""
         previous = current_context()
 

@@ -106,10 +106,12 @@ class Datetime(_SafeValidator):
         """Render as a constructor call, matching voluptuous (covers Date/Time)."""
         return f"{type(self).__name__}(format={self.format})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses, else raise DatetimeInvalid."""
+        # Handed on unnarrowed: T is the caller's type, strptime does the checking.
+        text: typing.Any = value
         try:
-            datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise DatetimeInvalid(
                 self.msg,
@@ -127,10 +129,11 @@ class Date(Datetime):
 
     DEFAULT_FORMAT = "%Y-%m-%d"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses, else raise DateInvalid."""
+        text: typing.Any = value
         try:
-            datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise DateInvalid(
                 self.msg,
@@ -150,10 +153,11 @@ class Time(Datetime):
 
     DEFAULT_FORMAT = "%H:%M:%S"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses, else raise TimeInvalid."""
+        text: typing.Any = value
         try:
-            datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise TimeInvalid(
                 self.msg,
@@ -474,7 +478,7 @@ class Duration(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid duration, else raise DurationInvalid."""
         AsTimedelta(msg=self.msg)(value)
         return value
@@ -492,13 +496,15 @@ class TimeZoneInfo(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid IANA zone, else raise TimeZoneInvalid."""
         if isinstance(value, zoneinfo.ZoneInfo):
             # An already-resolved zone passes through, so validation is idempotent.
             return value
+        # Handed on unnarrowed: T is the caller's type, ZoneInfo does the checking.
+        key: typing.Any = value
         try:
-            zoneinfo.ZoneInfo(value)
+            zoneinfo.ZoneInfo(key)
         except (KeyError, ValueError, TypeError, RuntimeError) as exc:
             # ZoneInfoNotFoundError is a KeyError; a bad path is a ValueError; a
             # non-string is a TypeError; a tuple trips the weak-cache RuntimeError.
@@ -564,7 +570,7 @@ class TimeZone(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid UTC offset, else raise TimeZoneInvalid."""
         AsTimezone(msg=self.msg)(value)
         return value

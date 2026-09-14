@@ -703,7 +703,12 @@ class SomeOf(_Combinator):
         ]
 
     def __call__(self, value: typing.Any) -> typing.Any:
-        """Run every validator, returning the value if the pass count is in range."""
+        """Run every validator, returning the value if the pass count is in range.
+
+        Not generic in the caller's type, unlike the rules that only inspect their
+        input: each passing validator's output feeds the next, so what comes back
+        is the last branch's result, not necessarily the value that went in.
+        """
         errors: list[Invalid] = []
         for compiled in self._compiled:
             try:

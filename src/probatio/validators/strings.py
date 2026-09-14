@@ -63,7 +63,7 @@ class _CharacterClass(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a string of the right class, else MatchInvalid."""
         if isinstance(value, str) and type(self).check(value):
             return value
@@ -133,7 +133,7 @@ class StartsWith(_SafeValidator):
         self.prefix = prefix
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it starts with the prefix, else MatchInvalid."""
         if isinstance(value, str) and value.startswith(self.prefix):
             return value
@@ -155,7 +155,7 @@ class EndsWith(_SafeValidator):
         self.suffix = suffix
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it ends with the suffix, else MatchInvalid."""
         if isinstance(value, str) and value.endswith(self.suffix):
             return value
@@ -184,7 +184,7 @@ class ByteLength(_SafeValidator):
         self.max = max
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if its UTF-8 byte length is in bounds, else raise."""
         if not isinstance(value, str):
             raise LengthInvalid(self.msg, translation_key="expected_string")
@@ -220,7 +220,7 @@ class HexColor(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid hex color, else raise MatchInvalid."""
         if isinstance(value, str) and _HEX_COLOR.match(value):
             return value
@@ -261,10 +261,12 @@ class Match(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"Match({self.pattern.pattern!r}, msg={self.msg!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it matches, else raise MatchInvalid."""
+        # Handed on unnarrowed: T is the caller's type, the pattern does the checking.
+        text: typing.Any = value
         try:
-            matched = self.pattern.match(value)
+            matched = self.pattern.match(text)
         except TypeError as exc:
             raise MatchInvalid(self.msg, translation_key="expected_string") from exc
 
@@ -457,10 +459,12 @@ class IsRegex(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it compiles as a regex, else raise MatchInvalid."""
+        # Handed on unnarrowed: T is the caller's type, ``compile`` does the checking.
+        pattern: typing.Any = value
         try:
-            re.compile(value)
+            re.compile(pattern)
         except (re.error, TypeError) as exc:
             raise MatchInvalid(
                 self.msg, translation_key="expected_valid_regex"

@@ -63,12 +63,14 @@ class IPv4Address(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses as an IPv4 address, else raise IpInvalid."""
         if type(value) is str:
             # The common case, matched directly: constructing an
             # ``ipaddress.IPv4Address`` costs several times the regex match.
-            if _IPV4_PATTERN.fullmatch(value) is None:
+            # Handed on unnarrowed: ``type() is`` does not narrow a type parameter.
+            text: typing.Any = value
+            if _IPV4_PATTERN.fullmatch(text) is None:
                 raise IpInvalid(self.msg, translation_key="expected_ipv4")
             return value
         # Everything else (int, packed bytes, address objects, str subclasses)
@@ -91,7 +93,7 @@ class IPv6Address(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses as an IPv6 address, else raise IpInvalid."""
         try:
             ipaddress.IPv6Address(_reject_bool(value))
@@ -111,7 +113,7 @@ class IPAddress(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses as an IP address, else raise IpInvalid."""
         try:
             ipaddress.ip_address(_reject_bool(value))
@@ -133,7 +135,7 @@ class IPNetwork(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it parses as a CIDR network, else raise IpInvalid."""
         try:
             ipaddress.ip_network(_reject_bool(value), strict=False)

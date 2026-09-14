@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import typing
+from typing import TYPE_CHECKING
 
 from probatio.error import (
     ExactSequenceInvalid,
@@ -15,6 +16,9 @@ from probatio.error import (
 from probatio.schema import Schema
 from probatio.validators._base import _SafeValidator
 
+if TYPE_CHECKING:
+    from collections.abc import Collection, Iterator
+
 
 class Sorted(_SafeValidator):
     """Require a sequence to be in ascending order, returning it unchanged."""
@@ -23,7 +27,7 @@ class Sorted(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is sorted, else raise ValueInvalid.
 
         Iterating and comparing the items runs user code (``__iter__`` and the
@@ -31,8 +35,10 @@ class Sorted(_SafeValidator):
         incomparable pair, a ``Decimal('NaN')``, or a hostile object. Any such
         failure is reported as a ValueInvalid, not a leaked exception.
         """
+        # Handed on unnarrowed: T is the caller's type, iterating does the checking.
+        items: typing.Any = value
         try:
-            in_order = list(value) == sorted(value)
+            in_order = list(items) == sorted(items)
         except Exception as exc:
             raise ValueInvalid(
                 self.msg, code="sorted", translation_key="value_not_sorted"
@@ -108,6 +114,15 @@ class Unique(_SafeValidator):
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
         self.msg = msg
+
+    @typing.overload
+    def __call__[T: Collection[typing.Any]](self, value: T) -> T: ...
+
+    @typing.overload
+    def __call__[T](self, value: Iterator[T]) -> list[T]: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> typing.Any: ...
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the value if every item is unique, else raise Invalid.
@@ -208,7 +223,7 @@ class Unordered(_SafeValidator):
         """Return the raw element schemas this wraps, for ``Self`` detection."""
         return tuple(self.validators)
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Match each item to an unused validator, in any order."""
         if not isinstance(value, list | tuple):
             raise Invalid(

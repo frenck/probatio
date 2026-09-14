@@ -33,7 +33,7 @@ class Base64(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is valid Base64, else raise ValueInvalid."""
         if not isinstance(value, str | bytes):
             raise ValueInvalid(
@@ -55,7 +55,7 @@ class Hex(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is valid hex, else raise ValueInvalid."""
         if not isinstance(value, str):
             raise ValueInvalid(
@@ -149,7 +149,7 @@ class JSONString(_SafeValidator):
         self._decode = FromJSONString(schema, msg=msg)
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is valid JSON, else raise JsonInvalid."""
         self._decode(value)
         return value

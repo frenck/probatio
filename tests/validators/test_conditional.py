@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import get_type_hints
-
 import pytest
 
 from probatio import (
@@ -372,28 +370,3 @@ def test_key_group_custom_message() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AtLeastOne("a", "b", msg="need a or b"))({})
     assert caught.value.errors[0].error_message == "need a or b"
-
-
-@pytest.mark.parametrize(
-    "validator",
-    [
-        AtLeastOne,
-        AtMostOne,
-        ExactlyOne,
-        AllOrNone,
-        Check,
-        RequiredWith,
-        RequiredWithout,
-        RequiredIf,
-    ],
-)
-def test_call_keeps_the_callers_type(validator: type) -> None:
-    """A rule that returns its input unchanged reuses one type parameter."""
-    call = validator.__call__
-    # The type parameter is scoped to the method, so resolving the annotations
-    # needs it in the local namespace.
-    (type_param,) = call.__type_params__
-    hints = get_type_hints(call, localns={type_param.__name__: type_param})
-
-    assert hints["value"] is type_param
-    assert hints["return"] is type_param

@@ -58,7 +58,7 @@ class Equal(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"Equal({self.target!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it equals the target, else raise Invalid.
 
         ``!=`` calls the value's ``__eq__``, which is user code and may raise
@@ -126,10 +126,12 @@ class Contains(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"Contains({self.item!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it contains the item, else ContainsInvalid."""
+        # Handed on unnarrowed: T is the caller's type, ``in`` does the checking.
+        container: typing.Any = value
         try:
-            present = self.item in value
+            present = self.item in container
         except Exception as exc:
             # ``in`` calls the container's ``__contains__``, which is user code and
             # may raise anything: an ``ipaddress`` network checks ``other._version``
@@ -172,7 +174,7 @@ class Range(_SafeValidator):
             f"max_included={self.max_included!r}, msg={self.msg!r})"
         )
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is in range, else raise RangeInvalid.
 
         The bound comparisons call the value's comparison dunders, which are user
@@ -290,7 +292,7 @@ class MultipleOf(_SafeValidator):
         self.factor = factor
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a multiple of the factor, else raise.
 
         Only a real number is accepted: ``%`` on a ``str``/``bytes`` is string
@@ -375,7 +377,7 @@ class Percentage(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is a valid percentage, else raise RangeInvalid."""
         _percent_value(value, self.msg)
         return value
@@ -811,14 +813,16 @@ class NonEmpty(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it has a non-zero length, else raise LengthInvalid.
 
         A value with no usable length (``len`` raising, including a user ``__len__``
         that raises anything) is reported as a LengthInvalid too, never leaked.
         """
+        # Handed on unnarrowed: T is the caller's type, ``len`` does the checking.
+        sized: typing.Any = value
         try:
-            empty = len(value) == 0
+            empty = len(sized) == 0
         except Exception as exc:
             raise LengthInvalid(self.msg, translation_key="value_not_empty") from exc
 
@@ -845,7 +849,7 @@ class Length(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"Length(min={self.min!r}, max={self.max!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if its length is in bounds, else LengthInvalid.
 
         With no bound set, the length is never measured, so any value passes
@@ -855,8 +859,10 @@ class Length(_SafeValidator):
         if self.min is None and self.max is None:
             return value
 
+        # Handed on unnarrowed: T is the caller's type, ``len`` does the checking.
+        sized: typing.Any = value
         try:
-            length = len(value)
+            length = len(sized)
         except Exception as exc:
             raise LengthInvalid(self.msg, translation_key="value_no_length") from exc
 
@@ -980,7 +986,7 @@ class NotIn(_SafeValidator):
         """Render as a constructor call, matching voluptuous."""
         return f"NotIn({self.container!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T:
         """Return the value if it is not in the container, else NotInInvalid."""
         try:
             present = value in self.container
