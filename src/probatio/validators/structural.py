@@ -17,7 +17,7 @@ from probatio.schema import Schema
 from probatio.validators._base import _SafeValidator
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterator
+    from collections.abc import Collection, Iterable, Iterator
 
 
 class Sorted(_SafeValidator):
@@ -186,6 +186,12 @@ class Set(_SafeValidator):
     def __init__(self, msg: str | None = None) -> None:
         """Store an optional custom message."""
         self.msg = msg
+
+    @typing.overload
+    def __call__[T](self, value: Iterable[T]) -> set[T]: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> set[typing.Any]: ...
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return ``set(value)``, or raise TypeInvalid if it cannot be built."""
@@ -469,6 +475,12 @@ class Sort(_SafeValidator):
         """Render as a constructor call showing the direction."""
         return f"Sort(reverse={self.reverse!r})"
 
+    @typing.overload
+    def __call__[T](self, value: list[T] | tuple[T, ...]) -> list[T]: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> list[typing.Any]: ...
+
     def __call__(self, value: typing.Any) -> list[typing.Any]:
         """Return the sorted sequence, else raise ValueInvalid."""
         _require_sequence(value, self.msg)
@@ -498,6 +510,12 @@ class Dedupe(_SafeValidator):
         """Render as a constructor call."""
         return "Dedupe()"
 
+    @typing.overload
+    def __call__[T](self, value: list[T] | tuple[T, ...]) -> list[T]: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> list[typing.Any]: ...
+
     def __call__(self, value: typing.Any) -> list[typing.Any]:
         """Return the sequence without duplicates, else raise ValueInvalid."""
         _require_sequence(value, self.msg)
@@ -526,6 +544,12 @@ class First(_SafeValidator):
         """Render as a constructor call."""
         return "First()"
 
+    @typing.overload
+    def __call__[T](self, value: list[T] | tuple[T, ...]) -> T: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> typing.Any: ...
+
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the first item, else raise ValueInvalid."""
         _require_sequence(value, self.msg)
@@ -548,6 +572,12 @@ class Last(_SafeValidator):
     def __repr__(self) -> str:
         """Render as a constructor call."""
         return "Last()"
+
+    @typing.overload
+    def __call__[T](self, value: list[T] | tuple[T, ...]) -> T: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> typing.Any: ...
 
     def __call__(self, value: typing.Any) -> typing.Any:
         """Return the last item, else raise ValueInvalid."""
@@ -574,6 +604,12 @@ class Without(_SafeValidator):
         """Render as a constructor call showing the dropped values."""
         body = ", ".join(repr(value) for value in self.values)
         return f"Without({body})"
+
+    @typing.overload
+    def __call__[T](self, value: list[T] | tuple[T, ...]) -> list[T]: ...
+
+    @typing.overload
+    def __call__(self, value: typing.Any) -> list[typing.Any]: ...
 
     def __call__(self, value: typing.Any) -> list[typing.Any]:
         """Return the sequence without the listed values, else raise ValueInvalid."""
