@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from decimal import Decimal
 from typing import Any, Self, get_args, get_origin, get_overloads, get_type_hints
 
@@ -30,6 +30,13 @@ from probatio import (
     Without,
 )
 from probatio.error import ExactSequenceInvalid, Invalid, TypeInvalid, ValueInvalid
+
+
+def _mentions(annotation: Any, type_param: Any) -> bool:
+    """Report whether a type parameter appears anywhere inside an annotation."""
+    if annotation is type_param:
+        return True
+    return any(_mentions(argument, type_param) for argument in get_args(annotation))
 
 
 def test_exact_sequence_matches_positionally() -> None:
@@ -189,6 +196,30 @@ def test_maybe_custom_message() -> None:
     assert caught.value.errors[0].error_message == "optional whole number"
 
 
+@pytest.mark.parametrize("wrapper", [Maybe, Msg], ids=lambda cls: cls.__name__)
+def test_a_wrapper_carries_the_wrapped_validators_type(wrapper: type) -> None:
+    """Maybe and Msg are generic in whatever the validator they wrap produces."""
+    (type_param,) = wrapper.__type_params__
+    # ``Callable`` is imported for typing only, and the parameter is scoped to the
+    # class, so resolving the annotations needs both in the local namespace.
+    namespace = {"Callable": Callable, type_param.__name__: type_param}
+
+    # The first overload binds the parameter from a callable schema; the second
+    # covers a schema that says nothing about its output, such as a mapping.
+    binds_output, says_nothing = get_overloads(wrapper.__init__)
+    assert _mentions(
+        get_type_hints(binds_output, localns=namespace)["validator"], type_param
+    )
+    assert get_args(get_type_hints(says_nothing, localns=namespace)["self"]) == (Any,)
+
+    returned = get_type_hints(wrapper.__call__, localns=namespace)["return"]
+    if wrapper is Maybe:
+        # None is always allowed, so it joins whatever the validator produces.
+        assert get_args(returned) == (type_param, type(None))
+    else:
+        assert returned is type_param
+
+
 def test_msg_replaces_the_error_message() -> None:
     """Msg overrides the failure message of its validator."""
     with pytest.raises(MultipleInvalid) as caught:
@@ -279,13 +310,6 @@ def test_ensure_list_keeps_the_element_type() -> None:
     # The element type that goes in is the element type that comes back out.
     assert get_args(list_case["value"])[0] is get_args(list_case["return"])[0]
     assert scalar_case["value"] is get_args(scalar_case["return"])[0]
-
-
-def _mentions(annotation: Any, type_param: Any) -> bool:
-    """Report whether a type parameter appears anywhere inside an annotation."""
-    if annotation is type_param:
-        return True
-    return any(_mentions(argument, type_param) for argument in get_args(annotation))
 
 
 @pytest.mark.parametrize(

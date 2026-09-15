@@ -17,7 +17,7 @@ from probatio.schema import Schema
 from probatio.validators._base import _SafeValidator
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable, Iterator
+    from collections.abc import Callable, Collection, Iterable, Iterator
 
 
 class Sorted(_SafeValidator):
@@ -309,8 +309,27 @@ class EnsureList(_SafeValidator):
         return value if isinstance(value, list) else [value]
 
 
-class Maybe(_SafeValidator):
-    """Allow ``None``, or otherwise validate against the wrapped validator."""
+class Maybe[T](_SafeValidator):
+    """Allow ``None``, or otherwise validate against the wrapped validator.
+
+    Generic in what the wrapped validator produces, so ``Maybe(Coerce(int))`` is a
+    ``Maybe[int]`` whose call is typed ``int | None``. A schema that is not callable
+    (a mapping, a list) says nothing about its output, and gives a ``Maybe[Any]``.
+    """
+
+    @typing.overload
+    def __init__(
+        self,
+        validator: type[T] | Callable[[typing.Any], T],
+        msg: str | None = None,
+    ) -> None: ...
+
+    @typing.overload
+    def __init__(
+        self: Maybe[typing.Any],
+        validator: typing.Any,
+        msg: str | None = None,
+    ) -> None: ...
 
     def __init__(self, validator: typing.Any, msg: str | None = None) -> None:
         """Compile the wrapped validator."""
@@ -331,21 +350,44 @@ class Maybe(_SafeValidator):
         """Return the single wrapped schema, for ``Self`` detection."""
         return (self.validator,)
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> T | None:
         """Return None unchanged, else the validated value."""
         if value is None:
             return None
 
         try:
-            return self._schema(value)
+            validated: T = self._schema(value)
         except Invalid as exc:
             if self.msg is not None:
                 raise Invalid(self.msg) from exc
             raise
 
+        return validated
 
-class Msg(_SafeValidator):
-    """Wrap a validator and replace its failure message."""
+
+class Msg[T](_SafeValidator):
+    """Wrap a validator and replace its failure message.
+
+    Replacing the message does not change the value, so the wrapped validator's
+    output type carries through: ``Msg(Coerce(int), "not a number")`` is a
+    ``Msg[int]``. A schema that is not callable gives a ``Msg[Any]``.
+    """
+
+    @typing.overload
+    def __init__(
+        self,
+        validator: type[T] | Callable[[typing.Any], T],
+        msg: str,
+        cls: type[Invalid] | None = None,
+    ) -> None: ...
+
+    @typing.overload
+    def __init__(
+        self: Msg[typing.Any],
+        validator: typing.Any,
+        msg: str,
+        cls: type[Invalid] | None = None,
+    ) -> None: ...
 
     def __init__(
         self,
@@ -363,13 +405,15 @@ class Msg(_SafeValidator):
         """Return the single wrapped schema, for ``Self`` detection."""
         return (self.validator,)
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> T:
         """Validate, re-raising any failure with the replacement message."""
         try:
-            return self._schema(value)
+            validated: T = self._schema(value)
         except Invalid as exc:
             error_cls = self.cls or Invalid
             raise error_cls(self.msg) from exc
+
+        return validated
 
 
 def _require_sequence(value: typing.Any, msg: str | None) -> None:
