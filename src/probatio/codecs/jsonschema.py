@@ -522,7 +522,9 @@ def _literal_any_names(key: Any) -> list[str] | None:
         return None
     if not all(isinstance(item, str) for item in key.validators):
         return None
-    return list(key.validators)
+    # ``Any("a", "a")`` names one property, so dedupe rather than emit the same
+    # property and the same ``required`` branch twice.
+    return list(dict.fromkeys(key.validators))
 
 
 def _emit_any_key(  # noqa: PLR0913
@@ -545,7 +547,9 @@ def _emit_any_key(  # noqa: PLR0913
     declaration order. Overwriting it would reject values the mapping accepts.
     """
     for name in names:
-        properties.setdefault(name, decorated)
+        # A copy each, so a caller that edits one emitted property does not
+        # silently edit the others this key expanded into.
+        properties.setdefault(name, dict(decorated))
     if not isinstance(marker, Remove) and _is_required(
         marker, required_default=required_default
     ):

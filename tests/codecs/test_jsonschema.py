@@ -886,6 +886,24 @@ def test_literal_key_wins_over_an_any_key_listing_the_same_name(schema: Schema) 
     assert jsonschema.Draft202012Validator(result).is_valid({"hours": "text"})
 
 
+def test_any_key_names_a_repeated_name_once() -> None:
+    """A name listed twice in an Any key is one property and one required branch."""
+    result = to_json_schema(Schema({Required(Any("a", "a", "b")): int}))
+    assert sorted(result["properties"]) == ["a", "b"]
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+def test_any_key_gives_each_name_its_own_property() -> None:
+    """Editing one emitted property does not reach the others the key expanded into."""
+    result = to_json_schema(Schema({Any("a", "b"): int}))
+    assert result["properties"]["a"] is not result["properties"]["b"]
+
+    result["properties"]["a"]["description"] = "only a"
+    assert "description" not in result["properties"]["b"]
+
+
 def test_any_key_never_narrows() -> None:
     """The emitted document accepts exactly what the mapping accepts."""
     schema = Schema({Required(Any("hours", "minutes")): int, Optional("name"): str})
