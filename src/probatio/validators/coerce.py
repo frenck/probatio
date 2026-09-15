@@ -343,7 +343,7 @@ class EmptyToNone(_SafeValidator):
         """Render as a constructor call."""
         return "EmptyToNone()"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__[T](self, value: T) -> T | None:
         """Return None for an empty string or container, else the value unchanged."""
         if isinstance(value, _EMPTY_CONTAINERS) and len(value) == 0:
             return None

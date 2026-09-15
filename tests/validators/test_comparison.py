@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import get_type_hints
 
 import pytest
 
@@ -57,6 +58,16 @@ from probatio.error import (
 def test_literal_returns_the_literal() -> None:
     """Literal accepts a matching value and returns the literal."""
     assert Schema(Literal(5))(5) == 5
+
+
+def test_literal_carries_the_literals_type() -> None:
+    """Literal is generic in the literal it holds, which is what it hands back."""
+    (type_param,) = Literal.__type_params__
+    # The parameter is scoped to the class, so resolving needs it in scope.
+    namespace = {type_param.__name__: type_param}
+
+    assert get_type_hints(Literal.__init__, localns=namespace)["lit"] is type_param
+    assert get_type_hints(Literal.__call__, localns=namespace)["return"] is type_param
 
 
 def test_literal_rejects_a_mismatch() -> None:

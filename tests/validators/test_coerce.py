@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from decimal import Decimal
+from typing import get_args, get_type_hints
 
 import pytest
 import voluptuous
@@ -332,6 +333,18 @@ def test_empty_to_none_replaces_empties() -> None:
     assert Schema(EmptyToNone())({}) is None
     assert Schema(EmptyToNone())("x") == "x"
     assert Schema(EmptyToNone())([1]) == [1]
+
+
+def test_empty_to_none_carries_the_callers_type() -> None:
+    """EmptyToNone hands back the caller's own type, or None, never a bare Any."""
+    call = EmptyToNone.__call__
+    # The parameter is scoped to the method, so resolving needs it in scope.
+    (type_param,) = call.__type_params__
+    hints = get_type_hints(call, localns={type_param.__name__: type_param})
+
+    assert hints["value"] is type_param
+    # An empty value becomes None, so None joins whatever went in.
+    assert get_args(hints["return"]) == (type_param, type(None))
 
 
 def test_empty_to_none_leaves_a_falsy_scalar_alone() -> None:

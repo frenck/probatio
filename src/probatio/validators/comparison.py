@@ -79,18 +79,21 @@ class Equal(_SafeValidator):
         return value
 
 
-class Literal(_SafeValidator):
+class Literal[T](_SafeValidator):
     """Require the value to match a fixed literal, returning the literal.
 
     Unlike a bare literal in a schema, ``Literal`` is a callable validator: it
     can be composed in ``All``/``Any`` and carries its own ``LiteralInvalid``.
+
+    Generic in the literal it holds, since that is exactly what it hands back:
+    ``Literal("active")`` is a ``Literal[str]``.
     """
 
-    def __init__(self, lit: typing.Any) -> None:
+    def __init__(self, lit: T) -> None:
         """Store the literal to match against (read as ``.lit``)."""
         self.lit = lit
 
-    def __call__(self, value: typing.Any, msg: str | None = None) -> typing.Any:
+    def __call__(self, value: typing.Any, msg: str | None = None) -> T:
         """Return the literal if the value matches it, else LiteralInvalid."""
         try:
             unequal = self.lit != value
