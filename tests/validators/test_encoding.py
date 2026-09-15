@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import get_type_hints
+
 import pytest
 
 from probatio import (
@@ -77,6 +79,11 @@ def test_hex_int_parses_strings_and_ints() -> None:
     assert schema("1a") == 26
     assert schema(26) == 26
     assert schema("-ff") == -255
+
+
+def test_hex_int_declares_an_int_return() -> None:
+    """HexInt always hands back an int, and says so rather than promising Any."""
+    assert get_type_hints(HexInt.__call__)["return"] is int
 
 
 @pytest.mark.parametrize("value", [True, "zz", "", 1.5, None])

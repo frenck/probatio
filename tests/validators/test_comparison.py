@@ -60,6 +60,32 @@ def test_literal_returns_the_literal() -> None:
     assert Schema(Literal(5))(5) == 5
 
 
+@pytest.mark.parametrize(
+    ("validator", "returns"),
+    [
+        (Multiply, int | float),
+        (Divide, int | float),
+        (Offset, int | float),
+        (Round, int | float),
+        (Scale, int | float),
+        (Remap, int | float),
+        (Snap, int | float),
+        (Abs, int | float),
+        (Modulo, int | float),
+        # Rounding to a whole number and reading a percentage narrow further.
+        (RoundUp, int),
+        (RoundDown, int),
+        (FromPercentage, float),
+    ],
+    ids=lambda argument: getattr(argument, "__name__", str(argument)),
+)
+def test_an_arithmetic_validator_declares_the_number_it_returns(
+    validator: type, returns: object
+) -> None:
+    """An arithmetic validator states the number it returns, never a bare Any."""
+    assert get_type_hints(validator.__call__)["return"] == returns
+
+
 def test_literal_carries_the_literals_type() -> None:
     """Literal is generic in the literal it holds, which is what it hands back."""
     (type_param,) = Literal.__type_params__
