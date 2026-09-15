@@ -152,20 +152,21 @@ round-trip:
 Combinators and a few more constructs also render, though most have no inverse
 so they do not round-trip:
 
-| Probatio construct         | JSON Schema output                                                          |
-| -------------------------- | --------------------------------------------------------------------------- |
-| `Any` / `Or`               | `anyOf`                                                                     |
-| `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)     |
-| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword     |
-| `Maybe`                    | `anyOf` with `{"type": "null"}`                                             |
-| `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)             |
-| `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)   |
-| An `enum.Enum` class       | `enum` of the member values                                                 |
-| `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)                |
-| `Alias`                    | one property per accepted name (plus `anyOf` of `required` when required)   |
-| `Any` key of literal names | one property per name (plus `anyOf` of `required` when the key is required) |
-| `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required   |
-| `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string   |
+| Probatio construct         | JSON Schema output                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Any` / `Or`               | `anyOf`                                                                                                      |
+| `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)                                      |
+| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword                                      |
+| `Maybe`                    | `anyOf` with `{"type": "null"}`                                                                              |
+| `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)                                              |
+| `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)                                    |
+| An `enum.Enum` class       | `enum` of the member values                                                                                  |
+| `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)                                                 |
+| `Alias`                    | one property per accepted name (plus `anyOf` of `required` when required)                                    |
+| `Any` key of literal names | one property per name (plus `anyOf` of `required` when the key is required)                                  |
+| A group keyed on an `Any`  | one member satisfied by any of its names, so the group renders under `allOf` rather than `dependentRequired` |
+| `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required                                    |
+| `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string                                    |
 
 The known widener: JSON Schema has a single `hostname` format, so both
 `Hostname` and `Fqdn` export to it and decode back as `Hostname`, meaning a

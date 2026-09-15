@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 from decimal import Decimal
 
@@ -29,12 +30,14 @@ from probatio import (
     Email,
     Equal,
     ExactSequence,
+    Exclusive,
     Extra,
     Fqdn,
     FqdnUrl,
     FromEpoch,
     Hostname,
     In,
+    Inclusive,
     Invalid,
     IPAddress,
     IPNetwork,
@@ -1033,6 +1036,88 @@ def test_home_assistant_slots_name_the_same_properties_as_openapi(slots: dict) -
     assert set(to_json_schema(schema)["properties"]) == set(
         to_openapi(schema)["properties"]
     )
+
+
+# A group member is usually a literal key, but it can be an ``Any`` over literal
+# names, which the engine counts as one member satisfied by any of those names
+# (a documented deviation from voluptuous). Both codecs used to expand the names
+# into properties and then drop the group constraint, so the emitted document
+# accepted input the schema rejects.
+_ANY_GROUP_SCHEMAS = {
+    "inclusive": {Inclusive(Any("a", "b"), "g"): int, Inclusive("c", "g"): int},
+    "exclusive": {Exclusive(Any("a", "b"), "g"): int, Exclusive("c", "g"): int},
+    "exclusive_required": {
+        Exclusive(Any("a", "b"), "g", required=True): int,
+        Exclusive("c", "g", required=True): int,
+    },
+    "inclusive_three_members": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+        Inclusive("d", "g"): int,
+    },
+    "inclusive_lone_member": {Inclusive(Any("a", "b"), "g"): int},
+}
+
+
+@pytest.mark.parametrize("slots", _ANY_GROUP_SCHEMAS.values(), ids=_ANY_GROUP_SCHEMAS)
+def test_a_group_keyed_on_an_any_agrees_with_the_schema(slots: dict) -> None:
+    """The emitted document accepts and rejects exactly what the mapping does."""
+    schema = Schema(slots)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+
+    names = ["a", "b", "c", "d"]
+    for size in range(len(names) + 1):
+        for combination in itertools.combinations(names, size):
+            value = dict.fromkeys(combination, 1)
+            try:
+                schema(dict(value))
+                accepts = True
+            except Invalid:
+                accepts = False
+            assert validator.is_valid(value) is accepts, value
+
+
+def test_inclusive_group_keyed_on_an_any_renders_an_implication_per_member() -> None:
+    """dependentRequired cannot say "one of those", so the group renders as allOf."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["inclusive"]))
+
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+    assert "dependentRequired" not in result
+    assert result["allOf"] == [
+        {"anyOf": [{"not": either}, {"required": ["c"]}]},
+        {"anyOf": [{"not": {"required": ["c"]}}, either]},
+    ]
+
+
+def test_exclusive_group_keyed_on_an_any_excludes_the_other_members() -> None:
+    """The Any key is one member, so its own names never collide with each other."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["exclusive"]))
+
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+    assert result["allOf"] == [
+        {"not": {"anyOf": [{"allOf": [either, {"required": ["c"]}]}]}},
+    ]
+
+
+def test_required_exclusive_group_keyed_on_an_any_demands_one_member() -> None:
+    """Exactly one member, where either of the Any's names satisfies its own."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["exclusive_required"]))
+
+    assert result["allOf"] == [
+        {
+            "oneOf": [
+                {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+                {"required": ["c"]},
+            ],
+        },
+    ]
+
+
+def test_a_lone_group_member_adds_no_constraint() -> None:
+    """A group of one has nothing to be co-dependent with."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["inclusive_lone_member"]))
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
 
 
 def test_union_becomes_any_of() -> None:

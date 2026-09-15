@@ -683,6 +683,53 @@ def test_inclusive_group_renders_all_or_none_per_version() -> None:
     ]
 
 
+def test_group_keyed_on_an_any_keeps_its_constraint_per_version() -> None:
+    """A group member can be an Any over names, and the constraint still renders.
+
+    The member is one member whichever of its names shows up, so 3.1 falls back to
+    allOf (dependentRequired cannot say "at least one of those") while 3.0 keeps
+    the oneOf form it already used, widened to match on member presence.
+    """
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Inclusive  # noqa: PLC0415
+
+    schema = Schema({Inclusive(AnyKey("a", "b"), "g"): int, Inclusive("c", "g"): int})
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+
+    on_31 = to_openapi(schema, openapi_version="3.1.0")
+    assert "dependentRequired" not in on_31
+    assert on_31["allOf"] == [
+        {"anyOf": [{"not": either}, {"required": ["c"]}]},
+        {"anyOf": [{"not": {"required": ["c"]}}, either]},
+    ]
+
+    assert to_openapi(schema, openapi_version="3.0")["allOf"] == [
+        {
+            "oneOf": [
+                {"allOf": [either, {"required": ["c"]}]},
+                {"not": {"anyOf": [either, {"required": ["c"]}]}},
+            ],
+        },
+    ]
+
+
+def test_an_any_key_holding_a_validator_is_a_variable_key() -> None:
+    """Only an Any of literal names expands; a mixed one is a variable key.
+
+    Stringifying the members regardless emitted a property literally named
+    ``"<class 'str'>"`` and demanded it, a name no input can carry.
+    """
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    result = to_openapi(Schema({Required(AnyKey("a", str)): int}))
+
+    assert "<class 'str'>" not in str(result)
+    assert result.get("properties", {}) == {}
+    # Treated as a variable key, which is what to_json_schema already did.
+    assert result["additionalProperties"] == {"type": "integer"}
+
+
 def test_exclusive_group_renders_at_most_one() -> None:
     """An Exclusive group renders an at-most-one constraint, the same on both versions."""
     from probatio import Exclusive  # noqa: PLC0415

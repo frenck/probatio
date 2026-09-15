@@ -45,6 +45,7 @@ from probatio.validators import (
     TimeZone,
     TimeZoneInfo,
 )
+from probatio.validators import Any as AnyValidator
 
 
 class _Unsupported:
@@ -74,27 +75,121 @@ class ExclusiveGroup:
     render it identically, and one accumulator here keeps them from drifting.
     """
 
-    members: list[str] = field(default_factory=list)
+    # One entry per member, holding the names that satisfy it. A member is
+    # usually a literal key, so the names are a single one; a key schema over
+    # several literals (``Any("hours", "minutes")``) is still one member, and any
+    # of its names satisfies it.
+    members: list[list[str]] = field(default_factory=list)
     required: bool = False
     has_default: bool = False
+
+
+def literal_any_names(key: Any) -> list[str] | None:
+    """Return the names an ``Any`` key lists, or None when it is not such a key.
+
+    Only an ``Any`` made entirely of string literals names a fixed set of
+    properties. One holding a type or validator (``Any(str, int)``) is a variable
+    key like any other callable, and a non-string literal never matches a JSON
+    key. Shared so both codecs agree on which keys expand; stringifying the
+    members without this check emits a property literally named
+    ``"<class 'str'>"``.
+    """
+    if not isinstance(key, AnyValidator) or not key.validators:
+        return None
+    if not all(isinstance(item, str) for item in key.validators):
+        return None
+    # ``Any("a", "a")`` names one property, so dedupe rather than emit the same
+    # property and the same ``required`` branch twice.
+    return list(dict.fromkeys(key.validators))
+
+
+def member_present(names: list[str]) -> dict[str, Any]:
+    """Match an object carrying at least one of a member's names."""
+    if len(names) == 1:
+        return {"required": [names[0]]}
+    return {"anyOf": [{"required": [name]} for name in names]}
+
+
+def _both_present(first: list[str], second: list[str]) -> dict[str, Any]:
+    """Match an object carrying two members at once.
+
+    Two single-name members are the compact ``{"required": [a, b]}``, which is what
+    an ordinary all-literal group has always emitted; only a member covering
+    several names needs the ``allOf`` form.
+    """
+    if len(first) == 1 and len(second) == 1:
+        return {"required": [first[0], second[0]]}
+    return {"allOf": [member_present(first), member_present(second)]}
 
 
 def exclusive_constraint(group: ExclusiveGroup) -> dict[str, Any]:
     """Render one ``Exclusive`` group as at-most-one, or exactly-one when required.
 
     A required group with no default demands exactly one member (``oneOf`` over the
-    per-member ``required``). Otherwise at most one member may appear: the negation
+    per-member presence). Otherwise at most one member may appear: the negation
     of any two being present together. Shared so both codecs stay identical.
     """
     members = group.members
     if group.required and not group.has_default:
-        return {"oneOf": [{"required": [member]} for member in members]}
+        return {"oneOf": [member_present(member) for member in members]}
     pairs = [
-        [members[i], members[j]]
+        (members[i], members[j])
         for i in range(len(members))
         for j in range(i + 1, len(members))
     ]
-    return {"not": {"anyOf": [{"required": pair} for pair in pairs]}} if pairs else {}
+    return (
+        {"not": {"anyOf": [_both_present(one, other) for one, other in pairs]}}
+        if pairs
+        else {}
+    )
+
+
+def inclusive_constraints(
+    groups: Iterable[list[list[str]]],
+) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
+    """Split the ``Inclusive`` groups into a ``dependentRequired`` map and ``allOf``.
+
+    A group whose members are each a single name renders as ``dependentRequired``,
+    the idiomatic all-or-none keyword, and a sibling decoder reads it back as an
+    ``Inclusive`` group. A group holding a member that covers several names cannot:
+    ``dependentRequired`` maps one name to names that must accompany it, and has no
+    way to say "if this name is present then at least *one* of those". Such a group
+    renders as one implication per member instead, which says the same thing in
+    ``allOf`` at the cost of reading less clearly (and of not decoding back).
+
+    Returns the ``(dependentRequired, allOf)`` pair, either of which may be empty.
+    """
+    simple: list[list[str]] = []
+    constraints: list[dict[str, Any]] = []
+    for members in groups:
+        if all(len(member) == 1 for member in members):
+            simple.append([member[0] for member in members])
+            continue
+        constraints.extend(_all_or_none(members))
+    return merge_dependent_required(simple), constraints
+
+
+def _all_or_none(members: list[list[str]]) -> list[dict[str, Any]]:
+    """Say "all of these members or none" as one implication per member.
+
+    Each reads "this member is absent, or every other member is present". Together
+    they allow only the empty case and the complete one.
+    """
+    # A lone member depends on nothing, so it constrains nothing.
+    if len(members) < 2:
+        return []
+
+    constraints: list[dict[str, Any]] = []
+    for index, member in enumerate(members):
+        others = [
+            member_present(other)
+            for position, other in enumerate(members)
+            if position != index
+        ]
+        # A single other member needs no ``allOf`` wrapper around it.
+        rest = others[0] if len(others) == 1 else {"allOf": others}
+        constraints.append({"anyOf": [{"not": member_present(member)}, rest]})
+    return constraints
 
 
 def merge_dependent_required(groups: Iterable[list[str]]) -> dict[str, list[str]]:
