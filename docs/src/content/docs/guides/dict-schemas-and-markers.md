@@ -405,7 +405,9 @@ schema = Schema(
     }
 )
 
-schema({"hours": 1, "minutes": 5, "name": "tea"})  # {'hours': 1, 'minutes': 5, 'name': 'tea'}
+value = {"hours": 1, "minutes": 5, "name": "tea"}
+
+schema(value)  # {'hours': 1, 'minutes': 5, 'name': 'tea'}
 ```
 
 Either side alone still fails the group. voluptuous reads a member like this as
