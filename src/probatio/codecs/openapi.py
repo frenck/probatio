@@ -784,7 +784,7 @@ def _oa_typed(node: Any) -> dict[str, Any] | None:
     return None
 
 
-def _oa_all(node: All, custom: Any, version: str) -> dict[str, Any]:
+def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     """Merge an All's parts, falling back to allOf when keys conflict."""
     merged: dict[str, Any] = {}
     all_of: list[dict[str, Any]] = []

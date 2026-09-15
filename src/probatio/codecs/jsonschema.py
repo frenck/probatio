@@ -789,7 +789,7 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     return _open("a SomeOf with a min/max count JSON Schema cannot express")
 
 
-def _convert_all(node: All) -> dict[str, Any]:
+def _convert_all(node: All[Any]) -> dict[str, Any]:
     """Merge an All's validators into one schema, or ``allOf`` when keys collide.
 
     Merging with ``dict.update`` is the common, compact case (``All(int, Range)``

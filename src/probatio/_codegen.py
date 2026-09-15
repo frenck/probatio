@@ -59,7 +59,7 @@ if TYPE_CHECKING:
         type[Range],
         type[In],
         type[AnyValidator],
-        type[All],
+        type[All[Any]],
         type[Length],
         type[Match],
     ]

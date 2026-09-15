@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import typing
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from probatio.error import (
     AllInvalid,
@@ -25,6 +26,16 @@ from probatio.error import (
 )
 from probatio.schema import PREVENT_EXTRA, Schema, compile_schema
 from probatio.validators._base import _SafeValidator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+# A schema, described by what it produces. A bare type used as a schema asserts
+# the value is one (``str``), and a callable one returns the validated value, so
+# either way the type that comes out is the one worth naming.
+type _Produces[Out] = type[Out] | Callable[[typing.Any], Out]
+# The same, for a link in a chain: it takes what the previous one handed it.
+type _Consumes[In, Out] = type[Out] | Callable[[In], Out]
 
 # Sentinel for "this branch pins no literal at the discriminator key", so ``None``
 # stays usable as a real tag value.
@@ -195,8 +206,56 @@ def _combinator_repr(combinator: typing.Any) -> str:
     return f"{type(combinator).__name__}({body}, msg={combinator.msg!r})"
 
 
-class All(_Combinator):
-    """Apply every validator in turn; all must pass, the output chains forward."""
+class All[T](_Combinator):
+    """Apply every validator in turn; all must pass, the output chains forward.
+
+    Generic in what the chain produces, which is what the last validator returns:
+    ``All(Coerce(int), Range(min=1))`` is an ``All[int]``. Only the one, two and
+    three validator forms are typed, which is what real schemas use (and what
+    ``__call__`` unrolls); a longer chain is an ``All[typing.Any]``.
+    """
+
+    @typing.overload
+    def __init__(
+        self,
+        validator: _Produces[T],
+        /,
+        *,
+        msg: str | None = None,
+        required: bool = False,
+    ) -> None: ...
+
+    @typing.overload
+    def __init__[First](
+        self,
+        first: _Produces[First],
+        second: _Consumes[First, T],
+        /,
+        *,
+        msg: str | None = None,
+        required: bool = False,
+    ) -> None: ...
+
+    @typing.overload
+    def __init__[First, Second](
+        self,
+        first: _Produces[First],
+        second: _Consumes[First, Second],
+        third: _Consumes[Second, T],
+        /,
+        *,
+        msg: str | None = None,
+        required: bool = False,
+    ) -> None: ...
+
+    @typing.overload
+    def __init__(
+        self: All[typing.Any],
+        *validators: typing.Any,
+        msg: str | None = None,
+        required: bool = False,
+        **kwargs: typing.Any,
+    ) -> None: ...
 
     def __init__(
         self,
@@ -225,10 +284,13 @@ class All(_Combinator):
         ]
         # The two-validator form (``All(Coerce(int), Range(...))``) dominates real
         # schemas, so ``__call__`` unrolls it; precompute the pair here, the single
-        # place ``self._compiled`` is (re)built.
-        self._pair = tuple(self._compiled) if len(self._compiled) == 2 else None
+        # place ``self._compiled`` is (re)built. Typed so the unrolled path carries
+        # the chain's output type without the hot path paying for a local.
+        self._pair: (
+            tuple[Callable[[typing.Any], typing.Any], Callable[[typing.Any], T]] | None
+        ) = (self._compiled[0], self._compiled[1]) if len(self._compiled) == 2 else None
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> T:
         """Run each validator in sequence, returning the final value.
 
         A failure raises ``MultipleInvalid`` (matching voluptuous), unless a
@@ -253,7 +315,10 @@ class All(_Combinator):
                 raise AllInvalid(self.msg) from exc
             raise MultipleInvalid([exc]) from exc
 
-        return value
+        # Only the three-or-more chain reaches here (the unrolled pair returned
+        # already), so binding the result costs nothing on the common path.
+        chained: T = value
+        return chained
 
     def __repr__(self) -> str:
         """Render as ``All(v, ..., msg=...)``."""
