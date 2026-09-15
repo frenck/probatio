@@ -98,6 +98,12 @@ accepts every member present or none present and rejects any partial combination
 The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
 `from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
 
+A group member does not have to be a literal key. `Inclusive(Any("hours",
+"minutes"), "d")` is one member that either name satisfies, so the constraint is
+"this member or the rest, not part of both". `dependentRequired` cannot say "at
+least one of those", so a group holding such a member renders under `allOf` on
+both versions instead, at the cost of not decoding back to the marker.
+
 ## Strict mode
 
 By default a construct with no OpenAPI form widens to an open schema (`{}`), so

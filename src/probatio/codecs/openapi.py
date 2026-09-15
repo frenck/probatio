@@ -29,7 +29,9 @@ from probatio.codecs._shared import (
     ExclusiveGroup,
     covers_every_property_name,
     exclusive_constraint,
-    merge_dependent_required,
+    inclusive_constraints,
+    literal_any_names,
+    member_present,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -331,7 +333,7 @@ def _oa_mapping(
     variable_keys: list[Any] = []
     variable_values: list[dict[str, Any]] = []
     constraint_groups: list[list[str]] = []
-    inclusive: dict[str, list[str]] = {}
+    inclusive: dict[str, list[list[str]]] = {}
     exclusive: dict[str, ExclusiveGroup] = {}
 
     for key, value in node.items():
@@ -358,12 +360,16 @@ def _oa_mapping(
         pval = _ensure_default(pval)
 
         # A group marker adds an object-level constraint (all-or-none, at-most-one)
-        # on top of the property it declares, collected here and emitted below.
-        if isinstance(marker, Inclusive) and isinstance(pkey, str):
-            inclusive.setdefault(marker.group_of_inclusion, []).append(pkey)
-        elif isinstance(marker, Exclusive) and isinstance(pkey, str):
+        # on top of the property it declares, collected here and emitted below. The
+        # member is the names that satisfy it: one for a literal key, all of them
+        # for an ``Any`` over literals (still one member, any name satisfying it).
+        # A variable key names nothing renderable, so its group is not expressible.
+        member = [pkey] if isinstance(pkey, str) else literal_any_names(pkey)
+        if isinstance(marker, Inclusive) and member is not None:
+            inclusive.setdefault(marker.group_of_inclusion, []).append(member)
+        elif isinstance(marker, Exclusive) and member is not None:
             group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
-            group.members.append(pkey)
+            group.members.append(member)
             group.required = group.required or marker.group_required
             group.has_default = group.has_default or not isinstance(
                 marker.default, Undefined
@@ -379,9 +385,9 @@ def _oa_mapping(
                 properties[alias_name] = pval.copy()
             if marker.required and isinstance(marker.default, Undefined):
                 constraint_groups.append(names)
-        elif isinstance(pkey, AnyValidator):
+        elif (any_names := literal_any_names(pkey)) is not None:
             props, any_group = _expand_any_key(
-                pkey,
+                any_names,
                 pval,
                 required=isinstance(marker, Required),
                 wildcard=value is object,
@@ -428,7 +434,7 @@ class _ObjectConstraints:
 
 
 def _group_constraints(
-    inclusive: dict[str, list[str]],
+    inclusive: dict[str, list[list[str]]],
     exclusive: dict[str, ExclusiveGroup],
     version: str,
 ) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
@@ -446,7 +452,10 @@ def _group_constraints(
     dependent: dict[str, list[str]] = {}
     all_of: list[dict[str, Any]] = []
     if version == _V3_1:
-        dependent = merge_dependent_required(inclusive.values())
+        # A group holding a member that covers several names cannot be said with
+        # ``dependentRequired``, so it comes back as ``allOf`` entries instead.
+        dependent, inclusive_all_of = inclusive_constraints(inclusive.values())
+        all_of += inclusive_all_of
     else:
         all_of += [
             _oa_inclusive_30(members)
@@ -461,30 +470,35 @@ def _group_constraints(
     return dependent, all_of
 
 
-def _oa_inclusive_30(members: list[str]) -> dict[str, Any]:
+def _oa_inclusive_30(members: list[list[str]]) -> dict[str, Any]:
     """Render an all-or-none group for OpenAPI 3.0, which lacks ``dependentRequired``.
 
     All-or-none is spelled with the keywords 3.0 does have: exactly one of "every
     member present" or "no member present" holds, which rejects any partial
-    combination.
+    combination. A group of literal keys keeps the compact ``required`` list it has
+    always emitted; only a member covering several names needs the ``allOf`` form.
     """
+    every = (
+        {"required": [member[0] for member in members]}
+        if all(len(member) == 1 for member in members)
+        else {"allOf": [member_present(member) for member in members]}
+    )
     return {
         "oneOf": [
-            {"required": list(members)},
-            {"not": {"anyOf": [{"required": [member]} for member in members]}},
+            every,
+            {"not": {"anyOf": [member_present(member) for member in members]}},
         ],
     }
 
 
 def _expand_any_key(
-    pkey: AnyValidator,
+    names: list[str],
     pval: dict[str, Any],
     *,
     required: bool,
     wildcard: bool,
 ) -> tuple[dict[str, Any], list[str] | None]:
-    """Expand an ``Any`` key into (properties to add, optional constraint group)."""
-    names = [str(item) for item in pkey.validators]
+    """Expand an ``Any`` key's names into (properties to add, constraint group)."""
     if required:
         props = {} if wildcard else {name: pval.copy() for name in names}
         return props, names
