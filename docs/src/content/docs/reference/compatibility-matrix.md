@@ -37,16 +37,16 @@ voluptuous](/getting-started/migrating-from-voluptuous/) and
 
 ## Markers
 
-| Name        | Status                    | Notes                                                                              |
-| ----------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| `Marker`    | Supported                 | Base class for all markers.                                                        |
-| `Required`  | Supported                 | The key must be present.                                                           |
-| `Optional`  | Supported                 | The key may be present; `default` fills it in.                                     |
-| `Remove`    | Supported                 | Drop matching keys from the output.                                                |
-| `Extra`     | Supported                 | The catch-all key.                                                                 |
-| `Inclusive` | Supported                 | Keys in a group appear together or not at all.                                     |
-| `Exclusive` | Supported                 | At most one key from a group.                                                      |
-| `Self`      | Supported, with deviation | Recursive schema reference. See [Intentional deviations](#intentional-deviations). |
+| Name        | Status                    | Notes                                                                                                 |
+| ----------- | ------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Marker`    | Supported                 | Base class for all markers.                                                                           |
+| `Required`  | Supported                 | The key must be present.                                                                              |
+| `Optional`  | Supported                 | The key may be present; `default` fills it in.                                                        |
+| `Remove`    | Supported                 | Drop matching keys from the output.                                                                   |
+| `Extra`     | Supported                 | The catch-all key.                                                                                    |
+| `Inclusive` | Supported, with deviation | Keys in a group appear together or not at all. See [Intentional deviations](#intentional-deviations). |
+| `Exclusive` | Supported, with deviation | At most one key from a group. See [Intentional deviations](#intentional-deviations).                  |
+| `Self`      | Supported, with deviation | Recursive schema reference. See [Intentional deviations](#intentional-deviations).                    |
 
 ## Combinators
 
@@ -293,6 +293,17 @@ Probatio does.
   have rejected is affected, and a `float` matcher now matches an `int` too (so
   `Remove(float)` in a list drops ints, and a `{float: ...}` type key matches an int
   key).
+- **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
+  is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
+  any key schema, including an `Any` of names
+  (`Inclusive(Any("hours", "minutes"), "duration")`). voluptuous never counts such
+  a member as present, which leaves `Inclusive` unsatisfiable (no input containing
+  another member of the group is ever accepted, whatever the `Any` names hold) and
+  `Exclusive` a silent no-op (the member never triggers the exclusion). Probatio
+  treats the key as one member satisfied by any of the names it lists, so
+  `Inclusive(Any("hours", "minutes"), "d")` with `Inclusive("name", "d")` accepts
+  `{"hours": 1, "name": "tea"}` and rejects either one alone. A strict improvement:
+  the voluptuous readings make the group either impossible or meaningless.
 - **The rendered error string, `str(error)` (ADR-015).** voluptuous renders
   `expected int for dictionary value @ data['server']['port']`. Probatio renders
   the same error as `expected int at 'server.port'`: the path is a dotted trail

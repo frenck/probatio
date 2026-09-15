@@ -191,3 +191,52 @@ def test_at_least_one_of_a_group_via_required_any() -> None:
         caught.value.errors[0].error_message
         == "at least one of ['email', 'phone'] is required"
     )
+
+
+# A group member is usually a literal key, but the marker takes any key schema,
+# including an ``Any`` of names. Probatio counts such a key as one member,
+# satisfied by any of the names it lists. voluptuous counts it as never present,
+# which leaves ``Inclusive`` unsatisfiable and ``Exclusive`` a no-op, so this is a
+# documented deviation (see the compatibility matrix) and is pinned here.
+def test_an_any_key_is_one_inclusive_member_satisfied_by_any_name() -> None:
+    """An Any key joins its group as a single member any of its names satisfies."""
+    schema = Schema(
+        {Inclusive(Any("hours", "minutes"), "d"): int, Inclusive("name", "d"): str}
+    )
+
+    assert schema({}) == {}
+    assert schema({"hours": 1, "name": "tea"}) == {"hours": 1, "name": "tea"}
+    assert schema({"minutes": 5, "name": "tea"}) == {"minutes": 5, "name": "tea"}
+    # Both names of the one member still count as that single member.
+    assert schema({"hours": 1, "minutes": 5, "name": "tea"}) == {
+        "hours": 1,
+        "minutes": 5,
+        "name": "tea",
+    }
+
+
+@pytest.mark.parametrize("value", [{"hours": 1}, {"minutes": 5}, {"name": "tea"}])
+def test_an_any_inclusive_member_alone_is_rejected(value: dict[str, object]) -> None:
+    """Either side of the group alone breaks the all-or-none rule."""
+    schema = Schema(
+        {Inclusive(Any("hours", "minutes"), "d"): int, Inclusive("name", "d"): str}
+    )
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(value)
+    assert isinstance(caught.value.errors[0], InclusiveInvalid)
+
+
+def test_an_any_key_is_one_exclusive_member_that_excludes_the_others() -> None:
+    """An Any key excludes the group's other members, but not its own names."""
+    schema = Schema(
+        {Exclusive(Any("hours", "minutes"), "d"): int, Exclusive("name", "d"): str}
+    )
+
+    assert schema({"hours": 1}) == {"hours": 1}
+    assert schema({"name": "tea"}) == {"name": "tea"}
+    # Two names of the same member are one member, so they do not collide.
+    assert schema({"hours": 1, "minutes": 5}) == {"hours": 1, "minutes": 5}
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"hours": 1, "name": "tea"})
+    assert isinstance(caught.value.errors[0], ExclusiveInvalid)
