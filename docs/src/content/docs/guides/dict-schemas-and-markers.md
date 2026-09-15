@@ -373,6 +373,45 @@ schema({})  # {'mode': 'auto'}
 
 Both are group-level: set either on any member and it governs the whole group.
 
+A group member does not have to be a literal name. The first argument is a key
+schema like any other, so it can be an `Any` of names, a type, or any validator,
+and the member counts as present when some key in the data matches it. That makes
+`Any("hours", "minutes")` one member, satisfied by either name:
+
+```python
+from probatio import Any, Inclusive, Schema
+
+schema = Schema(
+    {
+        Inclusive(Any("hours", "minutes"), "duration"): int,
+        Inclusive("name", "duration"): str,
+    }
+)
+
+schema({"hours": 1, "name": "tea"})  # {'hours': 1, 'name': 'tea'}
+```
+
+Both of the member's names may appear. They still count as the one member, so
+they neither stand in for the rest of the group nor collide with each other in an
+exclusive group:
+
+```python
+from probatio import Any, Inclusive, Schema
+
+schema = Schema(
+    {
+        Inclusive(Any("hours", "minutes"), "duration"): int,
+        Inclusive("name", "duration"): str,
+    }
+)
+
+schema({"hours": 1, "minutes": 5, "name": "tea"})  # {'hours': 1, 'minutes': 5, 'name': 'tea'}
+```
+
+Either side alone still fails the group. voluptuous reads a member like this as
+never present, which leaves the group impossible to satisfy; see the
+[intentional deviations](/reference/compatibility-matrix/#intentional-deviations).
+
 ## Marking required across a whole schema
 
 Instead of wrapping every key in `Required`, pass `required=True` to `Schema` to
