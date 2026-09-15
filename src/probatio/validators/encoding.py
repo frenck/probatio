@@ -94,7 +94,7 @@ class HexInt(_SafeValidator):
             translation_key="expected_hexadecimal_integer",
         )
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int:
         """Return the value parsed as a base-16 integer, else raise CoerceInvalid."""
         if isinstance(value, bool):
             raise self._error()

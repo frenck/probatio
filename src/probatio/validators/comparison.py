@@ -413,7 +413,7 @@ class Multiply(_SafeValidator):
         """Render as a constructor call showing the factor."""
         return f"Multiply({self.factor!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return ``value * factor``, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -444,7 +444,7 @@ class Divide(_SafeValidator):
         """Render as a constructor call showing the divisor."""
         return f"Divide({self.divisor!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return ``value / divisor``, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -473,7 +473,7 @@ class Offset(_SafeValidator):
         """Render as a constructor call showing the amount."""
         return f"Offset({self.amount!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return ``value + amount``, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -504,7 +504,7 @@ class Round(_SafeValidator):
         """Render as a constructor call showing the decimals."""
         return f"Round({self.ndigits!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return the rounded number, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -561,7 +561,7 @@ class Scale(_SafeValidator):
             f"offset={self.offset!r}, round={self.round!r})"
         )
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return the rescaled number, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -619,7 +619,7 @@ class Remap(_SafeValidator):
             f"out_low={self.out_low!r}, out_high={self.out_high!r})"
         )
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return the value mapped onto the output range, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -653,7 +653,7 @@ class Snap(_SafeValidator):
         """Render as a constructor call showing the step."""
         return f"Snap({self.step!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return the value snapped to the nearest step, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
@@ -735,7 +735,7 @@ class Abs(_SafeValidator):
         """Render as a constructor call."""
         return "Abs()"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return the absolute value, else raise ValueInvalid."""
         return abs(_require_number(value, self.msg))
 
@@ -762,7 +762,7 @@ class Modulo(_SafeValidator):
         """Render as a constructor call showing the divisor."""
         return f"Modulo({self.n!r})"
 
-    def __call__(self, value: typing.Any) -> typing.Any:
+    def __call__(self, value: typing.Any) -> int | float:
         """Return ``value % n``, else raise ValueInvalid."""
         number = _require_number(value, self.msg)
         try:
