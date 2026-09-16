@@ -27,6 +27,8 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    constraint_names,
+    contested_names,
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
@@ -336,6 +338,10 @@ def _oa_mapping(
     inclusive: dict[str, list[list[str]]] = {}
     exclusive: dict[str, ExclusiveGroup] = {}
 
+    # A name two keys can match belongs to whichever the engine tries first, so a
+    # constraint over it would not agree with validation; collected up front
+    # because precedence does not follow declaration order.
+    contested = contested_names(node)
     for key, value in node.items():
         facets = resolve_key(key)
         marker = facets.marker
@@ -359,21 +365,7 @@ def _oa_mapping(
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
-        # A group marker adds an object-level constraint (all-or-none, at-most-one)
-        # on top of the property it declares, collected here and emitted below. The
-        # member is the names that satisfy it: one for a literal key, all of them
-        # for an ``Any`` over literals (still one member, any name satisfying it).
-        # A variable key names nothing renderable, so its group is not expressible.
-        member = [pkey] if isinstance(pkey, str) else literal_any_names(pkey)
-        if isinstance(marker, Inclusive) and member is not None:
-            inclusive.setdefault(marker.group_of_inclusion, []).append(member)
-        elif isinstance(marker, Exclusive) and member is not None:
-            group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
-            group.members.append(member)
-            group.required = group.required or marker.group_required
-            group.has_default = group.has_default or not isinstance(
-                marker.default, Undefined
-            )
+        _record_group_member(marker, pkey, contested, inclusive, exclusive)
 
         if isinstance(marker, Alias):
             # Each accepted name renders as a property (the value is the same), and
@@ -393,7 +385,9 @@ def _oa_mapping(
                 wildcard=value is object,
             )
             properties.update(props)
-            if any_group is not None:
+            # The properties stand either way; only the at-least-one rule needs
+            # this key to own every name it lists.
+            if any_group is not None and contested.isdisjoint(any_group):
                 constraint_groups.append(any_group)
         elif isinstance(pkey, str):
             properties[pkey] = pval
@@ -468,6 +462,35 @@ def _group_constraints(
         if constraint
     ]
     return dependent, all_of
+
+
+def _record_group_member(
+    marker: Any,
+    pkey: Any,
+    contested: frozenset[str],
+    inclusive: dict[str, list[list[str]]],
+    exclusive: dict[str, ExclusiveGroup],
+) -> None:
+    """Record a group marker's member, when its names can carry a constraint.
+
+    The member is the names that satisfy it: one for a literal key, all of them for
+    an ``Any`` over literals (still one member, any of its names satisfying it). A
+    variable key names nothing renderable, and a name another key can also match
+    belongs to whichever the engine tries first, so neither takes a constraint.
+    """
+    names = constraint_names(pkey, contested)
+    if names is None:
+        return
+
+    if isinstance(marker, Inclusive):
+        inclusive.setdefault(marker.group_of_inclusion, []).append(names)
+    elif isinstance(marker, Exclusive):
+        group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
+        group.members.append(names)
+        group.required = group.required or marker.group_required
+        group.has_default = group.has_default or not isinstance(
+            marker.default, Undefined
+        )
 
 
 def _oa_inclusive_30(members: list[list[str]]) -> dict[str, Any]:

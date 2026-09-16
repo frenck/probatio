@@ -31,6 +31,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    contested_names,
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
@@ -374,6 +375,10 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
     forbid_extra = False
+    # A name two keys can match belongs to whichever the engine tries first, so a
+    # constraint over it would not agree with validation; collected up front
+    # because precedence does not follow declaration order.
+    contested = contested_names(node)
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
         # is classified by the marker it actually carries, not just the outer wrapper.
@@ -412,6 +417,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 properties,
                 groups,
                 required_default=required_default,
+                contested=contested,
             )
             continue
 
@@ -537,6 +543,7 @@ def _emit_any_key(  # noqa: PLR0913
     groups: _Groups,
     *,
     required_default: bool,
+    contested: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -551,11 +558,18 @@ def _emit_any_key(  # noqa: PLR0913
     The engine matches a literal key ahead of any validator key, so a name a
     literal key already declares keeps that key's value schema, whatever the
     declaration order. Overwriting it would reject values the mapping accepts.
+
+    For the same reason a presence rule is only written when this key owns every
+    name it lists: where another key can match one, the engine may never let this
+    one see it, and the rule would disagree with validation in both directions.
     """
     for name in names:
         # A copy each, so a caller that edits one emitted property does not
         # silently edit the others this key expanded into.
         properties.setdefault(name, dict(decorated))
+
+    if not contested.isdisjoint(names):
+        return
 
     if isinstance(marker, Inclusive):
         groups.add_inclusive(marker, names)

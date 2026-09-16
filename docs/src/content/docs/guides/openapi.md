@@ -99,10 +99,17 @@ The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
 `from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
 
 A group member does not have to be a literal key. `Inclusive(Any("hours",
-"minutes"), "d")` is one member that either name satisfies, so the constraint is
-"this member or the rest, not part of both". `dependentRequired` cannot say "at
-least one of those", so a group holding such a member renders under `allOf` on
-both versions instead, at the cost of not decoding back to the marker.
+"minutes"), "d")` is one member that either name satisfies, and the rule is the
+usual all-or-none: that member and every other member of the group are either all
+present or all absent. `dependentRequired` cannot express it, having no way to say
+"if this name is present then at least one of those", so on 3.1 a group holding
+such a member renders under `allOf` instead, at the cost of not decoding back to
+the marker.
+
+A name is only constrained by the key that actually receives it. Where two keys
+can match the same name, the engine hands it to the literal one, or to the first
+declared when both are validators, so a constraint written over that name could
+contradict validation. Both codecs emit the properties and leave the rule out.
 
 ## Strict mode
 

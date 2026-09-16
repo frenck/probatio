@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
@@ -11,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-from probatio.markers import Extra
+from probatio.markers import Extra, resolve_key
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -101,6 +102,40 @@ def literal_any_names(key: Any) -> list[str] | None:
     # ``Any("a", "a")`` names one property, so dedupe rather than emit the same
     # property and the same ``required`` branch twice.
     return list(dict.fromkeys(key.validators))
+
+
+def contested_names(node: dict[Any, Any]) -> frozenset[str]:
+    """Names that more than one key of a mapping can match.
+
+    A name an ``Any`` key lists may in fact belong to another key: the engine
+    matches a literal key ahead of a validator one whatever the declaration order,
+    and an earlier validator key ahead of a later one. The ``Any`` then never sees
+    that name, so a constraint written over it (at-least-one, or a group
+    membership) would claim a presence the engine does not agree with, in either
+    direction. Both codecs skip such a constraint rather than emit a wrong one;
+    the properties themselves are still emitted, since every name is a valid key.
+    """
+    counts: Counter[str] = Counter()
+    for key in node:
+        name = resolve_key(key).key
+        if isinstance(name, str):
+            counts[name] += 1
+        elif (names := literal_any_names(name)) is not None:
+            counts.update(names)
+    return frozenset(name for name, count in counts.items() if count > 1)
+
+
+def constraint_names(key: Any, contested: frozenset[str]) -> list[str] | None:
+    """Return the names a key may carry an object-level constraint over, else None.
+
+    A literal key owns its name; an ``Any`` over literals owns all of them. A
+    variable key names nothing a constraint can be written about, and a key sharing
+    a name with another one (see ``contested_names``) may never be handed it.
+    """
+    names = [key] if isinstance(key, str) else literal_any_names(key)
+    if names is None or not contested.isdisjoint(names):
+        return None
+    return names
 
 
 def member_present(names: list[str]) -> dict[str, Any]:

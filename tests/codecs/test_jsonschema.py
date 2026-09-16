@@ -1120,6 +1120,57 @@ def test_a_lone_group_member_adds_no_constraint() -> None:
     assert "dependentRequired" not in result
 
 
+# A name an ``Any`` key lists can belong to another key: the engine matches a
+# literal key first whatever the order, so the ``Any`` never sees that name. A
+# presence rule written over it would disagree with validation, so none is written.
+_CONTESTED_SCHEMAS = {
+    "required_any_over_a_literal": {Required(Any("a", "b")): int, "a": int},
+    "group_over_a_literal": {
+        Inclusive(Any("a", "b"), "g"): int,
+        "a": int,
+        Inclusive("c", "g"): int,
+    },
+    "two_any_keys_sharing_a_name": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Any("b", "c"): int,
+        Inclusive("d", "g"): int,
+    },
+}
+
+
+@pytest.mark.parametrize("slots", _CONTESTED_SCHEMAS.values(), ids=_CONTESTED_SCHEMAS)
+def test_a_contested_name_never_narrows_the_document(slots: dict) -> None:
+    """The document still accepts everything the mapping accepts, constraint or not."""
+    schema = Schema(slots)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+
+    names = ["a", "b", "c", "d"]
+    for size in range(len(names) + 1):
+        for combination in itertools.combinations(names, size):
+            value = dict.fromkeys(combination, 1)
+            try:
+                schema(dict(value))
+            except Invalid:
+                continue
+            # Widening is safe and expected here; rejecting what the mapping takes
+            # is not, and is what writing the rule anyway would have caused.
+            assert validator.is_valid(value), value
+
+
+def test_a_contested_any_key_writes_no_presence_rule() -> None:
+    """A name a literal key also declares carries no at-least-one constraint."""
+    result = to_json_schema(Schema(_CONTESTED_SCHEMAS["required_any_over_a_literal"]))
+    assert "allOf" not in result
+    assert sorted(result["properties"]) == ["a", "b"]
+
+
+def test_a_contested_group_member_writes_no_group_rule() -> None:
+    """A group member sharing a name with another key adds no object-level rule."""
+    result = to_json_schema(Schema(_CONTESTED_SCHEMAS["group_over_a_literal"]))
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
 def test_union_becomes_any_of() -> None:
     """Union accepts any branch, so it exports anyOf like Any."""
     from probatio.validators import Union  # noqa: PLC0415

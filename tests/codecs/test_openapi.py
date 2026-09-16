@@ -713,6 +713,44 @@ def test_group_keyed_on_an_any_keeps_its_constraint_per_version() -> None:
     ]
 
 
+def test_a_contested_name_writes_no_constraint() -> None:
+    """A name another key can also match carries no presence or group rule."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Inclusive, Required  # noqa: PLC0415
+
+    at_least_one = to_openapi(Schema({Required(AnyKey("a", "b")): int, "a": int}))
+    assert "anyOf" not in at_least_one
+    assert sorted(at_least_one["properties"]) == ["a", "b"]
+
+    grouped = to_openapi(
+        Schema(
+            {
+                Inclusive(AnyKey("a", "b"), "g"): int,
+                "a": int,
+                Inclusive("c", "g"): int,
+            }
+        ),
+        openapi_version="3.1.0",
+    )
+    assert "allOf" not in grouped
+    assert "dependentRequired" not in grouped
+
+
+def test_exclusive_group_keyed_on_an_any_renders_at_most_one() -> None:
+    """An Exclusive group keyed on an Any excludes the other members on both versions."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Exclusive  # noqa: PLC0415
+
+    schema = Schema({Exclusive(AnyKey("a", "b"), "e"): int, Exclusive("c", "e"): int})
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+    at_most_one = [
+        {"not": {"anyOf": [{"allOf": [either, {"required": ["c"]}]}]}},
+    ]
+
+    assert to_openapi(schema, openapi_version="3.0")["allOf"] == at_most_one
+    assert to_openapi(schema, openapi_version="3.1.0")["allOf"] == at_most_one
+
+
 def test_an_any_key_holding_a_validator_is_a_variable_key() -> None:
     """Only an Any of literal names expands; a mixed one is a variable key.
 
