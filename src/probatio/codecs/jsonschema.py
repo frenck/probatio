@@ -32,10 +32,10 @@ from probatio.codecs._shared import (
     UNSUPPORTED,
     ExclusiveGroup,
     abandoned_group_names,
-    contested_names,
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
+    key_claims,
     literal_any_names,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -373,14 +373,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     required: list[Any] = []
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
-    variable_values: list[dict[str, Any]] = []
-    # ...and their *key* validators, which become ``propertyNames``: the mirror of
-    # the constraint ``from_json_schema`` reads back out of that keyword.
-    variable_keys: list[dict[str, Any]] = []
-    # The raw keys as well. A rendered key schema cannot answer "does this cover
-    # every property name": an unrepresentable callable renders ``{}`` exactly as
-    # ``object`` does, and the two want opposite answers.
-    variable_key_names: list[Any] = []
+    variable = _VariableKeys()
     # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
@@ -388,7 +381,8 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # A name two keys can match belongs to whichever the engine tries first, so a
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
-    contested = contested_names(node)
+    claims = key_claims(node)
+    contested = claims.contested
     groups = _Groups(abandoned_group_names(node, contested))
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
@@ -429,15 +423,16 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 groups,
                 required_default=required_default,
                 contested=contested,
+                swallowed=claims.swallowed,
             )
             continue
 
         if isinstance(name, type) or callable(name):
-            # A type/callable key is a variable key. ``Remove`` still validates a
-            # present value before dropping it, so its value schema still applies
-            # to the keys it matches, the same as a plain variable key.
-            _record_variable_key(
-                name, value_schema, variable_values, variable_keys, variable_key_names
+            # ``Remove`` still validates a present value before dropping it, so
+            # its value schema still applies to the keys it matches, the same as a
+            # plain variable key.
+            variable.record(
+                name, value_schema, marker, required_default=required_default
             )
             continue
 
@@ -475,7 +470,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
         False
         if forbid_extra
         else _additional_properties(
-            variable_values, variable_key_names, allow_extra=allow_extra
+            variable.values, variable.raw, allow_extra=allow_extra
         )
     )
     result: dict[str, Any] = {
@@ -492,8 +487,8 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # a key schema could add and nothing to report dropping.
     property_names = (
         None
-        if any(map(covers_every_property_name, variable_key_names))
-        else _property_names(variable_keys)
+        if any(map(covers_every_property_name, variable.raw))
+        else _property_names(variable.rendered)
     )
     if property_names is not None and (properties or allow_extra):
         # Dropping it widens, so strict mode refuses: ``_open`` raises there. Its
@@ -555,6 +550,7 @@ def _emit_any_key(  # noqa: PLR0913
     *,
     required_default: bool,
     contested: frozenset[str],
+    swallowed: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -573,11 +569,17 @@ def _emit_any_key(  # noqa: PLR0913
     For the same reason a presence rule is only written when this key owns every
     name it lists: where another key can match one, the engine may never let this
     one see it, and the rule would disagree with validation in both directions.
+
+    A name a *variable* key may take gets no property here at all. The value under
+    it is validated by that key, whose schema is already the object's
+    ``additionalProperties``, so leaving the name out lets the document say what
+    the engine does; describing it with this key's value schema would reject values
+    the mapping accepts.
     """
     for name in names:
         # A copy each, so a caller that edits one emitted property does not
         # silently edit the others this key expanded into.
-        properties.setdefault(name, dict(decorated))
+        properties.setdefault(name, {} if name in swallowed else dict(decorated))
 
     grouped = isinstance(marker, Inclusive | Exclusive)
     demands_one = not isinstance(marker, Remove) and _is_required(
@@ -656,24 +658,47 @@ def _additional_properties(
     return {"anyOf": variable_values}
 
 
-def _record_variable_key(
-    name: Any,
-    value_schema: dict[str, Any],
-    values: list[dict[str, Any]],
-    keys: list[dict[str, Any]],
-    names: list[Any],
-) -> None:
-    """Record one variable key: its value schema, the key itself, its rendering.
+@dataclass
+class _VariableKeys:
+    """The keys of a mapping that match by shape rather than by name."""
 
-    A universal key is deliberately left unrendered. It constrains nothing, so
-    the mapping can emit no ``propertyNames`` at all, and asking for a rendering
-    would report a widening that is not happening: ``Extra`` has no leaf form, so
-    strict mode refused a mapping that renders exactly, as ``additionalProperties``.
-    """
-    values.append(value_schema)
-    names.append(name)
-    if not covers_every_property_name(name):
-        keys.append(_child(name))
+    # Their value schemas, which merge into one ``additionalProperties``.
+    values: list[dict[str, Any]] = field(default_factory=list)
+    # Their rendered key schemas, which become ``propertyNames``.
+    rendered: list[dict[str, Any]] = field(default_factory=list)
+    # ...and the raw keys. A rendered key schema cannot answer "does this cover
+    # every property name": an unrepresentable callable renders ``{}`` exactly as
+    # ``object`` does, and the two want opposite answers.
+    raw: list[Any] = field(default_factory=list)
+
+    def record(
+        self,
+        name: Any,
+        value_schema: dict[str, Any],
+        marker: Marker | None,
+        *,
+        required_default: bool,
+    ) -> None:
+        """Record one variable key: its value schema, the key itself, its rendering.
+
+        A universal key is deliberately left unrendered. It constrains nothing, so
+        the mapping can emit no ``propertyNames`` at all, and asking for a rendering
+        would report a widening that is not happening: ``Extra`` has no leaf form, so
+        strict mode refused a mapping that renders exactly, as ``additionalProperties``.
+
+        A key of this kind cannot be demanded, either: no keyword says "some
+        property matching this must exist", so a required one renders as a document
+        that accepts its absence, which strict mode refuses.
+        """
+        if not isinstance(marker, Remove) and _is_required(
+            marker, required_default=required_default
+        ):
+            _open("a required key matched by shape rather than by name")
+
+        self.values.append(value_schema)
+        self.raw.append(name)
+        if not covers_every_property_name(name):
+            self.rendered.append(_child(name))
 
 
 # Key schemas that constrain nothing. Every JSON object key is a string, so

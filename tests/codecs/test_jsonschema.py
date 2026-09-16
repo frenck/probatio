@@ -1217,6 +1217,54 @@ def test_a_group_losing_a_member_renders_nothing(slots: dict, reason: str) -> No
     assert "dependentRequired" not in result
 
 
+@pytest.mark.parametrize(
+    "slots",
+    [
+        {Required(Any("a", str)): int},
+        {Required(str): int},
+    ],
+    ids=["mixed_any", "type_key"],
+)
+def test_strict_reports_a_required_key_matched_by_shape(slots: dict) -> None:
+    """No keyword says "some property matching this exists", so absence is accepted."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    # The mapping rejects the empty object; the document cannot say so.
+    with pytest.raises(Invalid):
+        Schema(slots)({})
+    assert jsonschema.Draft202012Validator(to_json_schema(Schema(slots))).is_valid({})
+
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_json_schema(Schema(slots), strict=True)
+
+
+def test_a_required_key_with_a_default_reports_nothing() -> None:
+    """A default fills the key in, so its absence is no widening to report."""
+    assert to_json_schema(Schema({Required(str, default=1): int}), strict=True)
+
+
+def test_a_variable_key_widens_the_property_it_may_take() -> None:
+    """A name a variable key may receive is described by neither key alone."""
+    schema = Schema({str: str, Any("a", "b"): int})
+    result = to_json_schema(schema)
+
+    # Open, not the Any key's integer schema: the engine may hand "a" to the
+    # ``str`` key, whose values are strings.
+    assert result["properties"] == {"a": {}, "b": {}}
+    validator = jsonschema.Draft202012Validator(result)
+    assert schema({"a": "x"}) == {"a": "x"}
+    assert validator.is_valid({"a": "x"})
+
+
+def test_a_key_that_cannot_match_a_name_widens_nothing() -> None:
+    """An int key matches integer keys, never a JSON property name."""
+    result = to_json_schema(Schema({int: str, Any("a", "b"): int}))
+    assert result["properties"] == {
+        "a": {"type": "integer"},
+        "b": {"type": "integer"},
+    }
+
+
 def test_an_empty_group_name_is_still_a_group() -> None:
     """An empty string names a group like any other, so a lost member abandons it."""
     result = to_json_schema(

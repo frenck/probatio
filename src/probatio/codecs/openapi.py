@@ -29,10 +29,10 @@ from probatio.codecs._shared import (
     ExclusiveGroup,
     abandoned_group_names,
     constraint_names,
-    contested_names,
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
+    key_claims,
     literal_any_names,
     member_present,
 )
@@ -342,7 +342,8 @@ def _oa_mapping(
     # A name two keys can match belongs to whichever the engine tries first, so a
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
-    contested = contested_names(node)
+    claims = key_claims(node)
+    contested = claims.contested
     # A group with an unrenderable member is not rendered at all: the rest would
     # say something the mapping does not.
     abandoned = abandoned_group_names(node, contested)
@@ -387,6 +388,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
+                swallowed=claims.swallowed,
                 required=isinstance(marker, Required),
                 wildcard=value is object,
             )
@@ -401,6 +403,11 @@ def _oa_mapping(
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
+            if isinstance(marker, Required) and isinstance(marker.default, Undefined):
+                # The mapping demands a key of this shape, and no keyword says
+                # "some property matching this must exist", so the document
+                # accepts its absence. Strict mode refuses the silent widening.
+                _open("a required key matched by shape rather than by name")
             variable_keys.append(pkey)
             variable_values.append(pval)
 
@@ -546,12 +553,24 @@ def _expand_any_key(
     *,
     required: bool,
     wildcard: bool,
+    swallowed: frozenset[str],
 ) -> tuple[dict[str, Any], list[str] | None]:
-    """Expand an ``Any`` key's names into (properties to add, constraint group)."""
+    """Expand an ``Any`` key's names into (properties to add, constraint group).
+
+    A name a variable key may take is described by neither key's schema but by
+    whichever the engine hands it to, which is declaration order. The property is
+    emitted open rather than with this key's schema, so the document accepts what
+    either would; leaving it out instead would defer to ``additionalProperties``,
+    which can be narrower than both.
+    """
+
+    def described(name: str) -> dict[str, Any]:
+        return {} if name in swallowed else pval.copy()
+
     if required:
-        props = {} if wildcard else {name: pval.copy() for name in names}
+        props = {} if wildcard else {name: described(name) for name in names}
         return props, names
-    return {name: pval.copy() for name in names}, None
+    return {name: described(name) for name in names}, None
 
 
 def _absorb_extra(

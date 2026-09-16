@@ -104,8 +104,36 @@ def literal_any_names(key: Any) -> list[str] | None:
     return list(dict.fromkeys(key.validators))
 
 
-def contested_names(node: dict[Any, Any]) -> frozenset[str]:
-    """Names an ``Any`` key of a mapping cannot be assumed to receive.
+@dataclass(frozen=True)
+class KeyClaims:
+    """What an ``Any`` key of a mapping cannot be assumed to receive.
+
+    ``contested`` is every name it may not be handed, so no object-level rule may
+    be written over it. ``swallowed`` is the subset a variable key may take, which
+    is narrower and worse: the value under such a name is validated by that key's
+    schema, not the ``Any`` key's, so emitting the property at all would describe
+    the wrong values. ``swallowed`` is always a subset of ``contested``.
+    """
+
+    contested: frozenset[str]
+    swallowed: frozenset[str]
+
+
+def _matches_a_property_name(key: Any) -> bool:
+    """Whether a key matching by shape could take a JSON property name.
+
+    Property names are strings, so a type key only competes when a ``str`` would
+    satisfy it (``{str: ...}`` and ``{object: ...}`` do, ``{int: ...}`` does not,
+    and a non-string literal such as ``{1: ...}`` is not a shape at all). Any other
+    callable is opaque, so it is assumed to compete.
+    """
+    if isinstance(key, type):
+        return issubclass(str, key)
+    return callable(key)
+
+
+def key_claims(node: dict[Any, Any]) -> KeyClaims:
+    """Report the names an ``Any`` key of a mapping cannot be assumed to receive.
 
     A presence rule is only honest when the key it is written for is the one the
     engine actually hands the name to, and several things can take it first: a
@@ -144,15 +172,12 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
             counts.update(names)
             listed_by_any.extend(names)
             continue
-        if name is not Extra and (isinstance(name, type) or callable(name)):
-            # Only a key matching by shape can take a name it does not spell. A
-            # non-string literal (``{1: ...}``) matches no JSON property name.
+        if name is not Extra and _matches_a_property_name(name):
             variable_key = True
 
     contested = {name for name, count in counts.items() if count > 1}
-    if variable_key:
-        contested.update(listed_by_any)
-    return frozenset(contested)
+    swallowed = frozenset(listed_by_any) if variable_key else frozenset()
+    return KeyClaims(frozenset(contested | swallowed), swallowed)
 
 
 def constraint_names(key: Any) -> list[str] | None:
@@ -161,7 +186,7 @@ def constraint_names(key: Any) -> list[str] | None:
     A literal key claims its name and an ``Any`` over literals claims all of them.
     A variable key matches by shape rather than by name, so there is nothing for an
     object-level constraint to be written about. Whether those names are safely
-    *owned* is a separate question (see ``contested_names``).
+    *owned* is a separate question (see ``key_claims``).
     """
     return [key] if isinstance(key, str) else literal_any_names(key)
 
@@ -178,7 +203,7 @@ def abandoned_group_names(
     One unrenderable member therefore abandons the whole group.
 
     A member is unrenderable when it matches by shape rather than by name, or when
-    a name it lists is contested (see ``contested_names``). Inclusive and exclusive
+    a name it lists is contested (see ``key_claims``). Inclusive and exclusive
     group names share one namespace here; using one string for both kinds would
     abandon both, which drops a rule rather than emitting a wrong one.
     """

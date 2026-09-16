@@ -756,6 +756,32 @@ def test_a_variable_key_contests_every_name_an_any_lists() -> None:
     assert "dependentRequired" not in result
 
 
+def test_strict_reports_a_required_key_matched_by_shape() -> None:
+    """A required key with no name to emit accepts absence, which strict refuses."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    for slots in ({Required(AnyKey("a", str)): int}, {Required(str): int}):
+        assert to_openapi(Schema(slots)) is not None
+        with pytest.raises(SchemaError, match="matched by shape"):
+            to_openapi(Schema(slots), strict=True)
+
+
+def test_a_variable_key_widens_the_property_it_may_take() -> None:
+    """A name a variable key may receive is described by neither key alone."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+
+    result = to_openapi(Schema({str: str, AnyKey("a", "b"): int}))
+    assert result["properties"] == {"a": {}, "b": {}}
+
+    precise = to_openapi(Schema({int: str, AnyKey("a", "b"): int}))
+    assert precise["properties"] == {
+        "a": {"type": "integer"},
+        "b": {"type": "integer"},
+    }
+
+
 def test_a_group_losing_a_member_renders_nothing() -> None:
     """A group is all its members or none, so one it cannot write drops the rule."""
     from probatio import Any as AnyKey  # noqa: PLC0415
