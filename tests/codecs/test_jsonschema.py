@@ -1179,6 +1179,65 @@ def test_a_contested_any_key_writes_no_presence_rule() -> None:
     assert sorted(result["properties"]) == ["a", "b"]
 
 
+@pytest.mark.parametrize(
+    ("slots", "reason"),
+    [
+        (
+            {
+                Exclusive(Any("a", "b"), "g"): int,
+                "a": int,
+                Exclusive("c", "g", required=True): int,
+            },
+            "contested",
+        ),
+        (
+            {Exclusive(str, "g"): int, Exclusive("c", "g", required=True): int},
+            "variable",
+        ),
+        (
+            {
+                Inclusive(Any("a", "b"), "g"): int,
+                "a": int,
+                Inclusive("c", "g"): int,
+                Inclusive("d", "g"): int,
+            },
+            "inclusive",
+        ),
+    ],
+    ids=["contested_exclusive", "variable_exclusive", "contested_inclusive"],
+)
+def test_a_group_losing_a_member_renders_nothing(slots: dict, reason: str) -> None:
+    """A group is all its members or none, so one it cannot write drops the rule."""
+    assert reason  # the id carries why the member is unrenderable
+    result = to_json_schema(Schema(slots))
+
+    # Rendering the remaining members would demand one of them, rejecting input
+    # the mapping accepts through the member that could not be written.
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
+def test_a_non_string_literal_key_contests_nothing() -> None:
+    """An int key matches no JSON property name, so it takes none from an Any."""
+    result = to_json_schema(Schema({Required(Any("a", "b")): int, 1: int}))
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+def test_an_alias_contests_its_canonical_name() -> None:
+    """A strict Alias still takes its canonical name, then refuses it."""
+    result = to_json_schema(
+        Schema(
+            {
+                Required(Any("a", "z")): int,
+                Alias("z", "b", accept_canonical=False): int,
+            }
+        )
+    )
+    assert "allOf" not in result
+
+
 def test_extra_never_contests_a_name() -> None:
     """Extra catches only what nothing else matched, so it takes no name first."""
     result = to_json_schema(Schema({Required(Any("a", "b")): int, Extra: object}))

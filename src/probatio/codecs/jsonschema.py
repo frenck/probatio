@@ -31,6 +31,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    abandoned_group_names,
     contested_names,
     covers_every_property_name,
     exclusive_constraint,
@@ -269,8 +270,11 @@ def _child(node: Any) -> dict[str, Any]:
 class _Groups:
     """Accumulates the group-marker memberships found while walking a mapping."""
 
-    def __init__(self) -> None:
-        """Start with no groups recorded."""
+    def __init__(self, abandoned: frozenset[str] = frozenset()) -> None:
+        """Start with no groups recorded, ignoring the ones already abandoned."""
+        # A group with an unrenderable member is not rendered at all; see
+        # ``abandoned_group_names``.
+        self.abandoned = abandoned
         self.required_any: list[list[str]] = []
         # Each group holds one entry per member: the names that satisfy it.
         self.inclusive: dict[str, list[list[str]]] = {}
@@ -290,16 +294,23 @@ class _Groups:
         if marker.required and isinstance(marker.default, Undefined):
             self.add_required_any(list(marker.input_names))
 
+    def _keeps(self, group: str) -> bool:
+        """Whether a group still renders, or lost a member and so renders not at all."""
+        return group not in self.abandoned
+
     def add_inclusive(self, marker: Inclusive, names: list[str]) -> None:
         """Record an ``Inclusive`` member (all-or-none within its group).
 
         ``names`` is what satisfies the member: one name for a literal key, several
         for a key schema over literals, any of which counts as the member.
         """
-        self.inclusive.setdefault(marker.group_of_inclusion, []).append(names)
+        if self._keeps(marker.group_of_inclusion):
+            self.inclusive.setdefault(marker.group_of_inclusion, []).append(names)
 
     def add_exclusive(self, marker: Exclusive, names: list[str]) -> None:
         """Record an ``Exclusive`` member (at most one present within its group)."""
+        if not self._keeps(marker.group_of_exclusion):
+            return
         group = self.exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
         group.members.append(names)
         group.required = group.required or marker.group_required
@@ -360,7 +371,6 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     """
     properties: dict[Any, Any] = {}
     required: list[Any] = []
-    groups = _Groups()
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
     variable_values: list[dict[str, Any]] = []
@@ -379,6 +389,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
     contested = contested_names(node)
+    groups = _Groups(abandoned_group_names(node, contested))
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
         # is classified by the marker it actually carries, not just the outer wrapper.

@@ -756,6 +756,39 @@ def test_a_variable_key_contests_every_name_an_any_lists() -> None:
     assert "dependentRequired" not in result
 
 
+def test_a_group_losing_a_member_renders_nothing() -> None:
+    """A group is all its members or none, so one it cannot write drops the rule."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Exclusive, Inclusive  # noqa: PLC0415
+
+    # Rendering only the remaining members would demand one of them, rejecting
+    # input the mapping accepts through the member that could not be written.
+    required_exclusive = to_openapi(
+        Schema(
+            {
+                Exclusive(AnyKey("a", "b"), "g"): int,
+                "a": int,
+                Exclusive("c", "g", required=True): int,
+            }
+        )
+    )
+    assert "allOf" not in required_exclusive
+
+    grouped = to_openapi(
+        Schema(
+            {
+                Inclusive(AnyKey("a", "b"), "g"): int,
+                "a": int,
+                Inclusive("c", "g"): int,
+                Inclusive("d", "g"): int,
+            }
+        ),
+        openapi_version="3.1.0",
+    )
+    assert "allOf" not in grouped
+    assert "dependentRequired" not in grouped
+
+
 def test_a_variable_key_as_a_group_member_renders_no_rule() -> None:
     """A member matching by shape has no names for an object-level rule."""
     from probatio import Inclusive  # noqa: PLC0415

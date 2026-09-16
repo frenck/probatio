@@ -27,6 +27,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    abandoned_group_names,
     constraint_names,
     contested_names,
     covers_every_property_name,
@@ -342,6 +343,9 @@ def _oa_mapping(
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
     contested = contested_names(node)
+    # A group with an unrenderable member is not rendered at all: the rest would
+    # say something the mapping does not.
+    abandoned = abandoned_group_names(node, contested)
     for key, value in node.items():
         facets = resolve_key(key)
         marker = facets.marker
@@ -365,7 +369,9 @@ def _oa_mapping(
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
-        _record_group_member(marker, pkey, contested, inclusive, exclusive)
+        _record_group_member(
+            marker, pkey, _GroupState(contested, abandoned, inclusive, exclusive)
+        )
 
         if isinstance(marker, Alias):
             # Each accepted name renders as a property (the value is the same), and
@@ -467,13 +473,17 @@ def _group_constraints(
     return dependent, all_of
 
 
-def _record_group_member(
-    marker: Any,
-    pkey: Any,
-    contested: frozenset[str],
-    inclusive: dict[str, list[list[str]]],
-    exclusive: dict[str, ExclusiveGroup],
-) -> None:
+@dataclass
+class _GroupState:
+    """The group accumulators for one mapping, and what may not be rendered."""
+
+    contested: frozenset[str]
+    abandoned: frozenset[str]
+    inclusive: dict[str, list[list[str]]]
+    exclusive: dict[str, ExclusiveGroup]
+
+
+def _record_group_member(marker: Any, pkey: Any, state: _GroupState) -> None:
     """Record a group marker's member, when its names can carry a constraint.
 
     The member is the names that satisfy it: one for a literal key, all of them for
@@ -488,16 +498,20 @@ def _record_group_member(
     if names is None:
         # A variable key matches by shape, so its group was never expressible.
         return
-    if not contested.isdisjoint(names):
+    if not state.contested.isdisjoint(names):
         # Dropping the rule widens the document, which is what strict mode exists
         # to refuse; otherwise it is the best-effort default.
         _open("a group rule for a name another key can also match")
         return
 
     if isinstance(marker, Inclusive):
-        inclusive.setdefault(marker.group_of_inclusion, []).append(names)
+        if marker.group_of_inclusion in state.abandoned:
+            return
+        state.inclusive.setdefault(marker.group_of_inclusion, []).append(names)
     else:
-        group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
+        if marker.group_of_exclusion in state.abandoned:
+            return
+        group = state.exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
         group.members.append(names)
         group.required = group.required or marker.group_required
         group.has_default = group.has_default or not isinstance(

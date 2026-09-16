@@ -127,7 +127,15 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
         facets = resolve_key(key)
         name = facets.key
         if isinstance(facets.marker, Alias):
-            counts.update(facets.marker.input_names)
+            # The canonical name is claimed even when it is not accepted: the key
+            # takes the value under it and then rejects it, so nothing else sees it.
+            counts.update(
+                {
+                    claimed
+                    for claimed in (*facets.marker.input_names, name)
+                    if isinstance(claimed, str)
+                }
+            )
             continue
         if isinstance(name, str):
             counts[name] += 1
@@ -136,7 +144,9 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
             counts.update(names)
             listed_by_any.extend(names)
             continue
-        if name is not Extra:
+        if name is not Extra and (isinstance(name, type) or callable(name)):
+            # Only a key matching by shape can take a name it does not spell. A
+            # non-string literal (``{1: ...}``) matches no JSON property name.
             variable_key = True
 
     contested = {name for name, count in counts.items() if count > 1}
@@ -154,6 +164,36 @@ def constraint_names(key: Any) -> list[str] | None:
     *owned* is a separate question (see ``contested_names``).
     """
     return [key] if isinstance(key, str) else literal_any_names(key)
+
+
+def abandoned_group_names(
+    node: dict[Any, Any], contested: frozenset[str]
+) -> frozenset[str]:
+    """Group names holding a member whose presence cannot be written down.
+
+    A group means all of its members or none of them, so rendering the rest
+    without one says something different: an ``Inclusive`` group would tie
+    together fewer keys than it governs, and a required ``Exclusive`` group would
+    demand one of the members that remain, rejecting input the mapping accepts.
+    One unrenderable member therefore abandons the whole group.
+
+    A member is unrenderable when it matches by shape rather than by name, or when
+    a name it lists is contested (see ``contested_names``). Inclusive and exclusive
+    group names share one namespace here; using one string for both kinds would
+    abandon both, which drops a rule rather than emitting a wrong one.
+    """
+    abandoned: set[str] = set()
+    for key in node:
+        facets = resolve_key(key)
+        group = getattr(facets.marker, "group_of_inclusion", None) or getattr(
+            facets.marker, "group_of_exclusion", None
+        )
+        if group is None:
+            continue
+        names = constraint_names(facets.key)
+        if names is None or not contested.isdisjoint(names):
+            abandoned.add(group)
+    return frozenset(abandoned)
 
 
 def member_present(names: list[str]) -> dict[str, Any]:
