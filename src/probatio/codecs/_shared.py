@@ -185,10 +185,13 @@ def abandoned_group_names(
     abandoned: set[str] = set()
     for key in node:
         facets = resolve_key(key)
-        group = getattr(facets.marker, "group_of_inclusion", None) or getattr(
-            facets.marker, "group_of_exclusion", None
-        )
-        if group is None:
+        # Read the attribute rather than test its value: "" is a legal group name
+        # and a falsy one would otherwise fall through as no group at all.
+        for attribute in ("group_of_inclusion", "group_of_exclusion"):
+            if hasattr(facets.marker, attribute):
+                group = getattr(facets.marker, attribute)
+                break
+        else:
             continue
         names = constraint_names(facets.key)
         if names is None or not contested.isdisjoint(names):

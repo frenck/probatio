@@ -1217,6 +1217,22 @@ def test_a_group_losing_a_member_renders_nothing(slots: dict, reason: str) -> No
     assert "dependentRequired" not in result
 
 
+def test_an_empty_group_name_is_still_a_group() -> None:
+    """An empty string names a group like any other, so a lost member abandons it."""
+    result = to_json_schema(
+        Schema(
+            {
+                Inclusive(Any("a", "b"), ""): int,
+                "a": int,
+                Inclusive("c", ""): int,
+                Inclusive("d", ""): int,
+            }
+        )
+    )
+    assert "dependentRequired" not in result
+    assert "allOf" not in result
+
+
 def test_a_non_string_literal_key_contests_nothing() -> None:
     """An int key matches no JSON property name, so it takes none from an Any."""
     result = to_json_schema(Schema({Required(Any("a", "b")): int, 1: int}))
