@@ -106,10 +106,15 @@ present or all absent. `dependentRequired` cannot express it, having no way to s
 such a member renders under `allOf` instead, at the cost of not decoding back to
 the marker.
 
-A name is only constrained by the key that actually receives it. Where two keys
-can match the same name, the engine hands it to the literal one, or to the first
-declared when both are validators, so a constraint written over that name could
-contradict validation. Both codecs emit the properties and leave the rule out.
+A rule is only written for a key that certainly receives the names it lists.
+Several things can take a name first: a literal key, an `Alias` under any of its
+accepted names, another `Any` listing the same one, or a variable key such as
+`{str: ...}`, which matches anything. Rather than model that precedence, the
+codecs leave the rule out whenever a name is not provably theirs, so the document
+stays a superset of what Probatio validates rather than contradicting it. The
+properties are emitted either way, and `Extra` never competes, being the catch-all
+for names nothing else matched. Under `strict=True` the dropped rule raises
+instead, like any other widening.
 
 ## Strict mode
 

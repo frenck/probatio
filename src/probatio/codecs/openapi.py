@@ -387,8 +387,11 @@ def _oa_mapping(
             properties.update(props)
             # The properties stand either way; only the at-least-one rule needs
             # this key to own every name it lists.
-            if any_group is not None and contested.isdisjoint(any_group):
-                constraint_groups.append(any_group)
+            if any_group is not None:
+                if contested.isdisjoint(any_group):
+                    constraint_groups.append(any_group)
+                else:
+                    _open("a presence rule for a name another key can also match")
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
@@ -478,13 +481,22 @@ def _record_group_member(
     variable key names nothing renderable, and a name another key can also match
     belongs to whichever the engine tries first, so neither takes a constraint.
     """
-    names = constraint_names(pkey, contested)
+    if not isinstance(marker, Inclusive | Exclusive):
+        return
+
+    names = constraint_names(pkey)
     if names is None:
+        # A variable key matches by shape, so its group was never expressible.
+        return
+    if not contested.isdisjoint(names):
+        # Dropping the rule widens the document, which is what strict mode exists
+        # to refuse; otherwise it is the best-effort default.
+        _open("a group rule for a name another key can also match")
         return
 
     if isinstance(marker, Inclusive):
         inclusive.setdefault(marker.group_of_inclusion, []).append(names)
-    elif isinstance(marker, Exclusive):
+    else:
         group = exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
         group.members.append(names)
         group.required = group.required or marker.group_required

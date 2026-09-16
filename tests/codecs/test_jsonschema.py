@@ -14,6 +14,7 @@ from probatio import (
     ASCII,
     REMOVE_EXTRA,
     UUID,
+    Alias,
     All,
     Alpha,
     Any,
@@ -1135,6 +1136,20 @@ _CONTESTED_SCHEMAS = {
         Any("b", "c"): int,
         Inclusive("d", "g"): int,
     },
+    # A variable key matches by shape, so it can take any name; whether it gets
+    # there first is declaration order, which the codec does not model.
+    "a_variable_key_first": {
+        str: int,
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+    },
+    "a_variable_key_last": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+        str: int,
+    },
+    # An Alias accepts its value under any of its names, one of which is "b".
+    "an_alias_sharing_a_name": {Required(Any("a", "b")): int, Alias("z", "b"): int},
 }
 
 
@@ -1162,6 +1177,32 @@ def test_a_contested_any_key_writes_no_presence_rule() -> None:
     result = to_json_schema(Schema(_CONTESTED_SCHEMAS["required_any_over_a_literal"]))
     assert "allOf" not in result
     assert sorted(result["properties"]) == ["a", "b"]
+
+
+def test_extra_never_contests_a_name() -> None:
+    """Extra catches only what nothing else matched, so it takes no name first."""
+    result = to_json_schema(Schema({Required(Any("a", "b")): int, Extra: object}))
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+@pytest.mark.parametrize(
+    "slots",
+    [
+        _CONTESTED_SCHEMAS["required_any_over_a_literal"],
+        _CONTESTED_SCHEMAS["group_over_a_literal"],
+        _CONTESTED_SCHEMAS["a_variable_key_first"],
+    ],
+    ids=["required", "grouped", "variable_key"],
+)
+def test_strict_refuses_to_drop_a_contested_rule(slots: dict) -> None:
+    """Dropping the rule widens the document, which strict mode exists to refuse."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    assert to_json_schema(Schema(slots)) is not None
+    with pytest.raises(SchemaError, match="another key can also match"):
+        to_json_schema(Schema(slots), strict=True)
 
 
 def test_a_contested_group_member_writes_no_group_rule() -> None:

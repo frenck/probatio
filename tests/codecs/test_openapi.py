@@ -736,6 +736,56 @@ def test_a_contested_name_writes_no_constraint() -> None:
     assert "dependentRequired" not in grouped
 
 
+def test_a_variable_key_contests_every_name_an_any_lists() -> None:
+    """A key matching by shape can take any name, so no presence rule is written."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Inclusive  # noqa: PLC0415
+
+    result = to_openapi(
+        Schema(
+            {
+                str: int,
+                Inclusive(AnyKey("a", "b"), "g"): int,
+                Inclusive("c", "g"): int,
+            }
+        ),
+        openapi_version="3.1.0",
+    )
+
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
+def test_a_variable_key_as_a_group_member_renders_no_rule() -> None:
+    """A member matching by shape has no names for an object-level rule."""
+    from probatio import Inclusive  # noqa: PLC0415
+
+    result = to_openapi(
+        Schema({Inclusive(str, "g"): int, Inclusive("c", "g"): int}),
+        openapi_version="3.1.0",
+    )
+
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
+def test_strict_refuses_to_drop_a_contested_rule() -> None:
+    """Dropping the rule widens the document, which strict mode exists to refuse."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Inclusive, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    required = Schema({Required(AnyKey("a", "b")): int, "a": int})
+    with pytest.raises(SchemaError, match="another key can also match"):
+        to_openapi(required, strict=True)
+
+    grouped = Schema(
+        {Inclusive(AnyKey("a", "b"), "g"): int, "a": int, Inclusive("c", "g"): int}
+    )
+    with pytest.raises(SchemaError, match="another key can also match"):
+        to_openapi(grouped, strict=True)
+
+
 def test_exclusive_group_keyed_on_an_any_renders_at_most_one() -> None:
     """An Exclusive group keyed on an Any excludes the other members on both versions."""
     from probatio import Any as AnyKey  # noqa: PLC0415

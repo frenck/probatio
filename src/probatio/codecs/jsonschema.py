@@ -568,7 +568,14 @@ def _emit_any_key(  # noqa: PLR0913
         # silently edit the others this key expanded into.
         properties.setdefault(name, dict(decorated))
 
-    if not contested.isdisjoint(names):
+    grouped = isinstance(marker, Inclusive | Exclusive)
+    demands_one = not isinstance(marker, Remove) and _is_required(
+        marker, required_default=required_default
+    )
+    if (grouped or demands_one) and not contested.isdisjoint(names):
+        # Dropping the rule widens the document, which is what strict mode exists
+        # to refuse; otherwise it is the best-effort default.
+        _open("a presence rule for a name another key can also match")
         return
 
     if isinstance(marker, Inclusive):
@@ -578,9 +585,7 @@ def _emit_any_key(  # noqa: PLR0913
         groups.add_exclusive(marker, names)
         return
 
-    if not isinstance(marker, Remove) and _is_required(
-        marker, required_default=required_default
-    ):
+    if demands_one:
         groups.add_required_any(names)
 
 

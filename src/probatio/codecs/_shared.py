@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-from probatio.markers import Extra, resolve_key
+from probatio.markers import Alias, Extra, resolve_key
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -105,37 +105,55 @@ def literal_any_names(key: Any) -> list[str] | None:
 
 
 def contested_names(node: dict[Any, Any]) -> frozenset[str]:
-    """Names that more than one key of a mapping can match.
+    """Names an ``Any`` key of a mapping cannot be assumed to receive.
 
-    A name an ``Any`` key lists may in fact belong to another key: the engine
-    matches a literal key ahead of a validator one whatever the declaration order,
-    and an earlier validator key ahead of a later one. The ``Any`` then never sees
-    that name, so a constraint written over it (at-least-one, or a group
-    membership) would claim a presence the engine does not agree with, in either
-    direction. Both codecs skip such a constraint rather than emit a wrong one;
-    the properties themselves are still emitted, since every name is a valid key.
+    A presence rule is only honest when the key it is written for is the one the
+    engine actually hands the name to, and several things can take it first: a
+    literal key (which wins whatever the declaration order), an ``Alias`` under any
+    of its accepted names, another ``Any`` listing the same name, and a variable
+    key (``{str: ...}``), which matches anything and wins when it is declared
+    first. Whether a variable key gets there first is declaration order, so rather
+    than model the engine's precedence this reports every name it cannot prove is
+    safely owned; the codecs then leave the rule out. ``Extra`` is excluded: it is
+    the catch-all for names nothing else matched, so it never takes one first.
+
+    The properties are unaffected and always emitted. Only the object-level rule,
+    which would otherwise contradict validation in either direction, is dropped.
     """
     counts: Counter[str] = Counter()
+    listed_by_any: list[str] = []
+    variable_key = False
     for key in node:
-        name = resolve_key(key).key
+        facets = resolve_key(key)
+        name = facets.key
+        if isinstance(facets.marker, Alias):
+            counts.update(facets.marker.input_names)
+            continue
         if isinstance(name, str):
             counts[name] += 1
-        elif (names := literal_any_names(name)) is not None:
+            continue
+        if (names := literal_any_names(name)) is not None:
             counts.update(names)
-    return frozenset(name for name, count in counts.items() if count > 1)
+            listed_by_any.extend(names)
+            continue
+        if name is not Extra:
+            variable_key = True
+
+    contested = {name for name, count in counts.items() if count > 1}
+    if variable_key:
+        contested.update(listed_by_any)
+    return frozenset(contested)
 
 
-def constraint_names(key: Any, contested: frozenset[str]) -> list[str] | None:
-    """Return the names a key may carry an object-level constraint over, else None.
+def constraint_names(key: Any) -> list[str] | None:
+    """Return the names a key claims, or None when it claims no nameable set.
 
-    A literal key owns its name; an ``Any`` over literals owns all of them. A
-    variable key names nothing a constraint can be written about, and a key sharing
-    a name with another one (see ``contested_names``) may never be handed it.
+    A literal key claims its name and an ``Any`` over literals claims all of them.
+    A variable key matches by shape rather than by name, so there is nothing for an
+    object-level constraint to be written about. Whether those names are safely
+    *owned* is a separate question (see ``contested_names``).
     """
-    names = [key] if isinstance(key, str) else literal_any_names(key)
-    if names is None or not contested.isdisjoint(names):
-        return None
-    return names
+    return [key] if isinstance(key, str) else literal_any_names(key)
 
 
 def member_present(names: list[str]) -> dict[str, Any]:
