@@ -682,6 +682,31 @@ def test_a_required_any_key_with_a_default_demands_no_name() -> None:
     assert sorted(result["properties"]) == ["a", "b"]
 
 
+def test_a_declining_default_still_demands_presence() -> None:
+    """A factory returning UNDEFINED fills nothing in, so the key stays required."""
+    from probatio import UNDEFINED, Invalid, Required  # noqa: PLC0415
+
+    schema = Schema({Required("a", default=lambda: UNDEFINED): int})
+    with pytest.raises(Invalid):
+        schema({})
+    assert to_openapi(schema)["required"] == ["a"]
+
+
+def test_a_default_factory_is_asked_once() -> None:
+    """The factory is user code, so a conversion calls it exactly once per key."""
+    from probatio import Required  # noqa: PLC0415
+
+    calls = []
+
+    def once() -> int:
+        """Return a default, recording that it was asked."""
+        calls.append(1)
+        return 1
+
+    to_openapi(Schema({Required("a", default=once): int}))
+    assert len(calls) == 1
+
+
 def test_a_required_key_without_a_default_still_demands_presence() -> None:
     """Only a default lifts the requirement; without one it stands."""
     from probatio import Any as AnyKey  # noqa: PLC0415
