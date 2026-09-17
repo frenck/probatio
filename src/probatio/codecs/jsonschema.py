@@ -570,11 +570,11 @@ def _emit_any_key(  # noqa: PLR0913
     name it lists: where another key can match one, the engine may never let this
     one see it, and the rule would disagree with validation in both directions.
 
-    A name a *variable* key may take gets no property here at all. The value under
-    it is validated by that key, whose schema is already the object's
-    ``additionalProperties``, so leaving the name out lets the document say what
-    the engine does; describing it with this key's value schema would reject values
-    the mapping accepts.
+    A name a *variable* key may take is emitted as an open property instead of with
+    this key's value schema, which would reject values the mapping accepts: the
+    engine may hand the name to that key and validate it against *its* schema.
+    Leaving the name out entirely would be worse, since it would then fall to
+    ``additionalProperties``, which can be narrower than either key.
     """
     for name in names:
         # A copy each, so a caller that edits one emitted property does not

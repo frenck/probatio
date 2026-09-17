@@ -127,7 +127,11 @@ def _matches_a_property_name(key: Any) -> bool:
     and a non-string literal such as ``{1: ...}`` is not a shape at all). Any other
     callable is opaque, so it is assumed to compete.
     """
-    if isinstance(key, type):
+    if isinstance(key, type) and type(key) is type:
+        # The subclass relation only settles it for an ordinary class. A metaclass
+        # is free to define ``__instancecheck__``, and the engine matches a key by
+        # ``isinstance``, so such a class can accept a string the subclass relation
+        # denies. Treat it as opaque rather than trust the proof.
         return issubclass(str, key)
     return callable(key)
 

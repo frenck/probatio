@@ -1265,6 +1265,28 @@ def test_a_key_that_cannot_match_a_name_widens_nothing() -> None:
     }
 
 
+def test_a_custom_metaclass_key_is_treated_as_a_competitor() -> None:
+    """A metaclass may accept a string the subclass relation denies."""
+
+    class Meta(type):
+        def __instancecheck__(cls, instance: object) -> bool:
+            """Accept any string, whatever the subclass relation says."""
+            return isinstance(instance, str)
+
+    class Stringy(metaclass=Meta):
+        """A key that matches every property name, invisibly to issubclass."""
+
+    assert not issubclass(str, Stringy)
+    schema = Schema({Stringy: str, Any("a", "b"): int})
+    result = to_json_schema(schema)
+
+    # Judged by the subclass relation alone this key looks harmless, and the
+    # properties would claim an integer the engine never requires.
+    assert result["properties"] == {"a": {}, "b": {}}
+    assert schema({"a": "x"}) == {"a": "x"}
+    assert jsonschema.Draft202012Validator(result).is_valid({"a": "x"})
+
+
 def test_an_empty_group_name_is_still_a_group() -> None:
     """An empty string names a group like any other, so a lost member abandons it."""
     result = to_json_schema(
