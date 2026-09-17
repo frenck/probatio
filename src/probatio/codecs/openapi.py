@@ -319,6 +319,17 @@ def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
     return None
 
 
+def _demands_presence(marker: Any) -> bool:
+    """Whether a ``Required`` marker actually demands the key be present.
+
+    A ``Required`` carrying a default does not: the engine fills the key in when it
+    is absent, so the mapping accepts input without it. Emitting ``required`` for
+    such a key rejects what the mapping accepts, which ``to_json_schema`` has
+    always avoided through ``_is_required``.
+    """
+    return isinstance(marker, Required) and isinstance(marker.default, Undefined)
+
+
 def _oa_mapping(
     node: dict[Any, Any],
     custom: Any,
@@ -365,7 +376,7 @@ def _oa_mapping(
                 pval["default"] = default
         if facets.secret:
             pval["writeOnly"] = True
-        if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
+        if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
@@ -387,7 +398,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                required=isinstance(marker, Required),
+                required=_demands_presence(marker),
                 wildcard=value is object,
             )
             properties.update(props)

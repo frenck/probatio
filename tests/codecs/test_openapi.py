@@ -660,6 +660,40 @@ def test_duration_renders_a_duration_string() -> None:
     assert to_openapi(Schema(AsTimedelta())) == expected
 
 
+def test_a_required_default_does_not_demand_presence() -> None:
+    """A default fills the key in, so the document must not reject its absence."""
+    from probatio import Required  # noqa: PLC0415
+
+    schema = Schema({Required("a", default=1): int})
+    result = to_openapi(schema)
+
+    assert schema({}) == {"a": 1}
+    assert "required" not in result
+
+
+def test_a_required_any_key_with_a_default_demands_no_name() -> None:
+    """The same for an Any key: the default satisfies it, so no name is demanded."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    result = to_openapi(Schema({Required(AnyKey("a", "b"), default=1): int}))
+
+    assert "anyOf" not in result
+    assert sorted(result["properties"]) == ["a", "b"]
+
+
+def test_a_required_key_without_a_default_still_demands_presence() -> None:
+    """Only a default lifts the requirement; without one it stands."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    assert to_openapi(Schema({Required("a"): int}))["required"] == ["a"]
+    assert to_openapi(Schema({Required(AnyKey("a", "b")): int}))["anyOf"] == [
+        {"required": ["a"]},
+        {"required": ["b"]},
+    ]
+
+
 def test_inclusive_group_renders_all_or_none_per_version() -> None:
     """An Inclusive group renders dependentRequired on 3.1 and a oneOf form on 3.0.
 
