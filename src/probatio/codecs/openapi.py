@@ -40,7 +40,7 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
-from probatio.codecs.jsonschema import _JsonPattern
+from probatio.codecs.jsonschema import NO_DEFAULT, _JsonPattern, resolve_default
 from probatio.error import SchemaError
 from probatio.markers import (
     UNDEFINED,
@@ -357,16 +357,9 @@ def _oa_mapping(
         pval = _oa(value, custom, version)
         if facets.description:
             pval["description"] = facets.description
-        if isinstance(marker, Required | Optional | Alias) and not isinstance(
-            marker.default,
-            Undefined,
-        ):
-            # A non-JSON default (a ``datetime``, say) is rendered JSON-safe, or
-            # omitted when it has no representation, so the emitted document never
-            # crashes ``json.dumps``.
-            default = _json_safe(marker.default())
-            if default is not _UNREPRESENTABLE:
-                pval["default"] = default
+        # User code, possibly one-shot or stateful: ask it once, read it many times.
+        resolved_default = resolve_default(marker)
+        _render_default(pval, marker, resolved_default)
         if facets.secret:
             pval["writeOnly"] = True
         if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
@@ -414,7 +407,7 @@ def _oa_mapping(
             )
         else:
             if isinstance(marker, Required) and (
-                isinstance(marker.default, Undefined) or marker.default() is UNDEFINED
+                isinstance(marker.default, Undefined) or resolved_default is UNDEFINED
             ):
                 # The mapping demands a key of this shape, and no keyword says
                 # "some property matching this must exist", so the document
@@ -502,6 +495,22 @@ class _GroupState:
     exclusive: dict[str, ExclusiveGroup]
 
 
+def _render_default(pval: dict[str, Any], marker: Any, resolved: Any) -> None:
+    """Attach a marker's already-resolved default to its rendered value schema.
+
+    A non-JSON default (a ``datetime``, say) is rendered JSON-safe, or omitted when
+    it has no representation, so the emitted document never crashes ``json.dumps``.
+    """
+    if not isinstance(marker, Required | Optional | Alias):
+        return
+    if resolved is NO_DEFAULT:
+        return
+
+    default = _json_safe(resolved)
+    if default is not _UNREPRESENTABLE:
+        pval["default"] = default
+
+
 def _record_group_member(marker: Any, pkey: Any, state: _GroupState) -> None:
     """Record a group marker's member, when its names can carry a constraint.
 
@@ -576,16 +585,23 @@ def _expand_any_key(
     which can be narrower than both.
     """
 
-    def described(name: str) -> dict[str, Any]:
+    def report(name: str) -> None:
+        """Report what the document cannot say about this name, whatever it emits."""
         if name in claims.rejected:
-            # A ``Forbidden`` key of a shape may refuse this name before the key
-            # that describes it is tried.
+            # A ``Forbidden`` key of a shape refuses this name before the key that
+            # describes it is tried.
             _open("a property a Forbidden key may refuse first")
         if name in claims.widened:
             # Nothing names this one outright, so the open property is all the
             # document gets: a real loss of the restriction this key would apply.
             _open("a property whose name a variable key may take instead")
+
+    def described(name: str) -> dict[str, Any]:
         return {} if name in claims.swallowed else pval.copy()
+
+    # Every name is reported on, including the ones a wildcard value omits.
+    for name in names:
+        report(name)
 
     if required:
         # A wildcard value describes nothing, so it emits no properties, except

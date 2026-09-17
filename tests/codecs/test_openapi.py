@@ -777,8 +777,22 @@ def test_strict_reports_a_name_an_earlier_forbidden_key_refuses() -> None:
     with pytest.raises(SchemaError, match="Forbidden key may refuse first"):
         to_openapi(Schema({Forbidden(str): object, AnyKey("a"): int}), strict=True)
 
-    # Declared after, it never reaches the name, and the document is exact.
+    # Declared after, it never reaches the name, so nothing is refused first.
+    # (The document is still open: to_openapi renders no Forbidden shape key at
+    # all, unlike to_json_schema, which closes the object. That gap is its own.)
     assert to_openapi(Schema({AnyKey("a"): int, Forbidden(str): object}), strict=True)
+
+
+def test_a_wildcard_any_still_reports_a_refused_name() -> None:
+    """A wildcard value emits no property, but the refusal is still reported."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Forbidden, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Forbidden(str): object, Required(AnyKey("a")): object})
+    assert to_openapi(schema) is not None
+    with pytest.raises(SchemaError, match="Forbidden key may refuse first"):
+        to_openapi(schema, strict=True)
 
 
 def test_a_required_wildcard_any_still_overrides_a_variable_key() -> None:

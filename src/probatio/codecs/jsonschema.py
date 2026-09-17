@@ -356,6 +356,22 @@ class _Groups:
         return inclusive_constraints(self.inclusive.values())
 
 
+NO_DEFAULT = object()
+
+
+def resolve_default(marker: Marker | None) -> Any:
+    """Call a marker's default factory once, or report that it carries none.
+
+    The factory is user code and may be one-shot or stateful, so a conversion
+    calls it exactly once per key and every decision reads that one result: the
+    rendered ``default`` keyword and whether the key still demands presence.
+    """
+    factory = getattr(marker, "default", None)
+    if factory is None or isinstance(factory, Undefined):
+        return NO_DEFAULT
+    return factory()
+
+
 def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     node: dict[Any, Any],
     *,
@@ -394,6 +410,8 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
         value_schema = _convert(
             value, required_default=required_default, allow_extra=allow_extra
         )
+        # User code, possibly one-shot or stateful: ask it once, read it many times.
+        resolved_default = resolve_default(marker)
 
         if isinstance(marker, Forbidden):
             # A literal forbidden key is a rejected property; a type/callable one
@@ -412,9 +430,9 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             # the names from the reader of the schema.
             decorated = _decorate_property(
                 value_schema,
-                marker,
                 secret=facets.secret,
                 description=facets.description,
+                default=resolved_default,
             )
             _emit_any_key(
                 names,
@@ -427,6 +445,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 swallowed=claims.swallowed,
                 widened=claims.widened,
                 rejected=claims.rejected,
+                default=resolved_default,
             )
             continue
 
@@ -435,7 +454,11 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             # its value schema still applies to the keys it matches, the same as a
             # plain variable key.
             variable.record(
-                name, value_schema, marker, required_default=required_default
+                name,
+                value_schema,
+                marker,
+                required_default=required_default,
+                default=resolved_default,
             )
             continue
 
@@ -457,9 +480,9 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
 
         decorated = _decorate_property(
             value_schema,
-            marker,
             secret=facets.secret,
             description=facets.description,
+            default=resolved_default,
         )
         _emit_named_key(
             name,
@@ -469,6 +492,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             required,
             groups,
             required_default=required_default,
+            default=resolved_default,
         )
 
     additional: Any = (
@@ -523,6 +547,7 @@ def _emit_named_key(  # noqa: PLR0913, PLR0917
     groups: _Groups,
     *,
     required_default: bool,
+    default: Any,
 ) -> None:
     """Place a decorated property and record any group membership it carries."""
     if isinstance(marker, Alias):
@@ -542,7 +567,7 @@ def _emit_named_key(  # noqa: PLR0913, PLR0917
     # A ``Required`` marker carrying a default does not demand presence (the
     # default fills the key in), so it stays out of ``required``; the ``default``
     # keyword already conveys it.
-    elif _is_required(marker, required_default=required_default):
+    elif _is_required(marker, required_default=required_default, default=default):
         required.append(name)
 
 
@@ -558,6 +583,7 @@ def _emit_any_key(  # noqa: PLR0913
     swallowed: frozenset[str],
     widened: frozenset[str],
     rejected: frozenset[str],
+    default: Any,
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -599,7 +625,7 @@ def _emit_any_key(  # noqa: PLR0913
 
     grouped = isinstance(marker, Inclusive | Exclusive)
     demands_one = not isinstance(marker, Remove) and _is_required(
-        marker, required_default=required_default
+        marker, required_default=required_default, default=default
     )
     if (grouped or demands_one) and not contested.isdisjoint(names):
         # Dropping the rule widens the document, which is what strict mode exists
@@ -618,7 +644,9 @@ def _emit_any_key(  # noqa: PLR0913
         groups.add_required_any(names)
 
 
-def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
+def _is_required(
+    marker: Marker | None, *, required_default: bool, default: Any = NO_DEFAULT
+) -> bool:
     """Whether a mapping key must be present in the emitted schema.
 
     A ``Required`` marker demands presence unless it carries a default (which
@@ -626,12 +654,10 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
     ``required`` default, and an ``Optional`` never demands presence.
     """
     if isinstance(marker, Required):
-        if isinstance(marker.default, Undefined):
-            return True
-        # A default factory may decline by returning ``UNDEFINED``, which the
-        # engine reads as absent and then reports the key missing. Such a default
-        # fills nothing in, so the key still demands presence.
-        return marker.default() is UNDEFINED
+        # A default that declines (the factory returns ``UNDEFINED``) fills nothing
+        # in, and the engine then reports the key missing, so presence is still
+        # demanded. ``default`` is the one result this conversion asked for.
+        return isinstance(marker.default, Undefined) or default is UNDEFINED
     if isinstance(marker, Optional):
         return False
     return required_default
@@ -699,6 +725,7 @@ class _VariableKeys:
         marker: Marker | None,
         *,
         required_default: bool,
+        default: Any,
     ) -> None:
         """Record one variable key: its value schema, the key itself, its rendering.
 
@@ -712,7 +739,7 @@ class _VariableKeys:
         that accepts its absence, which strict mode refuses.
         """
         if not isinstance(marker, Remove) and _is_required(
-            marker, required_default=required_default
+            marker, required_default=required_default, default=default
         ):
             _open("a required key matched by shape rather than by name")
 
@@ -795,23 +822,22 @@ def _matches_a_property_name(key_schema: dict[str, Any]) -> bool:
 
 def _decorate_property(
     prop: dict[str, Any],
-    marker: Marker | None,
     *,
     secret: bool = False,
     description: Any = None,
+    default: Any = NO_DEFAULT,
 ) -> dict[str, Any]:
     """Attach a description, default, and secret flag to a rendered value schema."""
     if description is not None:
         prop = {**prop, "description": description}
     # ``Optional``, ``Required``, ``Alias``, ``Inclusive``, and ``Exclusive`` all
     # carry a ``default``; the others do not.
-    factory = getattr(marker, "default", None)
-    if factory is not None and not isinstance(factory, Undefined):
+    if default is not NO_DEFAULT:
         # ``default`` is annotation-only, so a non-JSON default (a ``datetime``,
         # say) is omitted rather than emitted raw and crashing ``json.dumps``.
-        default = _json_safe(factory())
-        if default is not _UNREPRESENTABLE:
-            prop = {**prop, "default": default}
+        rendered = _json_safe(default)
+        if rendered is not _UNREPRESENTABLE:
+            prop = {**prop, "default": rendered}
     if secret:
         # ``writeOnly`` is JSON Schema's marker for a secret (a password field).
         prop = {**prop, "writeOnly": True}

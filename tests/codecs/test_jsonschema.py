@@ -1316,6 +1316,19 @@ def test_a_default_that_declines_still_demands_the_key() -> None:
     assert to_json_schema(Schema({Required(str, default=5): int}), strict=True)
 
 
+def test_a_removed_key_hands_a_rejected_value_to_an_any_key() -> None:
+    """Remove relinquishes a value its schema refuses, so the Any key sees it too."""
+    schema = Schema({Remove("a"): int, Any("a"): str})
+    result = to_json_schema(schema)
+
+    # Both schemas apply in turn, so neither alone describes the property.
+    assert result["properties"]["a"] == {}
+    validator = jsonschema.Draft202012Validator(result)
+    for value in ({"a": 1}, {"a": "x"}):
+        schema(dict(value))
+        assert validator.is_valid(value), value
+
+
 def test_a_forbidden_key_competes_for_nothing() -> None:
     """Forbidden rejects a name rather than describing it, so it takes none."""
     schema = Schema({Any("a"): int, Forbidden(str): object})

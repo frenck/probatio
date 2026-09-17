@@ -165,6 +165,7 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
     counts: Counter[str] = Counter()
     listed_by_any: list[str] = []
     named_outright: set[str] = set()
+    relinquished: set[str] = set()
     rejected: set[str] = set()
     variable_key = False
     forbidden_shape = False
@@ -184,10 +185,12 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
             continue
         if isinstance(name, str):
             counts[name] += 1
-            if not isinstance(facets.marker, Remove):
+            if isinstance(facets.marker, Remove):
                 # A ``Remove`` key is not authoritative: when its value schema
                 # fails the engine carries on to the other candidates, so it does
                 # not settle what the property holds.
+                relinquished.add(name)
+            else:
                 named_outright.add(name)
             continue
         if (names := literal_any_names(name)) is not None:
@@ -209,7 +212,11 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
         variable_key = True
 
     contested = {name for name, count in counts.items() if count > 1}
+    # A ``Remove`` key hands a value it rejects to whatever comes next, so a name
+    # it shares with an ``Any`` key is described by both in turn, not by either.
+    passed_on = relinquished.intersection(listed_by_any)
     swallowed = frozenset(listed_by_any) if variable_key else frozenset()
+    swallowed |= passed_on
     return KeyClaims(
         frozenset(contested | swallowed),
         swallowed,
