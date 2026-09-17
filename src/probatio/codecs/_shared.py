@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-from probatio.markers import Alias, Extra, Remove, resolve_key
+from probatio.markers import Alias, Extra, Forbidden, Remove, resolve_key
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -187,7 +187,14 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
             counts.update(names)
             listed_by_any.extend(names)
             continue
-        if name is not Extra and _matches_a_property_name(name):
+        if (
+            name is not Extra
+            and not isinstance(facets.marker, Forbidden)
+            and _matches_a_property_name(name)
+        ):
+            # A ``Forbidden`` key competes for nothing: it supplies no value
+            # schema, it rejects the name outright, so it never becomes the key
+            # whose schema describes the value.
             variable_key = True
 
     contested = {name for name, count in counts.items() if count > 1}

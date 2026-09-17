@@ -33,6 +33,7 @@ from probatio import (
     ExactSequence,
     Exclusive,
     Extra,
+    Forbidden,
     Fqdn,
     FqdnUrl,
     FromEpoch,
@@ -1286,6 +1287,19 @@ def test_a_literal_key_keeps_its_schema_against_a_swallowed_name() -> None:
     assert result["properties"] == {"a": {"type": "boolean"}, "b": {}}
     # Both codecs describe the same properties; neither overwrites the literal.
     assert to_openapi(schema)["properties"] == result["properties"]
+
+
+def test_a_forbidden_key_competes_for_nothing() -> None:
+    """Forbidden rejects a name rather than describing it, so it takes none."""
+    schema = Schema({Any("a"): int, Forbidden(str): object})
+    result = to_json_schema(schema)
+
+    # Treated as a competitor the property would open up and accept a string the
+    # mapping rejects; Forbidden supplies no value schema to compete with.
+    assert result["properties"] == {"a": {"type": "integer"}}
+    validator = jsonschema.Draft202012Validator(result)
+    assert not validator.is_valid({"a": "x"})
+    assert validator.is_valid({"a": 1})
 
 
 def test_a_removed_key_is_not_the_last_word_on_a_swallowed_name() -> None:
