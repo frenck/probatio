@@ -31,9 +31,12 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    abandoned_group_names,
+    contested_names,
     covers_every_property_name,
     exclusive_constraint,
-    merge_dependent_required,
+    inclusive_constraints,
+    literal_any_names,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -267,10 +270,14 @@ def _child(node: Any) -> dict[str, Any]:
 class _Groups:
     """Accumulates the group-marker memberships found while walking a mapping."""
 
-    def __init__(self) -> None:
-        """Start with no groups recorded."""
+    def __init__(self, abandoned: frozenset[str] = frozenset()) -> None:
+        """Start with no groups recorded, ignoring the ones already abandoned."""
+        # A group with an unrenderable member is not rendered at all; see
+        # ``abandoned_group_names``.
+        self.abandoned = abandoned
         self.required_any: list[list[str]] = []
-        self.inclusive: dict[str, list[str]] = {}
+        # Each group holds one entry per member: the names that satisfy it.
+        self.inclusive: dict[str, list[list[str]]] = {}
         self.exclusive: dict[str, ExclusiveGroup] = {}
 
     def add_required_any(self, names: list[str]) -> None:
@@ -287,14 +294,25 @@ class _Groups:
         if marker.required and isinstance(marker.default, Undefined):
             self.add_required_any(list(marker.input_names))
 
-    def add_inclusive(self, marker: Inclusive, name: str) -> None:
-        """Record an ``Inclusive`` member (all-or-none within its group)."""
-        self.inclusive.setdefault(marker.group_of_inclusion, []).append(name)
+    def _keeps(self, group: str) -> bool:
+        """Whether a group still renders, or lost a member and so renders not at all."""
+        return group not in self.abandoned
 
-    def add_exclusive(self, marker: Exclusive, name: str) -> None:
+    def add_inclusive(self, marker: Inclusive, names: list[str]) -> None:
+        """Record an ``Inclusive`` member (all-or-none within its group).
+
+        ``names`` is what satisfies the member: one name for a literal key, several
+        for a key schema over literals, any of which counts as the member.
+        """
+        if self._keeps(marker.group_of_inclusion):
+            self.inclusive.setdefault(marker.group_of_inclusion, []).append(names)
+
+    def add_exclusive(self, marker: Exclusive, names: list[str]) -> None:
         """Record an ``Exclusive`` member (at most one present within its group)."""
+        if not self._keeps(marker.group_of_exclusion):
+            return
         group = self.exclusive.setdefault(marker.group_of_exclusion, ExclusiveGroup())
-        group.members.append(name)
+        group.members.append(names)
         group.required = group.required or marker.group_required
         group.has_default = group.has_default or not isinstance(
             marker.default, Undefined
@@ -314,15 +332,27 @@ class _Groups:
         constraints += [
             exclusive_constraint(group) for group in self.exclusive.values()
         ]
+        # An ``Inclusive`` group normally renders as the ``dependentRequired``
+        # sibling below, but one holding a member that covers several names cannot
+        # be said that way and lands here instead.
+        constraints += self._inclusive()[1]
         return [constraint for constraint in constraints if constraint]
 
     def dependent_required(self) -> dict[str, list[str]]:
-        """Merge every multi-member ``Inclusive`` group into one ``dependentRequired``.
+        """Merge every all-literal ``Inclusive`` group into one ``dependentRequired``.
 
         Group memberships are disjoint, so the merged map's connected components
         recover the original groups on decode.
         """
-        return merge_dependent_required(self.inclusive.values())
+        return self._inclusive()[0]
+
+    def _inclusive(self) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
+        """Render the ``Inclusive`` groups, split by what can say them.
+
+        Both callers above want one half of this, and neither runs before the other,
+        so it is computed on demand rather than cached across them.
+        """
+        return inclusive_constraints(self.inclusive.values())
 
 
 def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
@@ -341,7 +371,6 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     """
     properties: dict[Any, Any] = {}
     required: list[Any] = []
-    groups = _Groups()
     # Multiple variable keys ({str: int, int: str}) merge into one
     # ``additionalProperties`` schema; ``allow_extra`` seeds the default.
     variable_values: list[dict[str, Any]] = []
@@ -356,6 +385,11 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
     forbid_extra = False
+    # A name two keys can match belongs to whichever the engine tries first, so a
+    # constraint over it would not agree with validation; collected up front
+    # because precedence does not follow declaration order.
+    contested = contested_names(node)
+    groups = _Groups(abandoned_group_names(node, contested))
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
         # is classified by the marker it actually carries, not just the outer wrapper.
@@ -377,7 +411,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 forbid_extra = True
             continue
 
-        if (names := _literal_any_names(name)) is not None:
+        if (names := literal_any_names(name)) is not None:
             # ``Any`` over literal names is a fixed set of properties, not a
             # variable key. Collapsing it to ``additionalProperties`` would hide
             # the names from the reader of the schema.
@@ -394,6 +428,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 properties,
                 groups,
                 required_default=required_default,
+                contested=contested,
             )
             continue
 
@@ -501,30 +536,14 @@ def _emit_named_key(  # noqa: PLR0913, PLR0917
 
     properties[name] = decorated
     if isinstance(marker, Inclusive):
-        groups.add_inclusive(marker, name)
+        groups.add_inclusive(marker, [name])
     elif isinstance(marker, Exclusive):
-        groups.add_exclusive(marker, name)
+        groups.add_exclusive(marker, [name])
     # A ``Required`` marker carrying a default does not demand presence (the
     # default fills the key in), so it stays out of ``required``; the ``default``
     # keyword already conveys it.
     elif _is_required(marker, required_default=required_default):
         required.append(name)
-
-
-def _literal_any_names(key: Any) -> list[str] | None:
-    """Return the names an ``Any`` key lists, or None when it is not such a key.
-
-    Only an ``Any`` made entirely of string literals expands into properties.
-    One holding a type or validator (``Any(str, int)``) is a variable key like
-    any other callable, and a non-string literal never matches a JSON key.
-    """
-    if not isinstance(key, AnyValidator) or not key.validators:
-        return None
-    if not all(isinstance(item, str) for item in key.validators):
-        return None
-    # ``Any("a", "a")`` names one property, so dedupe rather than emit the same
-    # property and the same ``required`` branch twice.
-    return list(dict.fromkeys(key.validators))
 
 
 def _emit_any_key(  # noqa: PLR0913
@@ -535,6 +554,7 @@ def _emit_any_key(  # noqa: PLR0913
     groups: _Groups,
     *,
     required_default: bool,
+    contested: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -542,17 +562,41 @@ def _emit_any_key(  # noqa: PLR0913
     them, the same object-level constraint a required ``Alias`` adds. A
     ``Remove`` key validates a present value but never demands one.
 
+    A group marker on such a key joins the group as a *single* member that any of
+    the names satisfies, which is how the engine reads it, so the whole key counts
+    once rather than once per name.
+
     The engine matches a literal key ahead of any validator key, so a name a
     literal key already declares keeps that key's value schema, whatever the
     declaration order. Overwriting it would reject values the mapping accepts.
+
+    For the same reason a presence rule is only written when this key owns every
+    name it lists: where another key can match one, the engine may never let this
+    one see it, and the rule would disagree with validation in both directions.
     """
     for name in names:
         # A copy each, so a caller that edits one emitted property does not
         # silently edit the others this key expanded into.
         properties.setdefault(name, dict(decorated))
-    if not isinstance(marker, Remove) and _is_required(
+
+    grouped = isinstance(marker, Inclusive | Exclusive)
+    demands_one = not isinstance(marker, Remove) and _is_required(
         marker, required_default=required_default
-    ):
+    )
+    if (grouped or demands_one) and not contested.isdisjoint(names):
+        # Dropping the rule widens the document, which is what strict mode exists
+        # to refuse; otherwise it is the best-effort default.
+        _open("a presence rule for a name another key can also match")
+        return
+
+    if isinstance(marker, Inclusive):
+        groups.add_inclusive(marker, names)
+        return
+    if isinstance(marker, Exclusive):
+        groups.add_exclusive(marker, names)
+        return
+
+    if demands_one:
         groups.add_required_any(names)
 
 

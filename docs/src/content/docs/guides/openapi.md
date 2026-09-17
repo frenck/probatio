@@ -98,6 +98,24 @@ accepts every member present or none present and rejects any partial combination
 The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
 `from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
 
+A group member does not have to be a literal key. `Inclusive(Any("hours",
+"minutes"), "d")` is one member that either name satisfies, and the rule is the
+usual all-or-none: that member and every other member of the group are either all
+present or all absent. `dependentRequired` cannot express it, having no way to say
+"if this name is present then at least one of those", so on 3.1 a group holding
+such a member renders under `allOf` instead, at the cost of not decoding back to
+the marker.
+
+A rule is only written for a key that certainly receives the names it lists.
+Several things can take a name first: a literal key, an `Alias` under any of its
+accepted names, another `Any` listing the same one, or a variable key such as
+`{str: ...}`, which matches anything. Rather than model that precedence, the
+codecs leave the rule out whenever a name is not provably theirs, so the document
+stays a superset of what Probatio validates rather than contradicting it. The
+properties are emitted either way, and `Extra` never competes, being the catch-all
+for names nothing else matched. Under `strict=True` the dropped rule raises
+instead, like any other widening.
+
 ## Strict mode
 
 By default a construct with no OpenAPI form widens to an open schema (`{}`), so

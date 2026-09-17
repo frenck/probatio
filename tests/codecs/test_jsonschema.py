@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 from decimal import Decimal
 
@@ -13,6 +14,7 @@ from probatio import (
     ASCII,
     REMOVE_EXTRA,
     UUID,
+    Alias,
     All,
     Alpha,
     Any,
@@ -29,12 +31,14 @@ from probatio import (
     Email,
     Equal,
     ExactSequence,
+    Exclusive,
     Extra,
     Fqdn,
     FqdnUrl,
     FromEpoch,
     Hostname,
     In,
+    Inclusive,
     Invalid,
     IPAddress,
     IPNetwork,
@@ -1033,6 +1037,254 @@ def test_home_assistant_slots_name_the_same_properties_as_openapi(slots: dict) -
     assert set(to_json_schema(schema)["properties"]) == set(
         to_openapi(schema)["properties"]
     )
+
+
+# A group member is usually a literal key, but it can be an ``Any`` over literal
+# names, which the engine counts as one member satisfied by any of those names
+# (a documented deviation from voluptuous). Both codecs used to expand the names
+# into properties and then drop the group constraint, so the emitted document
+# accepted input the schema rejects.
+_ANY_GROUP_SCHEMAS = {
+    "inclusive": {Inclusive(Any("a", "b"), "g"): int, Inclusive("c", "g"): int},
+    "exclusive": {Exclusive(Any("a", "b"), "g"): int, Exclusive("c", "g"): int},
+    "exclusive_required": {
+        Exclusive(Any("a", "b"), "g", required=True): int,
+        Exclusive("c", "g", required=True): int,
+    },
+    "inclusive_three_members": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+        Inclusive("d", "g"): int,
+    },
+    "inclusive_lone_member": {Inclusive(Any("a", "b"), "g"): int},
+}
+
+
+@pytest.mark.parametrize("slots", _ANY_GROUP_SCHEMAS.values(), ids=_ANY_GROUP_SCHEMAS)
+def test_a_group_keyed_on_an_any_agrees_with_the_schema(slots: dict) -> None:
+    """The emitted document accepts and rejects exactly what the mapping does."""
+    schema = Schema(slots)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+
+    names = ["a", "b", "c", "d"]
+    for size in range(len(names) + 1):
+        for combination in itertools.combinations(names, size):
+            value = dict.fromkeys(combination, 1)
+            try:
+                schema(dict(value))
+                accepts = True
+            except Invalid:
+                accepts = False
+            assert validator.is_valid(value) is accepts, value
+
+
+def test_inclusive_group_keyed_on_an_any_renders_an_implication_per_member() -> None:
+    """dependentRequired cannot say "one of those", so the group renders as allOf."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["inclusive"]))
+
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+    assert "dependentRequired" not in result
+    assert result["allOf"] == [
+        {"anyOf": [{"not": either}, {"required": ["c"]}]},
+        {"anyOf": [{"not": {"required": ["c"]}}, either]},
+    ]
+
+
+def test_exclusive_group_keyed_on_an_any_excludes_the_other_members() -> None:
+    """The Any key is one member, so its own names never collide with each other."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["exclusive"]))
+
+    either = {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]}
+    assert result["allOf"] == [
+        {"not": {"anyOf": [{"allOf": [either, {"required": ["c"]}]}]}},
+    ]
+
+
+def test_required_exclusive_group_keyed_on_an_any_demands_one_member() -> None:
+    """Exactly one member, where either of the Any's names satisfies its own."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["exclusive_required"]))
+
+    assert result["allOf"] == [
+        {
+            "oneOf": [
+                {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+                {"required": ["c"]},
+            ],
+        },
+    ]
+
+
+def test_a_lone_group_member_adds_no_constraint() -> None:
+    """A group of one has nothing to be co-dependent with."""
+    result = to_json_schema(Schema(_ANY_GROUP_SCHEMAS["inclusive_lone_member"]))
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
+# A name an ``Any`` key lists can belong to another key: the engine matches a
+# literal key first whatever the order, so the ``Any`` never sees that name. A
+# presence rule written over it would disagree with validation, so none is written.
+_CONTESTED_SCHEMAS = {
+    "required_any_over_a_literal": {Required(Any("a", "b")): int, "a": int},
+    "group_over_a_literal": {
+        Inclusive(Any("a", "b"), "g"): int,
+        "a": int,
+        Inclusive("c", "g"): int,
+    },
+    "two_any_keys_sharing_a_name": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Any("b", "c"): int,
+        Inclusive("d", "g"): int,
+    },
+    # A variable key matches by shape, so it can take any name; whether it gets
+    # there first is declaration order, which the codec does not model.
+    "a_variable_key_first": {
+        str: int,
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+    },
+    "a_variable_key_last": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+        str: int,
+    },
+    # An Alias accepts its value under any of its names, one of which is "b".
+    "an_alias_sharing_a_name": {Required(Any("a", "b")): int, Alias("z", "b"): int},
+}
+
+
+@pytest.mark.parametrize("slots", _CONTESTED_SCHEMAS.values(), ids=_CONTESTED_SCHEMAS)
+def test_a_contested_name_never_narrows_the_document(slots: dict) -> None:
+    """The document still accepts everything the mapping accepts, constraint or not."""
+    schema = Schema(slots)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+
+    names = ["a", "b", "c", "d"]
+    for size in range(len(names) + 1):
+        for combination in itertools.combinations(names, size):
+            value = dict.fromkeys(combination, 1)
+            try:
+                schema(dict(value))
+            except Invalid:
+                continue
+            # Widening is safe and expected here; rejecting what the mapping takes
+            # is not, and is what writing the rule anyway would have caused.
+            assert validator.is_valid(value), value
+
+
+def test_a_contested_any_key_writes_no_presence_rule() -> None:
+    """A name a literal key also declares carries no at-least-one constraint."""
+    result = to_json_schema(Schema(_CONTESTED_SCHEMAS["required_any_over_a_literal"]))
+    assert "allOf" not in result
+    assert sorted(result["properties"]) == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    ("slots", "reason"),
+    [
+        (
+            {
+                Exclusive(Any("a", "b"), "g"): int,
+                "a": int,
+                Exclusive("c", "g", required=True): int,
+            },
+            "contested",
+        ),
+        (
+            {Exclusive(str, "g"): int, Exclusive("c", "g", required=True): int},
+            "variable",
+        ),
+        (
+            {
+                Inclusive(Any("a", "b"), "g"): int,
+                "a": int,
+                Inclusive("c", "g"): int,
+                Inclusive("d", "g"): int,
+            },
+            "inclusive",
+        ),
+    ],
+    ids=["contested_exclusive", "variable_exclusive", "contested_inclusive"],
+)
+def test_a_group_losing_a_member_renders_nothing(slots: dict, reason: str) -> None:
+    """A group is all its members or none, so one it cannot write drops the rule."""
+    assert reason  # the id carries why the member is unrenderable
+    result = to_json_schema(Schema(slots))
+
+    # Rendering the remaining members would demand one of them, rejecting input
+    # the mapping accepts through the member that could not be written.
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
+
+
+def test_an_empty_group_name_is_still_a_group() -> None:
+    """An empty string names a group like any other, so a lost member abandons it."""
+    result = to_json_schema(
+        Schema(
+            {
+                Inclusive(Any("a", "b"), ""): int,
+                "a": int,
+                Inclusive("c", ""): int,
+                Inclusive("d", ""): int,
+            }
+        )
+    )
+    assert "dependentRequired" not in result
+    assert "allOf" not in result
+
+
+def test_a_non_string_literal_key_contests_nothing() -> None:
+    """An int key matches no JSON property name, so it takes none from an Any."""
+    result = to_json_schema(Schema({Required(Any("a", "b")): int, 1: int}))
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+def test_an_alias_contests_its_canonical_name() -> None:
+    """A strict Alias still takes its canonical name, then refuses it."""
+    result = to_json_schema(
+        Schema(
+            {
+                Required(Any("a", "z")): int,
+                Alias("z", "b", accept_canonical=False): int,
+            }
+        )
+    )
+    assert "allOf" not in result
+
+
+def test_extra_never_contests_a_name() -> None:
+    """Extra catches only what nothing else matched, so it takes no name first."""
+    result = to_json_schema(Schema({Required(Any("a", "b")): int, Extra: object}))
+    assert result["allOf"] == [
+        {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+    ]
+
+
+@pytest.mark.parametrize(
+    "slots",
+    [
+        _CONTESTED_SCHEMAS["required_any_over_a_literal"],
+        _CONTESTED_SCHEMAS["group_over_a_literal"],
+        _CONTESTED_SCHEMAS["a_variable_key_first"],
+    ],
+    ids=["required", "grouped", "variable_key"],
+)
+def test_strict_refuses_to_drop_a_contested_rule(slots: dict) -> None:
+    """Dropping the rule widens the document, which strict mode exists to refuse."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    assert to_json_schema(Schema(slots)) is not None
+    with pytest.raises(SchemaError, match="another key can also match"):
+        to_json_schema(Schema(slots), strict=True)
+
+
+def test_a_contested_group_member_writes_no_group_rule() -> None:
+    """A group member sharing a name with another key adds no object-level rule."""
+    result = to_json_schema(Schema(_CONTESTED_SCHEMAS["group_over_a_literal"]))
+    assert "allOf" not in result
+    assert "dependentRequired" not in result
 
 
 def test_union_becomes_any_of() -> None:
