@@ -47,6 +47,7 @@ from probatio.markers import (
     Exclusive,
     Inclusive,
     Optional,
+    Remove,
     Required,
     Self,
     Undefined,
@@ -405,7 +406,11 @@ def _oa_mapping(
                 else:
                     _open("a presence rule for a name another key can also match")
         elif isinstance(pkey, str):
-            properties[pkey] = pval
+            # A ``Remove`` key's schema is not the last word where a variable key
+            # may take the name too: a value it rejects carries on to that key.
+            properties[pkey] = (
+                {} if isinstance(marker, Remove) and pkey in claims.swallowed else pval
+            )
         else:
             if isinstance(marker, Required) and isinstance(marker.default, Undefined):
                 # The mapping demands a key of this shape, and no keyword says
@@ -576,7 +581,14 @@ def _expand_any_key(
         return {} if name in claims.swallowed else pval.copy()
 
     if required:
-        props = {} if wildcard else {name: described(name) for name in names}
+        # A wildcard value describes nothing, so it emits no properties, except
+        # for a name a variable key may take: there an open property is needed to
+        # override that key's narrower ``additionalProperties``.
+        props = (
+            {name: {} for name in names if name in claims.swallowed}
+            if wildcard
+            else {name: described(name) for name in names}
+        )
         return props, names
     return {name: described(name) for name in names}, None
 

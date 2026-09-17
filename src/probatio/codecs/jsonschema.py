@@ -447,8 +447,10 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
         if isinstance(marker, Remove):
             # A removed key is stripped from the output, but a present value is
             # validated first, so input carrying it is valid: emit it as an
-            # optional property (never rejected as an extra key).
-            properties[name] = value_schema
+            # optional property (never rejected as an extra key). Where a variable
+            # key may take the name too, this schema is not the last word: a value
+            # it rejects carries on to that key, so the property stays open.
+            properties[name] = {} if name in claims.swallowed else value_schema
             continue
 
         decorated = _decorate_property(

@@ -768,6 +768,20 @@ def test_strict_reports_a_required_key_matched_by_shape() -> None:
             to_openapi(Schema(slots), strict=True)
 
 
+def test_a_required_wildcard_any_still_overrides_a_variable_key() -> None:
+    """A wildcard value emits no property, except where a variable key competes."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    schema = Schema({Required(AnyKey("a", "b")): object, str: int})
+    result = to_openapi(schema)
+
+    # Without the open properties the integer additionalProperties would reject
+    # a string "a" that the mapping accepts through the wildcard.
+    assert result["properties"] == {"a": {}, "b": {}}
+    assert schema({"a": "x"}) == {"a": "x"}
+
+
 def test_a_variable_key_widens_the_property_it_may_take() -> None:
     """A name a variable key may receive is described by neither key alone."""
     from probatio import Any as AnyKey  # noqa: PLC0415

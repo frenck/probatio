@@ -1288,6 +1288,20 @@ def test_a_literal_key_keeps_its_schema_against_a_swallowed_name() -> None:
     assert to_openapi(schema)["properties"] == result["properties"]
 
 
+def test_a_removed_key_is_not_the_last_word_on_a_swallowed_name() -> None:
+    """A value Remove rejects carries on to a variable key, so the property stays open."""
+    schema = Schema({Remove("a"): int, str: str, Any("a", "b"): bool})
+    result = to_json_schema(schema)
+
+    # ``Remove("a"): int`` would say integer, but a string "a" is still valid
+    # input: it fails that schema and the ``str`` key takes it.
+    assert result["properties"]["a"] == {}
+    # Kept, not removed: the ``str`` key handled it, so ``Remove`` never did.
+    assert schema({"a": "x"}) == {"a": "x"}
+    assert jsonschema.Draft202012Validator(result).is_valid({"a": "x"})
+    assert to_openapi(schema)["properties"]["a"] == {}
+
+
 def test_a_custom_metaclass_key_is_treated_as_a_competitor() -> None:
     """A metaclass may accept a string the subclass relation denies."""
 

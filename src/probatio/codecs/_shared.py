@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-from probatio.markers import Alias, Extra, resolve_key
+from probatio.markers import Alias, Extra, Remove, resolve_key
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -177,7 +177,11 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
             continue
         if isinstance(name, str):
             counts[name] += 1
-            named_outright.add(name)
+            if not isinstance(facets.marker, Remove):
+                # A ``Remove`` key is not authoritative: when its value schema
+                # fails the engine carries on to the other candidates, so it does
+                # not settle what the property holds.
+                named_outright.add(name)
             continue
         if (names := literal_any_names(name)) is not None:
             counts.update(names)
