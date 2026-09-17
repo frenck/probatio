@@ -196,6 +196,10 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
         if (names := literal_any_names(name)) is not None:
             counts.update(names)
             listed_by_any.extend(names)
+            if isinstance(facets.marker, Remove):
+                # A ``Remove`` hands on what its value schema refuses, whether it
+                # wraps one name or an ``Any`` over several.
+                relinquished.update(names)
             if forbidden_shape:
                 # Only a ``Forbidden`` key declared *earlier* reaches these names
                 # first; one after this key never sees them.
@@ -221,7 +225,9 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
         frozenset(contested | swallowed),
         swallowed,
         swallowed - named_outright,
-        frozenset(rejected),
+        # A key that names the property outright is tried ahead of any shape, so a
+        # ``Forbidden`` shape never reaches it.
+        frozenset(rejected - named_outright),
     )
 
 

@@ -1329,6 +1329,31 @@ def test_a_removed_key_hands_a_rejected_value_to_an_any_key() -> None:
         assert validator.is_valid(value), value
 
 
+def test_a_removed_any_key_also_hands_on_what_it_refuses() -> None:
+    """Remove relinquishes whether it wraps one name or an Any over several."""
+    schema = Schema({Remove(Any("a")): int, Any("a"): str})
+    result = to_json_schema(schema)
+
+    assert result["properties"]["a"] == {}
+    validator = jsonschema.Draft202012Validator(result)
+    for value in ({"a": 1}, {"a": "x"}):
+        schema(dict(value))
+        assert validator.is_valid(value), value
+
+
+def test_a_literal_key_is_reached_before_a_forbidden_shape() -> None:
+    """A key naming the property outright is tried first, so nothing refuses it."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    owned = Schema({Forbidden(str): object, "a": int, Any("a"): int})
+    result = to_json_schema(owned, strict=True)
+    assert result["properties"] == {"a": {"type": "integer"}}
+
+    # Without the literal, the Forbidden shape does reach the name.
+    with pytest.raises(SchemaError, match="Forbidden key may refuse first"):
+        to_json_schema(Schema({Forbidden(str): object, Any("a"): int}), strict=True)
+
+
 def test_a_forbidden_key_competes_for_nothing() -> None:
     """Forbidden rejects a name rather than describing it, so it takes none."""
     schema = Schema({Any("a"): int, Forbidden(str): object})
