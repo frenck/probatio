@@ -116,12 +116,17 @@ class KeyClaims:
     outright, so nothing supplies a precise schema for it and the property really
     does lose one; where a literal key names it, that key's schema stands.
 
+    ``rejected`` is the names an *earlier* ``Forbidden`` key of a shape refuses
+    before the key describing them is tried, so the document describes them and
+    accepts what the mapping turns away. A later one never reaches them.
+
     ``widened`` is a subset of ``swallowed``, which is a subset of ``contested``.
     """
 
     contested: frozenset[str]
     swallowed: frozenset[str]
     widened: frozenset[str]
+    rejected: frozenset[str]
 
 
 def _matches_a_property_name(key: Any) -> bool:
@@ -160,7 +165,9 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
     counts: Counter[str] = Counter()
     listed_by_any: list[str] = []
     named_outright: set[str] = set()
+    rejected: set[str] = set()
     variable_key = False
+    forbidden_shape = False
     for key in node:
         facets = resolve_key(key)
         name = facets.key
@@ -186,21 +193,28 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
         if (names := literal_any_names(name)) is not None:
             counts.update(names)
             listed_by_any.extend(names)
+            if forbidden_shape:
+                # Only a ``Forbidden`` key declared *earlier* reaches these names
+                # first; one after this key never sees them.
+                rejected.update(names)
             continue
-        if (
-            name is not Extra
-            and not isinstance(facets.marker, Forbidden)
-            and _matches_a_property_name(name)
-        ):
-            # A ``Forbidden`` key competes for nothing: it supplies no value
-            # schema, it rejects the name outright, so it never becomes the key
-            # whose schema describes the value.
-            variable_key = True
+        if name is Extra or not _matches_a_property_name(name):
+            continue
+        if isinstance(facets.marker, Forbidden):
+            # A ``Forbidden`` key describes no value, so it never becomes the key
+            # whose schema a property carries. It can still refuse the name before
+            # another key is tried, which is what ``rejected`` records.
+            forbidden_shape = True
+            continue
+        variable_key = True
 
     contested = {name for name, count in counts.items() if count > 1}
     swallowed = frozenset(listed_by_any) if variable_key else frozenset()
     return KeyClaims(
-        frozenset(contested | swallowed), swallowed, swallowed - named_outright
+        frozenset(contested | swallowed),
+        swallowed,
+        swallowed - named_outright,
+        frozenset(rejected),
     )
 
 

@@ -13,6 +13,7 @@ from probatio import (
     ALLOW_EXTRA,
     ASCII,
     REMOVE_EXTRA,
+    UNDEFINED,
     UUID,
     Alias,
     All,
@@ -1287,6 +1288,32 @@ def test_a_literal_key_keeps_its_schema_against_a_swallowed_name() -> None:
     assert result["properties"] == {"a": {"type": "boolean"}, "b": {}}
     # Both codecs describe the same properties; neither overwrites the literal.
     assert to_openapi(schema)["properties"] == result["properties"]
+
+
+def test_strict_reports_a_name_an_earlier_forbidden_key_refuses() -> None:
+    """A Forbidden shape declared first turns the name away before anything describes it."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="Forbidden key may refuse first"):
+        to_json_schema(Schema({Forbidden(str): object, Any("a"): int}), strict=True)
+
+    # Declared after, it never reaches the name, and the document is exact.
+    assert to_json_schema(Schema({Any("a"): int, Forbidden(str): object}), strict=True)
+
+
+def test_a_default_that_declines_still_demands_the_key() -> None:
+    """A factory returning UNDEFINED fills nothing in, so the key stays required."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    declining = Schema({Required(str, default=lambda: UNDEFINED): int})
+    with pytest.raises(Invalid):
+        declining({})
+    assert jsonschema.Draft202012Validator(to_json_schema(declining)).is_valid({})
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_json_schema(declining, strict=True)
+
+    # An ordinary default does fill the key in, so it reports nothing.
+    assert to_json_schema(Schema({Required(str, default=5): int}), strict=True)
 
 
 def test_a_forbidden_key_competes_for_nothing() -> None:

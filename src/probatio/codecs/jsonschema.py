@@ -43,6 +43,7 @@ from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
 from probatio.error import ContainsInvalid, Invalid, MatchInvalid, SchemaError
 from probatio.markers import (
+    UNDEFINED,
     Alias,
     Exclusive,
     Forbidden,
@@ -425,6 +426,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 contested=contested,
                 swallowed=claims.swallowed,
                 widened=claims.widened,
+                rejected=claims.rejected,
             )
             continue
 
@@ -555,6 +557,7 @@ def _emit_any_key(  # noqa: PLR0913
     contested: frozenset[str],
     swallowed: frozenset[str],
     widened: frozenset[str],
+    rejected: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -581,6 +584,11 @@ def _emit_any_key(  # noqa: PLR0913
     ``additionalProperties``, which can be narrower than either key.
     """
     for name in names:
+        if name in rejected:
+            # A ``Forbidden`` key of a shape may refuse this name before the key
+            # that describes it is tried, so the document accepts what the mapping
+            # may turn away.
+            _open("a property a Forbidden key may refuse first")
         if name in widened:
             # Nothing names this one outright, so the open property is all the
             # document gets: a real loss of the restriction this key would apply.
@@ -618,7 +626,12 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
     ``required`` default, and an ``Optional`` never demands presence.
     """
     if isinstance(marker, Required):
-        return isinstance(marker.default, Undefined)
+        if isinstance(marker.default, Undefined):
+            return True
+        # A default factory may decline by returning ``UNDEFINED``, which the
+        # engine reads as absent and then reports the key missing. Such a default
+        # fills nothing in, so the key still demands presence.
+        return marker.default() is UNDEFINED
     if isinstance(marker, Optional):
         return False
     return required_default

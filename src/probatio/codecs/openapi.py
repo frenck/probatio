@@ -43,6 +43,7 @@ from probatio.codecs._shared import ordered_values as _ordered
 from probatio.codecs.jsonschema import _JsonPattern
 from probatio.error import SchemaError
 from probatio.markers import (
+    UNDEFINED,
     Alias,
     Exclusive,
     Inclusive,
@@ -412,7 +413,9 @@ def _oa_mapping(
                 {} if isinstance(marker, Remove) and pkey in claims.swallowed else pval
             )
         else:
-            if isinstance(marker, Required) and isinstance(marker.default, Undefined):
+            if isinstance(marker, Required) and (
+                isinstance(marker.default, Undefined) or marker.default() is UNDEFINED
+            ):
                 # The mapping demands a key of this shape, and no keyword says
                 # "some property matching this must exist", so the document
                 # accepts its absence. Strict mode refuses the silent widening.
@@ -574,6 +577,10 @@ def _expand_any_key(
     """
 
     def described(name: str) -> dict[str, Any]:
+        if name in claims.rejected:
+            # A ``Forbidden`` key of a shape may refuse this name before the key
+            # that describes it is tried.
+            _open("a property a Forbidden key may refuse first")
         if name in claims.widened:
             # Nothing names this one outright, so the open property is all the
             # document gets: a real loss of the restriction this key would apply.

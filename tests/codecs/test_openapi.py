@@ -768,6 +768,19 @@ def test_strict_reports_a_required_key_matched_by_shape() -> None:
             to_openapi(Schema(slots), strict=True)
 
 
+def test_strict_reports_a_name_an_earlier_forbidden_key_refuses() -> None:
+    """A Forbidden shape declared first turns the name away before anything describes it."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Forbidden  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="Forbidden key may refuse first"):
+        to_openapi(Schema({Forbidden(str): object, AnyKey("a"): int}), strict=True)
+
+    # Declared after, it never reaches the name, and the document is exact.
+    assert to_openapi(Schema({AnyKey("a"): int, Forbidden(str): object}), strict=True)
+
+
 def test_a_required_wildcard_any_still_overrides_a_variable_key() -> None:
     """A wildcard value emits no property, except where a variable key competes."""
     from probatio import Any as AnyKey  # noqa: PLC0415
