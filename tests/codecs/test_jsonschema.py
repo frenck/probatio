@@ -1265,6 +1265,29 @@ def test_a_key_that_cannot_match_a_name_widens_nothing() -> None:
     }
 
 
+def test_strict_reports_a_property_that_loses_its_schema() -> None:
+    """An open property is a lost restriction, unless a literal key supplies one."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    with pytest.raises(SchemaError, match="a variable key may take instead"):
+        to_json_schema(Schema({str: str, Any("a", "b"): int}), strict=True)
+
+    # Every name is spelled out by a literal key, so nothing is lost.
+    assert to_json_schema(
+        Schema({"a": bool, "b": str, str: str, Any("a", "b"): int}), strict=True
+    )
+
+
+def test_a_literal_key_keeps_its_schema_against_a_swallowed_name() -> None:
+    """A literal key names the property outright, so its schema is the precise one."""
+    schema = Schema({"a": bool, str: str, Any("a", "b"): int})
+    result = to_json_schema(schema)
+
+    assert result["properties"] == {"a": {"type": "boolean"}, "b": {}}
+    # Both codecs describe the same properties; neither overwrites the literal.
+    assert to_openapi(schema)["properties"] == result["properties"]
+
+
 def test_a_custom_metaclass_key_is_treated_as_a_competitor() -> None:
     """A metaclass may accept a string the subclass relation denies."""
 
@@ -1346,7 +1369,8 @@ def test_strict_refuses_to_drop_a_contested_rule(slots: dict) -> None:
     from probatio.error import SchemaError  # noqa: PLC0415
 
     assert to_json_schema(Schema(slots)) is not None
-    with pytest.raises(SchemaError, match="another key can also match"):
+    # Which loss is reported first depends on the schema; both are widenings.
+    with pytest.raises(SchemaError, match="would widen to an open schema"):
         to_json_schema(Schema(slots), strict=True)
 
 

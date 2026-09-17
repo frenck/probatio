@@ -424,6 +424,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 required_default=required_default,
                 contested=contested,
                 swallowed=claims.swallowed,
+                widened=claims.widened,
             )
             continue
 
@@ -551,6 +552,7 @@ def _emit_any_key(  # noqa: PLR0913
     required_default: bool,
     contested: frozenset[str],
     swallowed: frozenset[str],
+    widened: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -577,6 +579,10 @@ def _emit_any_key(  # noqa: PLR0913
     ``additionalProperties``, which can be narrower than either key.
     """
     for name in names:
+        if name in widened:
+            # Nothing names this one outright, so the open property is all the
+            # document gets: a real loss of the restriction this key would apply.
+            _open("a property whose name a variable key may take instead")
         # A copy each, so a caller that edits one emitted property does not
         # silently edit the others this key expanded into.
         properties.setdefault(name, {} if name in swallowed else dict(decorated))

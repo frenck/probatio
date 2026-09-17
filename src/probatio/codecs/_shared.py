@@ -112,11 +112,16 @@ class KeyClaims:
     be written over it. ``swallowed`` is the subset a variable key may take, which
     is narrower and worse: the value under such a name is validated by that key's
     schema, not the ``Any`` key's, so emitting the property at all would describe
-    the wrong values. ``swallowed`` is always a subset of ``contested``.
+    the wrong values. ``widened`` is the part of ``swallowed`` that no key names
+    outright, so nothing supplies a precise schema for it and the property really
+    does lose one; where a literal key names it, that key's schema stands.
+
+    ``widened`` is a subset of ``swallowed``, which is a subset of ``contested``.
     """
 
     contested: frozenset[str]
     swallowed: frozenset[str]
+    widened: frozenset[str]
 
 
 def _matches_a_property_name(key: Any) -> bool:
@@ -154,6 +159,7 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
     """
     counts: Counter[str] = Counter()
     listed_by_any: list[str] = []
+    named_outright: set[str] = set()
     variable_key = False
     for key in node:
         facets = resolve_key(key)
@@ -161,16 +167,17 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
         if isinstance(facets.marker, Alias):
             # The canonical name is claimed even when it is not accepted: the key
             # takes the value under it and then rejects it, so nothing else sees it.
-            counts.update(
-                {
-                    claimed
-                    for claimed in (*facets.marker.input_names, name)
-                    if isinstance(claimed, str)
-                }
-            )
+            claimed_names = {
+                claimed
+                for claimed in (*facets.marker.input_names, name)
+                if isinstance(claimed, str)
+            }
+            counts.update(claimed_names)
+            named_outright.update(claimed_names)
             continue
         if isinstance(name, str):
             counts[name] += 1
+            named_outright.add(name)
             continue
         if (names := literal_any_names(name)) is not None:
             counts.update(names)
@@ -181,7 +188,9 @@ def key_claims(node: dict[Any, Any]) -> KeyClaims:
 
     contested = {name for name, count in counts.items() if count > 1}
     swallowed = frozenset(listed_by_any) if variable_key else frozenset()
-    return KeyClaims(frozenset(contested | swallowed), swallowed)
+    return KeyClaims(
+        frozenset(contested | swallowed), swallowed, swallowed - named_outright
+    )
 
 
 def constraint_names(key: Any) -> list[str] | None:

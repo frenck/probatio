@@ -27,6 +27,7 @@ from probatio.codecs._shared import (
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
+    KeyClaims,
     abandoned_group_names,
     constraint_names,
     covers_every_property_name,
@@ -388,11 +389,14 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                swallowed=claims.swallowed,
+                claims=claims,
                 required=isinstance(marker, Required),
                 wildcard=value is object,
             )
-            properties.update(props)
+            # Do not overwrite: a literal key names the property outright and
+            # its schema is the precise one, whatever the declaration order.
+            for expanded, schema in props.items():
+                properties.setdefault(expanded, schema)
             # The properties stand either way; only the at-least-one rule needs
             # this key to own every name it lists.
             if any_group is not None:
@@ -553,7 +557,7 @@ def _expand_any_key(
     *,
     required: bool,
     wildcard: bool,
-    swallowed: frozenset[str],
+    claims: KeyClaims,
 ) -> tuple[dict[str, Any], list[str] | None]:
     """Expand an ``Any`` key's names into (properties to add, constraint group).
 
@@ -565,7 +569,11 @@ def _expand_any_key(
     """
 
     def described(name: str) -> dict[str, Any]:
-        return {} if name in swallowed else pval.copy()
+        if name in claims.widened:
+            # Nothing names this one outright, so the open property is all the
+            # document gets: a real loss of the restriction this key would apply.
+            _open("a property whose name a variable key may take instead")
+        return {} if name in claims.swallowed else pval.copy()
 
     if required:
         props = {} if wildcard else {name: described(name) for name in names}
