@@ -15,6 +15,7 @@ import json
 from enum import Enum
 from typing import Any, TypeVar
 
+import jsonschema
 import pytest
 import voluptuous
 import voluptuous_openapi
@@ -682,14 +683,37 @@ def test_a_required_any_key_with_a_default_demands_no_name() -> None:
     assert sorted(result["properties"]) == ["a", "b"]
 
 
-def test_a_declining_default_still_demands_presence() -> None:
-    """A factory returning UNDEFINED fills nothing in, so the key stays required."""
+def test_a_declining_default_is_reported_not_encoded() -> None:
+    """What a factory returns is sampled, so the document never depends on it."""
     from probatio import UNDEFINED, Invalid, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
 
     schema = Schema({Required("a", default=lambda: UNDEFINED): int})
     with pytest.raises(Invalid):
         schema({})
-    assert to_openapi(schema)["required"] == ["a"]
+
+    # The document accepts the absence, which is a widening and therefore safe.
+    assert "required" not in to_openapi(schema)
+    with pytest.raises(SchemaError, match="decline"):
+        to_openapi(schema, strict=True)
+
+
+def test_a_stateful_default_factory_never_narrows() -> None:
+    """A factory that declines once and yields next must not demand the key."""
+    from probatio import UNDEFINED, Required  # noqa: PLC0415
+
+    state = {"calls": 0}
+
+    def flaky() -> object:
+        """Decline the first time it is asked, then supply a value."""
+        state["calls"] += 1
+        return UNDEFINED if state["calls"] == 1 else 7
+
+    schema = Schema({Required("a", default=flaky): int})
+    # Conversion samples the decline; validation then fills the key in.
+    document = to_openapi(schema)
+    assert schema({}) == {"a": 7}
+    assert jsonschema.Draft202012Validator(document).is_valid({})
 
 
 def test_a_default_factory_is_asked_once() -> None:

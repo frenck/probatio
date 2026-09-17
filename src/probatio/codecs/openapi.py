@@ -42,7 +42,6 @@ from probatio.codecs._shared import ordered_values as _ordered
 from probatio.codecs.jsonschema import _JsonPattern
 from probatio.error import SchemaError
 from probatio.markers import (
-    UNDEFINED,
     Alias,
     Exclusive,
     Inclusive,
@@ -323,6 +322,15 @@ def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
 _NO_DEFAULT = object()
 
 
+def _declines(resolved: Any) -> bool:
+    """Whether a resolved default declined to supply a value.
+
+    The engine reads any ``Undefined`` instance as a decline, not only the
+    ``UNDEFINED`` singleton, so this tests the type rather than identity.
+    """
+    return resolved is not _NO_DEFAULT and isinstance(resolved, Undefined)
+
+
 def _resolve_default(marker: Any) -> Any:
     """Call a marker's default factory once, or report that it carries none.
 
@@ -335,7 +343,7 @@ def _resolve_default(marker: Any) -> Any:
     return factory()
 
 
-def _demands_presence(marker: Any, resolved: Any) -> bool:
+def _demands_presence(marker: Any) -> bool:
     """Whether a ``Required`` marker actually demands the key be present.
 
     A ``Required`` carrying a default does not: the engine fills the key in when it
@@ -343,12 +351,13 @@ def _demands_presence(marker: Any, resolved: Any) -> bool:
     such a key rejects what the mapping accepts, which ``to_json_schema`` has
     always avoided through ``_is_required``.
 
-    A factory that *declines*, by returning ``UNDEFINED``, fills nothing in. The
-    engine then reports the key missing, so presence is demanded after all.
+    Only the *presence* of a factory is consulted, never what it returns. A factory
+    may decline (return an ``Undefined``), and it may decline this time and yield a
+    value the next, so a document built from one sample of it could demand a key the
+    very next validation fills in. Declining is reported under ``strict`` instead,
+    where a false alarm costs nothing and a wrong document costs correctness.
     """
-    if not isinstance(marker, Required):
-        return False
-    return isinstance(marker.default, Undefined) or resolved is UNDEFINED
+    return isinstance(marker, Required) and isinstance(marker.default, Undefined)
 
 
 def _oa_mapping(
@@ -399,9 +408,11 @@ def _oa_mapping(
                 pval["default"] = default
         if facets.secret:
             pval["writeOnly"] = True
-        if _demands_presence(marker, resolved_default) and not isinstance(
-            pkey, AnyValidator
-        ):
+        if _declines(resolved_default):
+            # The key may go unfilled and then be reported missing, which no
+            # keyword here can express; the document accepts its absence.
+            _open("a default that may decline to fill a required key")
+        if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
@@ -423,7 +434,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                required=_demands_presence(marker, resolved_default),
+                required=_demands_presence(marker),
                 wildcard=value is object,
             )
             properties.update(props)
