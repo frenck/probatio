@@ -304,6 +304,30 @@ Probatio does.
   `Inclusive(Any("hours", "minutes"), "d")` with `Inclusive("name", "d")` accepts
   `{"hours": 1, "name": "tea"}` and rejects either one alone. A strict improvement:
   the voluptuous readings make the group either impossible or meaningless.
+- **The state a `dict` or `list` subclass carries (ADR-018).** Both libraries
+  rebuild a container as the input's own type, so a subclass survives
+  validation. voluptuous builds a fresh, empty instance of it, which keeps the
+  class and drops everything the original held in its `__dict__` or its
+  `__slots__`. Probatio copies that state onto the rebuilt container, with no
+  opt-in. Home Assistant's YAML nodes record their source file and line that
+  way, and used to lose it on every schema rebuild; now a config error can still
+  say which line it is about. What is carried is the _default_ instance state
+  (the `__dict__` and the set `__slots__` that `object.__getstate__` returns,
+  read unbound): a custom `__getstate__`/`__setstate__` pair is never called, so
+  the state those exchange is out of scope, and a class that defines them still
+  carries its plain attributes like any other. Additive: a plain `dict` or
+  `list` has no instance state, so nothing changes for it, and a container
+  rebuilt as a plain one (a foreign `Mapping`, a `Coerce(dict)`, or a _sequence_
+  subclass whose constructor does not take the validated items as one iterable)
+  still comes back plain. That last fallback is the sequence engine's alone: a
+  `dict` subclass is rebuilt by calling it with no arguments, so one whose
+  constructor requires an argument raises `TypeError` out of validation rather
+  than degrading, exactly as it does in voluptuous. How the state is copied
+  depends on where it lives: `__dict__` entries are written into the instance
+  dict directly, so a class that refuses assignments through `__setattr__` still
+  receives all of them, while a `__slots__` value is read through the class's
+  `__getattribute__` and written through its `__setattr__`, either of which can
+  refuse. A refusal costs that piece of state, never the validation.
 - **The rendered error string, `str(error)` (ADR-015).** voluptuous renders
   `expected int for dictionary value @ data['server']['port']`. Probatio renders
   the same error as `expected int at 'server.port'`: the path is a dotted trail
