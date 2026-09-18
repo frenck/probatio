@@ -156,7 +156,7 @@ so they do not round-trip:
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Any` / `Or`               | `anyOf`                                                                                                                                                                |
 | `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)                                                                                                |
-| `All` / `And`              | one merged object, or `allOf` when two validators emit the same keyword                                                                                                |
+| `All` / `And`              | one merged object, or `allOf` when two validators disagree on a keyword                                                                                                |
 | `Maybe`                    | `anyOf` with `{"type": "null"}`                                                                                                                                        |
 | `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)                                                                                                        |
 | `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)                                                                                              |
