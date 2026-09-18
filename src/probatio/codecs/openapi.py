@@ -319,6 +319,47 @@ def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
     return None
 
 
+_NO_DEFAULT = object()
+
+
+def _declines(resolved: Any) -> bool:
+    """Whether a resolved default declined to supply a value.
+
+    The engine reads any ``Undefined`` instance as a decline, not only the
+    ``UNDEFINED`` singleton, so this tests the type rather than identity.
+    """
+    return resolved is not _NO_DEFAULT and isinstance(resolved, Undefined)
+
+
+def _resolve_default(marker: Any) -> Any:
+    """Call a marker's default factory once, or report that it carries none.
+
+    The factory is user code and may be one-shot or stateful, so a conversion asks
+    it once per key and every decision reads that one result.
+    """
+    factory = getattr(marker, "default", None)
+    if factory is None or isinstance(factory, Undefined):
+        return _NO_DEFAULT
+    return factory()
+
+
+def _demands_presence(marker: Any) -> bool:
+    """Whether a ``Required`` marker actually demands the key be present.
+
+    A ``Required`` carrying a default does not: the engine fills the key in when it
+    is absent, so the mapping accepts input without it. Emitting ``required`` for
+    such a key rejects what the mapping accepts, which ``to_json_schema`` has
+    always avoided through ``_is_required``.
+
+    Only the *presence* of a factory is consulted, never what it returns. A factory
+    may decline (return an ``Undefined``), and it may decline this time and yield a
+    value the next, so a document built from one sample of it could demand a key the
+    very next validation fills in. Declining is reported under ``strict`` instead,
+    where a false alarm costs nothing and a wrong document costs correctness.
+    """
+    return isinstance(marker, Required) and isinstance(marker.default, Undefined)
+
+
 def _oa_mapping(
     node: dict[Any, Any],
     custom: Any,
@@ -353,19 +394,26 @@ def _oa_mapping(
         pval = _oa(value, custom, version)
         if facets.description:
             pval["description"] = facets.description
-        if isinstance(marker, Required | Optional | Alias) and not isinstance(
-            marker.default,
-            Undefined,
+        # User code, possibly one-shot or stateful: ask it once, read it twice.
+        resolved_default = _resolve_default(marker)
+        if (
+            isinstance(marker, Required | Optional | Alias)
+            and resolved_default is not _NO_DEFAULT
         ):
             # A non-JSON default (a ``datetime``, say) is rendered JSON-safe, or
             # omitted when it has no representation, so the emitted document never
             # crashes ``json.dumps``.
-            default = _json_safe(marker.default())
+            default = _json_safe(resolved_default)
             if default is not _UNREPRESENTABLE:
                 pval["default"] = default
         if facets.secret:
             pval["writeOnly"] = True
-        if isinstance(marker, Required) and not isinstance(pkey, AnyValidator):
+        if isinstance(marker, Required) and _declines(resolved_default):
+            # A required key may go unfilled and then be reported missing, which
+            # no keyword here can express; the document accepts its absence. An
+            # optional key's absence never fails, so a decline there loses nothing.
+            _open("a default that may decline to fill a required key")
+        if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
@@ -387,7 +435,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                required=isinstance(marker, Required),
+                required=_demands_presence(marker),
                 wildcard=value is object,
             )
             properties.update(props)

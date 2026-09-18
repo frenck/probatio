@@ -15,6 +15,7 @@ import json
 from enum import Enum
 from typing import Any, TypeVar
 
+import jsonschema
 import pytest
 import voluptuous
 import voluptuous_openapi
@@ -658,6 +659,98 @@ def test_duration_renders_a_duration_string() -> None:
     expected = {"type": "string", "format": "duration"}
     assert to_openapi(Schema(Duration())) == expected
     assert to_openapi(Schema(AsTimedelta())) == expected
+
+
+def test_a_required_default_does_not_demand_presence() -> None:
+    """A default fills the key in, so the document must not reject its absence."""
+    from probatio import Required  # noqa: PLC0415
+
+    schema = Schema({Required("a", default=1): int})
+    result = to_openapi(schema)
+
+    assert schema({}) == {"a": 1}
+    assert "required" not in result
+
+
+def test_a_required_any_key_with_a_default_demands_no_name() -> None:
+    """The same for an Any key: the default satisfies it, so no name is demanded."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    result = to_openapi(Schema({Required(AnyKey("a", "b"), default=1): int}))
+
+    assert "anyOf" not in result
+    assert sorted(result["properties"]) == ["a", "b"]
+
+
+def test_a_declining_default_is_reported_not_encoded() -> None:
+    """What a factory returns is sampled, so the document never depends on it."""
+    from probatio import UNDEFINED, Invalid, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Required("a", default=lambda: UNDEFINED): int})
+    with pytest.raises(Invalid):
+        schema({})
+
+    # The document accepts the absence, which is a widening and therefore safe.
+    assert "required" not in to_openapi(schema)
+    with pytest.raises(SchemaError, match="decline"):
+        to_openapi(schema, strict=True)
+
+
+def test_a_declining_default_on_an_optional_key_reports_nothing() -> None:
+    """An optional key's absence never fails, so a decline there loses nothing."""
+    from probatio import UNDEFINED, Optional  # noqa: PLC0415
+
+    schema = Schema({Optional("a", default=lambda: UNDEFINED): int})
+    assert schema({}) == {}
+    # Lossless both ways, so strict has nothing to report.
+    assert "required" not in to_openapi(schema, strict=True)
+
+
+def test_a_stateful_default_factory_never_narrows() -> None:
+    """A factory that declines once and yields next must not demand the key."""
+    from probatio import UNDEFINED, Required  # noqa: PLC0415
+
+    state = {"calls": 0}
+
+    def flaky() -> object:
+        """Decline the first time it is asked, then supply a value."""
+        state["calls"] += 1
+        return UNDEFINED if state["calls"] == 1 else 7
+
+    schema = Schema({Required("a", default=flaky): int})
+    # Conversion samples the decline; validation then fills the key in.
+    document = to_openapi(schema)
+    assert schema({}) == {"a": 7}
+    assert jsonschema.Draft202012Validator(document).is_valid({})
+
+
+def test_a_default_factory_is_asked_once() -> None:
+    """The factory is user code, so a conversion calls it exactly once per key."""
+    from probatio import Required  # noqa: PLC0415
+
+    calls = []
+
+    def once() -> int:
+        """Return a default, recording that it was asked."""
+        calls.append(1)
+        return 1
+
+    to_openapi(Schema({Required("a", default=once): int}))
+    assert len(calls) == 1
+
+
+def test_a_required_key_without_a_default_still_demands_presence() -> None:
+    """Only a default lifts the requirement; without one it stands."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    assert to_openapi(Schema({Required("a"): int}))["required"] == ["a"]
+    assert to_openapi(Schema({Required(AnyKey("a", "b")): int}))["anyOf"] == [
+        {"required": ["a"]},
+        {"required": ["b"]},
+    ]
 
 
 def test_inclusive_group_renders_all_or_none_per_version() -> None:
