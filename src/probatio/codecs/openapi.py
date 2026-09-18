@@ -98,6 +98,12 @@ from probatio.validators import Union as UnionValidator
 _NONE_TYPE = type(None)
 _V3_0 = "3.0"
 _V3_1 = "3.1.0"
+# The only spellings ``to_openapi`` accepts, matching voluptuous-openapi's
+# ``OpenApiVersion`` enum. Every version test in this module is an equality check
+# against one of these, so an unrecognized string would satisfy none of them and
+# render a document that is neither 3.0 nor 3.1: ``"3.1"`` is the natural way to
+# get that wrong, hence the explicit hint in the error.
+_VERSIONS = (_V3_0, _V3_1)
 
 _OPENAPI_TYPES: dict[type, str] = {
     bool: "boolean",
@@ -157,7 +163,9 @@ def to_openapi(
     """Render a schema as an OpenAPI Schema object.
 
     ``openapi_version`` is ``"3.0"`` (the default, emitting ``nullable``) or
-    ``"3.1.0"`` (emitting ``type: null``). ``custom_serializer`` is called first
+    ``"3.1.0"`` (emitting ``type: null``); any other value raises ``ValueError``,
+    since a string matching neither would otherwise render a document that is
+    neither. ``custom_serializer`` is called first
     for each node and may return a dict to override the default, or ``UNSUPPORTED``
     to defer.
 
@@ -170,6 +178,14 @@ def to_openapi(
     finite rendering, so the runaway recursion is reported as a clean
     ``SchemaError`` rather than a bare ``RecursionError``.
     """
+    if openapi_version not in _VERSIONS:
+        accepted = ", ".join(repr(version) for version in _VERSIONS)
+        message = (
+            f"unknown openapi_version {openapi_version!r}; expected one of "
+            f"{accepted} (OpenAPI 3.1 is spelled '3.1.0')"
+        )
+        raise ValueError(message)
+
     token = _STRICT.set(strict)
     try:
         rendered = _oa(schema, custom_serializer, openapi_version)

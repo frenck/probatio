@@ -753,6 +753,28 @@ def test_a_required_key_without_a_default_still_demands_presence() -> None:
     ]
 
 
+@pytest.mark.parametrize("version", ["3.1", "3", "3.0.0", "banana", ""])
+def test_an_unrecognised_openapi_version_is_refused(version: str) -> None:
+    """A version matching neither spelling would render a document that is neither."""
+    with pytest.raises(ValueError, match="unknown openapi_version") as caught:
+        to_openapi(Schema({"x": str}), openapi_version=version)
+    # The message names what is accepted, and the one misspelling people reach for.
+    assert "'3.0'" in str(caught.value)
+    assert "'3.1.0'" in str(caught.value)
+
+
+def test_the_two_accepted_versions_still_render() -> None:
+    """The exact spellings the oracle's enum uses keep working, and differ."""
+    from probatio import Maybe  # noqa: PLC0415
+
+    schema = Schema({"x": Maybe(str)})
+    on_30 = to_openapi(schema, openapi_version="3.0")["properties"]["x"]
+    on_31 = to_openapi(schema, openapi_version="3.1.0")["properties"]["x"]
+
+    assert on_30 == {"type": "string", "nullable": True}
+    assert on_31 == {"anyOf": [{"type": "null"}, {"type": "string"}]}
+
+
 def test_inclusive_group_renders_all_or_none_per_version() -> None:
     """An Inclusive group renders dependentRequired on 3.1 and a oneOf form on 3.0.
 

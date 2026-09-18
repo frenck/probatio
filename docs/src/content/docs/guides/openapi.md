@@ -75,7 +75,9 @@ to_openapi(schema)["properties"]["nickname"]
 `to_openapi` defaults to OpenAPI 3.0 (the `nullable` keyword above). Pass
 `openapi_version="3.1.0"` for 3.1, which drops `nullable` and expresses
 nullability the JSON Schema way instead, as an `anyOf` with a `{"type": "null"}`
-branch.
+branch. Those two spellings, `"3.0"` and `"3.1.0"`, are the only ones accepted
+(they match voluptuous-openapi's `OpenApiVersion` values); anything else, `"3.1"`
+included, raises `ValueError` rather than quietly rendering as one of them.
 
 ## Group constraints across versions
 
