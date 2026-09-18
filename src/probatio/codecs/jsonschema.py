@@ -1369,10 +1369,12 @@ _FROM_FORMATS: dict[str, Any] = {
     "hostname": Hostname(),
 }
 # JSON Schema scalar types that map to a fixed probatio fragment. ``null`` maps
-# to ``Literal(None)``, not the bare ``None`` schema: ``None`` is also the "no
-# facet" sentinel the facet collector drops, so a bare ``{"type": "null"}`` would
-# otherwise lose its constraint and widen to accept anything.
-_SIMPLE_TYPES: dict[str, Any] = {"boolean": bool, "null": Literal(None)}
+# to the ``NoneType`` type check, not the bare ``None`` schema: ``None`` is also
+# the "no facet" sentinel the facet collector drops, so a bare ``{"type": "null"}``
+# would otherwise lose its constraint and widen to accept anything. A type check
+# also admits exactly ``None``, where an equality check (``Literal(None)``) would
+# admit any value whose ``__eq__`` claims to be it.
+_SIMPLE_TYPES: dict[str, Any] = {"boolean": bool, "null": type(None)}
 
 
 class _JsonNumberType:
@@ -1734,7 +1736,7 @@ def _from_const(value: Any) -> Any:
     sub-schema, so it is wrapped in ``Equal`` to keep const's equality semantics.
     A value carrying a number or boolean anywhere gets the JSON-strict check,
     since Python equality would conflate ``1`` with ``True``. Null is the same
-    ``Literal(None)`` that ``{"type": "null"}`` decodes to: the bare ``None``
+    ``NoneType`` check that ``{"type": "null"}`` decodes to: the bare ``None``
     schema is also the "no facet" sentinel, so returned here it would read as an
     absent subschema (``additionalProperties: {"const": null}`` closed the object).
     """
@@ -1743,7 +1745,7 @@ def _from_const(value: Any) -> Any:
     if isinstance(value, list | dict):
         return Equal(value)
     if value is None:
-        return Literal(None)
+        return type(None)
     return value
 
 

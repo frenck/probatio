@@ -158,13 +158,11 @@ def test_enum_and_const() -> None:
 
 
 def test_const_null_is_a_subschema_not_an_absent_one() -> None:
-    """``{"const": null}`` decodes to a null check in every position.
-
-    The bare ``None`` schema is also the decoder's "no facet" sentinel, so a
-    ``const: null`` that decoded to it read as an absent subschema:
-    ``additionalProperties: {"const": null}`` closed the object and rejected the
-    ``{"x": null}`` the document accepts.
-    """
+    """``{"const": null}`` decodes to a null check in every position."""
+    # The bare ``None`` schema is also the decoder's "no facet" sentinel, so a
+    # ``const: null`` that decoded to it read as an absent subschema:
+    # ``additionalProperties: {"const": null}`` closed the object and rejected
+    # the ``{"x": null}`` the document accepts.
     schema = from_json_schema({"const": None})
     assert schema(None) is None
     for value in (0, "", False):
@@ -188,6 +186,25 @@ def test_const_null_is_a_subschema_not_an_absent_one() -> None:
     assert schema({"a": None}) == {"a": None}
     with pytest.raises(Invalid):
         schema({"a": 1})
+
+
+def test_a_decoded_null_admits_only_none() -> None:
+    """Both null spellings decode to a type check, not an equality check."""
+
+    # JSON null is a type. An equality check would also admit any value whose
+    # ``__eq__`` claims to equal ``None``, which is not null.
+    class Liar:
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        def __hash__(self) -> int:
+            return 0
+
+    for document in ({"type": "null"}, {"const": None}):
+        schema = from_json_schema(document)
+        assert schema(None) is None
+        with pytest.raises(Invalid):
+            schema(Liar())
 
 
 def test_anyof_and_allof() -> None:
