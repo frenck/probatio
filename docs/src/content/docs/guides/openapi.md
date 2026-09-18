@@ -36,6 +36,14 @@ is open). This is one of the places `to_openapi` diverges from voluptuous-openap
 which omits the keyword on a closed object: `to_openapi` emits correct OpenAPI even
 where the reference implementation does not.
 
+A value that accepts anything (`object`, a callable without a type hint) renders as
+the empty schema `{}`, in every position, the same as `to_json_schema`.
+voluptuous-openapi renders `object` as a JSON object and gives any other untyped
+property `type: string`; both reject values the validator accepts, so `to_openapi`
+does neither. A constraint-only value still gets its type inferred the way
+voluptuous-openapi does: a bound makes it a `number`, a length or pattern a
+`string`.
+
 Going the other way, an OpenAPI Schema object becomes a working validator.
 `nullable` is read back too, so a nullable field accepts both `None` and a real
 value:
@@ -133,10 +141,10 @@ from probatio import Schema, In, to_openapi
 to_openapi(Schema(In([b"raw"])), strict=True)
 ```
 
-A faithfully open construct (`object`, a bare `dict`) is not a loss, so it stays
-open even under `strict=True`. Strict catches the constructs that widen to an open
-schema, not a version-specific partial drop (an OpenAPI 3.0 `Contains` still
-renders as a plain array).
+A faithfully open construct is not a loss, so it passes `strict=True`: `object` is
+the empty schema, and a bare `dict` is an open object. Strict catches the
+constructs that widen to an open schema, not a version-specific partial drop (an
+OpenAPI 3.0 `Contains` still renders as a plain array).
 
 ## Customizing the output
 
