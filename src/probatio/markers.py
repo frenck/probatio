@@ -208,6 +208,10 @@ class Alias(Marker):
 
     Like ``Optional``, an aliased key may be absent, in which case its ``default``
     applies. Pass ``required=True`` to demand that one of its names is present.
+
+    Every name, the canonical one and each alias, is a literal key. A type or a
+    validator (``str``, ``Any("a", "b")``, ``Extra``) has no single spelling to look
+    up in the input or to emit under, so it is rejected at build time.
     """
 
     def __init__(  # noqa: PLR0913
@@ -224,6 +228,20 @@ class Alias(Marker):
         if not aliases:
             message = "Alias needs at least one alias name besides the canonical key"
             raise SchemaError(message)
+
+        # The names are looked up in the input by equality and the canonical one
+        # becomes an output key, so each must be a literal, the same test the
+        # compiler uses to tell a literal key from a matching one. A validator would
+        # match nothing as an alias and, as the canonical, reject its own aliases.
+        # The canonical may be wrapped (``Alias(Secret("a"), "b")``), so it is
+        # resolved to the bare key first.
+        for name in (resolve_key(schema).key, *aliases):
+            if isinstance(name, type) or callable(name):
+                message = (
+                    "Alias names must be literal keys, not a type or a validator: "
+                    f"{name!r}"
+                )
+                raise SchemaError(message)
 
         super().__init__(schema, msg, description)
         self.aliases = tuple(aliases)
