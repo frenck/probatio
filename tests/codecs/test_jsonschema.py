@@ -178,6 +178,37 @@ def test_any_becomes_any_of() -> None:
     }
 
 
+def test_a_single_branch_any_renders_as_its_branch() -> None:
+    """One branch is exactly that branch, so no anyOf wraps it.
+
+    The wrapper also unsettled a round trip: ``items: {"anyOf": [x]}`` decodes to
+    the sequence ``[x]``, which renders as ``items: x``, one level flatter per
+    trip until flat.
+    """
+    from probatio.validators import Union  # noqa: PLC0415
+
+    assert to_json_schema(Schema(Any(int))) == {"type": "integer"}
+    assert to_json_schema(Schema(Union(int))) == {"type": "integer"}
+
+    document = to_json_schema(Schema([Any(Union(True))]))
+    assert document == {"type": "array", "items": {"const": True}}
+    assert to_json_schema(from_json_schema(document)) == document
+
+
+def test_an_empty_any_renders_as_a_rejection() -> None:
+    """``Any()`` accepts nothing; ``not: {}`` says so and is a valid schema.
+
+    An empty ``anyOf`` would say the same, but the metaschema requires at least
+    one branch, so a document carrying it is not a JSON Schema at all.
+    """
+    document = to_json_schema(Schema(Any()))
+    assert document == {"not": {}}
+    jsonschema.Draft202012Validator.check_schema(document)
+    validator = jsonschema.Draft202012Validator(document)
+    for value in (1, "x", None, [], {}):
+        assert not validator.is_valid(value)
+
+
 def test_match_exports_pattern() -> None:
     """Match exports an ECMA-compatible pattern unchanged."""
     assert to_json_schema(Schema(Match(r"^\d+$"))) == {
