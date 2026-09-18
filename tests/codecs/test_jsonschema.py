@@ -623,7 +623,7 @@ def test_self_exports_a_recursive_ref() -> None:
 
 
 def test_all_with_colliding_keywords_uses_all_of() -> None:
-    """Two validators emitting the same keyword merge into allOf, not last-writer-wins."""
+    """Two validators disagreeing on a keyword fall back to allOf, not last-writer-wins."""
     result = to_json_schema(Schema(All(Any(int, str), Any(str, float))))
     assert result == {
         "allOf": [
@@ -639,6 +639,40 @@ def test_all_without_collisions_still_merges() -> None:
         "type": "integer",
         "minimum": 0,
     }
+
+
+def test_all_with_agreeing_keywords_merges() -> None:
+    """Two validators saying the same thing about a keyword merge, not allOf."""
+    assert to_json_schema(Schema(All(str, Match("^x")))) == {
+        "type": "string",
+        "pattern": "^x",
+    }
+
+
+def test_all_with_disagreeing_values_for_a_keyword_uses_all_of() -> None:
+    """Two validators that disagree on a keyword's value each keep their branch."""
+    assert to_json_schema(Schema(All(Match("^a"), Match("b$")))) == {
+        "allOf": [
+            {"type": "string", "pattern": "^a"},
+            {"type": "string", "pattern": "^(?:b$)"},
+        ],
+    }
+
+
+def test_a_typed_pattern_round_trip_is_a_structural_fixpoint() -> None:
+    """The document a decoded pattern renders to is the one it was decoded from.
+
+    ``{"type": "string", "pattern": ...}`` decodes to ``All(str, pattern)``. Were
+    that rendered as an ``allOf``, the document would nest one level deeper on
+    every trip, forever, while staying behaviorally the same.
+    """
+    for schema in (
+        Schema(Match("^a")),
+        Schema({"x": All(str, Match("^x"), Length(max=3))}),
+        Schema(All(Match("^a"), Match("b$"))),
+    ):
+        document = to_json_schema(schema)
+        assert to_json_schema(from_json_schema(document)) == document
 
 
 def test_enum_with_a_datetime_member_stays_serializable() -> None:
