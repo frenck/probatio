@@ -1024,7 +1024,21 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
 
     if fallback:
         return {"allOf": all_of}
-    return _ensure_default(_retarget_length(merged))
+    merged = _retarget_length(merged)
+
+    # Length bounds no sized type owns after the retarget: the merge has no type
+    # at all (``All(Length(min=1))``), a union, or a type with no length
+    # (``All(int, Length(min=1))``, which nothing satisfies). Merged raw they would
+    # constrain strings only, so they keep their own typed branches and the rest
+    # of the merge intersects them.
+    bounds: dict[str, Any] = {
+        key: merged.pop(key) for key in ("minLength", "maxLength") if key in merged
+    }
+    if bounds and merged.get("type") != "string":
+        typed = _oa_length_branches(bounds)
+        return {"allOf": [_ensure_default(merged), typed]} if merged else typed
+    merged.update(bounds)
+    return _ensure_default(merged)
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an
@@ -1118,6 +1132,18 @@ def _oa_length(node: Length) -> dict[str, Any]:
 def _oa_length_alone(node: Length) -> dict[str, Any]:
     """Render a Length that no sibling types: one branch per sized JSON type.
 
+    With no bounds at all ``Length`` never measures the value and passes every
+    one, numbers included, so that is the empty schema.
+    """
+    bounds = _oa_length(node)
+    if not bounds:
+        return {}
+    return _oa_length_branches(bounds)
+
+
+def _oa_length_branches(bounds: dict[str, Any]) -> dict[str, Any]:
+    """Spread string-length bounds over one typed branch per sized JSON type.
+
     ``Length`` counts strings, arrays and objects alike and rejects anything with
     no length. OpenAPI has a length keyword per type (``minLength`` is ignored on
     anything but a string), so one untyped keyword would leave the other two
@@ -1125,7 +1151,6 @@ def _oa_length_alone(node: Length) -> dict[str, Any]:
     bounds on that type's keyword; a value with no length matches none of them,
     which is what the validator does with it.
     """
-    bounds = _oa_length(node)
     branches: list[dict[str, Any]] = [{"type": "string", **bounds}]
     for json_type, (min_key, max_key) in _LENGTH_KEYS_BY_TYPE.items():
         branch: dict[str, Any] = {"type": json_type}

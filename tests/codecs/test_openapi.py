@@ -153,8 +153,12 @@ def build(lib: Any) -> dict[str, Any]:
 # which rejects the scalars and the non-strings the validator accepts. A ``Match``
 # carries ``type: string`` wherever it renders; the oracle types it only inside a
 # property, so at the root its ``pattern`` constrains nothing but strings and the
-# rest passes. They are asserted directly below, and the behavioral oracle in
-# ``test_openapi_oracle.py`` covers them property-based.
+# rest passes. An ``All`` whose ``Length`` has no sized sibling keeps the
+# length's typed branches and intersects the rest with them
+# (``All(Range(min=1), Length(min=2))`` satisfies nothing, and the document says
+# so); the oracle merges the bounds raw, which constrains strings only. They are
+# asserted directly below, and the behavioral oracle in ``test_openapi_oracle.py``
+# covers them property-based.
 _DIVERGING = frozenset(
     {
         "any_three",
@@ -165,6 +169,7 @@ _DIVERGING = frozenset(
         "bare_object",
         "bare_list",
         "match",
+        "all_conflict",
     },
 )
 _CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
@@ -1345,16 +1350,67 @@ def test_a_bare_length_renders_a_branch_per_sized_type() -> None:
             schema({"a": value})
         assert not validator.is_valid({"a": value}), value
 
-    # No bounds still says "any sized value", which a number is not.
-    assert to_openapi(Schema(probatio.Length())) == {
-        "anyOf": [{"type": "string"}, {"type": "array"}, {"type": "object"}],
-    }
+    # A single bound lands alone on each branch.
+    assert to_openapi(Schema(probatio.Length(max=2)))["anyOf"] == [
+        {"type": "string", "maxLength": 2},
+        {"type": "array", "maxItems": 2},
+        {"type": "object", "maxProperties": 2},
+    ]
+
+    # With no bounds a Length never measures the value, so it accepts anything.
+    assert Schema(probatio.Length())(1) == 1
+    assert to_openapi(Schema(probatio.Length())) == {}
 
     # Beside a type the bounds land on that type's keyword, as before.
     assert to_openapi(Schema(probatio.All(str, probatio.Length(min=1)))) == {
         "type": "string",
         "minLength": 1,
     }
+
+
+def test_length_bounds_without_a_sized_sibling_keep_their_branches() -> None:
+    """An All that gives a Length no sized type intersects it with the branches."""
+    sized = {
+        "anyOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "array", "minItems": 1},
+            {"type": "object", "minProperties": 1},
+        ],
+    }
+    # Merged raw, ``minLength`` would constrain strings only, and the number or
+    # empty list the validator rejects would pass the document.
+    assert to_openapi(Schema(probatio.All(probatio.Length(min=1)))) == sized
+
+    schema = Schema(probatio.All(probatio.In([1, "x"]), probatio.Length(min=1)))
+    result = to_openapi(schema)
+    assert result == {"allOf": [{"enum": [1, "x"]}, sized]}
+    validator = jsonschema.Draft202012Validator(result)
+    assert schema("x") == "x"
+    assert validator.is_valid("x")
+    with pytest.raises(probatio.Invalid):
+        schema(1)
+    assert not validator.is_valid(1)
+
+    # A type with no length satisfies nothing, and neither does the document.
+    schema = Schema(probatio.All(probatio.Range(min=1), probatio.Length(min=2)))
+    result = to_openapi(schema)
+    assert result == {
+        "allOf": [
+            {"type": "number", "minimum": 1},
+            {
+                "anyOf": [
+                    {"type": "string", "minLength": 2},
+                    {"type": "array", "minItems": 2},
+                    {"type": "object", "minProperties": 2},
+                ],
+            },
+        ],
+    }
+    validator = jsonschema.Draft202012Validator(result)
+    for value in (5, "abc", [1, 2]):
+        with pytest.raises(probatio.Invalid):
+            schema(value)
+        assert not validator.is_valid(value), value
 
 
 def test_custom_serializer_still_overrides_a_length_inside_an_all() -> None:
