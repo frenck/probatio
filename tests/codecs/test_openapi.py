@@ -661,6 +661,63 @@ def test_duration_renders_a_duration_string() -> None:
     assert to_openapi(Schema(AsTimedelta())) == expected
 
 
+def test_a_schema_wide_required_policy_reaches_bare_keys() -> None:
+    """Under required=True a bare key demands presence, as it does in validation."""
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({"a": int, "b": str}, required=True)
+    with pytest.raises(Invalid):
+        schema({"a": 1})
+    assert sorted(to_openapi(schema)["required"]) == ["a", "b"]
+
+    # The default policy leaves a bare key optional, and emits no requirement.
+    assert "required" not in to_openapi(Schema({"a": int, "b": str}))
+
+
+def test_the_required_policy_reaches_a_nested_mapping() -> None:
+    """A nested plain dict inherits the policy; a nested Schema keeps its own."""
+    schema = Schema(
+        {"a": int, "nested": {"b": int}, "own": Schema({"c": int}, required=False)},
+        required=True,
+    )
+    result = to_openapi(schema)
+
+    assert result["properties"]["nested"]["required"] == ["b"]
+    assert "required" not in result["properties"]["own"]
+
+
+def test_only_a_bare_or_required_key_follows_the_policy() -> None:
+    """Every other marker accepts absence under required=True, as the engine does."""
+    from probatio import (  # noqa: PLC0415
+        Alias,
+        Exclusive,
+        Forbidden,
+        Inclusive,
+        Invalid,
+        Optional,
+        Remove,
+        Required,
+    )
+
+    markers = {
+        "Optional": Optional("a"),
+        "Remove": Remove("a"),
+        "Forbidden": Forbidden("a"),
+        "Inclusive": Inclusive("a", "g"),
+        "Exclusive": Exclusive("a", "g"),
+        "Alias": Alias("a", "b"),
+        "Required with default": Required("a", default=1),
+    }
+    for label, marker in markers.items():
+        schema = Schema({marker: int, "z": int}, required=True)
+        # The engine accepts the key's absence, so the document must too.
+        assert schema({"z": 1}) is not None, label
+        assert "a" not in to_openapi(schema).get("required", []), label
+
+    with pytest.raises(Invalid):
+        Schema({Required("a"): int, "z": int}, required=True)({"z": 1})
+
+
 def test_a_required_default_does_not_demand_presence() -> None:
     """A default fills the key in, so the document must not reject its absence."""
     from probatio import Required  # noqa: PLC0415

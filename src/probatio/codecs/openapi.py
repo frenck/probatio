@@ -261,8 +261,17 @@ def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
-    """Convert one schema node into an OpenAPI Schema object."""
+def _oa(
+    node: Any, custom: Any, version: str, *, required_default: bool = False
+) -> dict[str, Any]:
+    """Convert one schema node into an OpenAPI Schema object.
+
+    ``required_default`` is the schema-wide ``required=`` policy for the mapping
+    being rendered: a bare key under ``Schema(..., required=True)`` demands
+    presence. It is read off each ``Schema`` as it is unwrapped (a nested one with
+    its own setting overrides the outer), carried into mapping values and sequence
+    items, and, matching ``to_json_schema``, not into leaf validators.
+    """
     additional: Any = None
     # The strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
     # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
@@ -273,6 +282,7 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
     while isinstance(node, Schema):
         closed = node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA)
         additional = True if node.extra == ALLOW_EXTRA else None
+        required_default = node.required
         node = node.schema
 
     if custom is not None:
@@ -286,9 +296,16 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return {"$ref": "#"}
 
     if isinstance(node, dict):
-        return _oa_mapping(node, custom, version, additional, closed=closed)
+        return _oa_mapping(
+            node,
+            custom,
+            version,
+            additional,
+            closed=closed,
+            required_default=required_default,
+        )
     if isinstance(node, list | tuple | set | frozenset):
-        return _oa_sequence(node, custom, version)
+        return _oa_sequence(node, custom, version, required_default=required_default)
 
     generic = _oa_generic(node, custom, version)
     if generic is not None:
@@ -343,13 +360,18 @@ def _resolve_default(marker: Any) -> Any:
     return factory()
 
 
-def _demands_presence(marker: Any) -> bool:
-    """Whether a ``Required`` marker actually demands the key be present.
+def _demands_presence(marker: Any, *, required_default: bool) -> bool:
+    """Whether a key demands presence, given its marker and the schema's policy.
 
-    A ``Required`` carrying a default does not: the engine fills the key in when it
-    is absent, so the mapping accepts input without it. Emitting ``required`` for
-    such a key rejects what the mapping accepts, which ``to_json_schema`` has
-    always avoided through ``_is_required``.
+    A bare key follows the schema-wide ``required=`` setting. A ``Required`` marker
+    demands presence unless it carries a default: the engine fills a defaulted key
+    in when it is absent, so the mapping accepts input without it, and emitting
+    ``required`` for it would reject what the mapping accepts. Every other marker
+    accepts absence, whatever the policy: ``Optional`` by definition, the group
+    markers and ``Alias`` because they are ``Optional`` underneath, ``Remove`` and
+    ``Forbidden`` because a key that is stripped or refused is never demanded.
+    That is the engine's behaviour, checked directly, not a reading of
+    ``to_json_schema``.
 
     Only the *presence* of a factory is consulted, never what it returns. A factory
     may decline (return an ``Undefined``), and it may decline this time and yield a
@@ -357,16 +379,19 @@ def _demands_presence(marker: Any) -> bool:
     very next validation fills in. Declining is reported under ``strict`` instead,
     where a false alarm costs nothing and a wrong document costs correctness.
     """
+    if marker is None:
+        return required_default
     return isinstance(marker, Required) and isinstance(marker.default, Undefined)
 
 
-def _oa_mapping(
+def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     node: dict[Any, Any],
     custom: Any,
     version: str,
     additional: Any,
     *,
     closed: bool = True,
+    required_default: bool = False,
 ) -> dict[str, Any]:
     """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
     properties: dict[str, Any] = {}
@@ -391,7 +416,7 @@ def _oa_mapping(
         facets = resolve_key(key)
         marker = facets.marker
         pkey = facets.key
-        pval = _oa(value, custom, version)
+        pval = _oa(value, custom, version, required_default=required_default)
         if facets.description:
             pval["description"] = facets.description
         # User code, possibly one-shot or stateful: ask it once, read it twice.
@@ -413,7 +438,9 @@ def _oa_mapping(
             # no keyword here can express; the document accepts its absence. An
             # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
-        if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
+        if _demands_presence(
+            marker, required_default=required_default
+        ) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))
         pval = _ensure_default(pval)
 
@@ -435,7 +462,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                required=_demands_presence(marker),
+                required=_demands_presence(marker, required_default=required_default),
                 wildcard=value is object,
             )
             properties.update(props)
@@ -696,7 +723,9 @@ def _assemble_object(
     return result
 
 
-def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
+def _oa_sequence(
+    node: Any, custom: Any, version: str, *, required_default: bool = False
+) -> dict[str, Any]:
     """Render a sequence schema as an OpenAPI array.
 
     A single element schema is the item schema. Several elements ([int, str])
@@ -704,7 +733,10 @@ def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
     schema, not a positional ``items`` array (which would wrongly constrain by
     position). An empty sequence accepts only the empty array.
     """
-    items = [_ensure_default(_oa(item, custom, version)) for item in _ordered(node)]
+    items = [
+        _ensure_default(_oa(item, custom, version, required_default=required_default))
+        for item in _ordered(node)
+    ]
     if len(items) == 1:
         return {"type": "array", "items": items[0]}
     if not items:
