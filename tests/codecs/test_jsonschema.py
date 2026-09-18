@@ -528,6 +528,34 @@ def test_equal_and_literal_encode_to_const() -> None:
     assert to_json_schema(Schema(Literal("on"))) == {"const": "on"}
 
 
+def test_null_has_one_spelling() -> None:
+    """Every validator that accepts only None renders as ``{"type": "null"}``."""
+    # ``{"const": null}`` says the same thing, but a round trip has to settle on
+    # one document, and ``type: null`` is what ``None`` and ``Maybe`` already emit.
+    for schema in (None, type(None), Literal(None), Equal(None)):
+        assert to_json_schema(Schema(schema)) == {"type": "null"}
+
+
+def test_a_null_round_trip_is_a_structural_fixpoint() -> None:
+    """A null anywhere in a document decodes and re-encodes to the same document."""
+    # Both spellings decode to the same validator, so the re-encoded document does
+    # not flip between ``type: null`` and ``const: null`` on alternate trips.
+    for schema in (
+        Schema(Maybe(int)),
+        Schema({"a": None, Optional("b"): Literal(None)}),
+        Schema({Extra: None}),
+        Schema([None]),
+    ):
+        document = to_json_schema(schema)
+        assert to_json_schema(from_json_schema(document)) == document
+    for document in (
+        {"const": None},
+        {"anyOf": [{"const": None}, {"type": "integer"}]},
+    ):
+        settled = to_json_schema(from_json_schema(document))
+        assert settled == to_json_schema(from_json_schema(settled))
+
+
 def test_not_in_encodes_to_not_enum() -> None:
     """NotIn encodes to a JSON Schema not over an enum."""
     assert to_json_schema(Schema(NotIn([1, 2]))) == {"not": {"enum": [1, 2]}}
