@@ -659,7 +659,16 @@ def _expand_any_key(
 ) -> tuple[dict[str, Any], list[str] | None]:
     """Expand an ``Any`` key's names into (properties to add, constraint group)."""
     if required:
-        props = {} if wildcard else {name: pval.copy() for name in names}
+        # A wildcard value constrains nothing, so each name gets an open schema
+        # rather than the rendered ``object``. It cannot be left out: the mapping
+        # is closed by default, and an ``anyOf`` demanding a name that
+        # ``additionalProperties: false`` then forbids is a document nothing
+        # satisfies, while the engine accepts ``{"a": 1}``.
+        props = (
+            {name: {} for name in names}
+            if wildcard
+            else {name: pval.copy() for name in names}
+        )
         return props, names
     return {name: pval.copy() for name in names}, None
 

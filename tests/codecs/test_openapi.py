@@ -144,10 +144,19 @@ def build(lib: Any) -> dict[str, Any]:
 # comparison against the oracle is meaningless: an ``Any`` with an open-object
 # branch keeps that branch (the oracle collapses the whole ``anyOf`` to the open
 # object) and a nullable ``Any`` admits null with a dedicated branch (the oracle
-# emits an inert top-level ``nullable``). They are asserted directly below, and
-# the behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
+# emits an inert top-level ``nullable``). A required ``Any`` key whose value is
+# the wildcard ``object`` names each of its keys with an open schema; the oracle
+# emits no properties, which is harmless in its open object but would make
+# probatio's closed one unsatisfiable. They are asserted directly below, and the
+# behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
 _DIVERGING = frozenset(
-    {"any_three", "any_open", "any_open_nullable", "any_nested_nullable"},
+    {
+        "any_three",
+        "any_open",
+        "any_open_nullable",
+        "any_nested_nullable",
+        "required_any_object",
+    },
 )
 _CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
 
@@ -165,6 +174,26 @@ def test_matches_voluptuous_openapi(case: str, version: str) -> None:
     # ``to_openapi`` renders a closed mapping's ``additionalProperties`` and a
     # null enum member more correctly than the oracle; compare the rest.
     assert canonical_openapi(actual) == canonical_openapi(expected)
+
+
+def test_a_required_wildcard_any_key_names_its_keys_openly() -> None:
+    """The names stay allowed with open schemas; omitting them would forbid them.
+
+    voluptuous-openapi emits no properties for ``Required(Any("a", "b")): object``,
+    which its open object tolerates. probatio closes the object, so the same
+    omission plus the ``anyOf`` demanding a name would be a document nothing
+    satisfies, while validation accepts ``{"a": 1}``.
+    """
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    schema = Schema({Required(AnyKey("a", "b")): object})
+    result = to_openapi(schema)
+
+    assert result["properties"] == {"a": {}, "b": {}}
+    assert result["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+    assert schema({"a": 1}) == {"a": 1}
+    assert jsonschema.Draft202012Validator(result).is_valid({"a": 1})
 
 
 def test_any_with_null_branch_admits_null_directly() -> None:
