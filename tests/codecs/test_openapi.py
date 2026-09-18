@@ -1294,15 +1294,31 @@ def test_an_open_value_is_not_typed_as_a_string() -> None:
     assert result["properties"]["a"] == {"default": 1, "description": "anything"}
 
 
-def test_a_constraint_only_value_still_infers_its_type() -> None:
-    """The type inference stays for constraint-only schemas, as the oracle does."""
+def test_bare_bounds_are_typed_as_a_number() -> None:
+    """A Range renders numeric bounds, so it is typed number, as the oracle does."""
     result = to_openapi(
         Schema({probatio.Optional("a", default=2): probatio.Range(min=1)})
     )
     assert result["properties"]["a"] == {"type": "number", "minimum": 1, "default": 2}
 
-    result = to_openapi(Schema({"a": probatio.Length(min=1)}))
-    assert result["properties"]["a"] == {"type": "string", "minLength": 1}
+
+def test_a_mixed_enum_and_a_bare_length_are_not_typed_as_strings() -> None:
+    """An enum pins its own values and a Length counts any sized value."""
+    # voluptuous-openapi stamps ``type: string`` on both, which rejects the ``1``
+    # in ``In([1, "x"])`` and the list and object a ``Length`` accepts.
+    schema = Schema({"a": probatio.In([1, "x"]), "b": probatio.Length(min=1)})
+    result = to_openapi(schema)
+    assert result["properties"]["a"] == {"enum": [1, "x"]}
+    assert result["properties"]["b"] == {"minLength": 1}
+
+    validator = jsonschema.Draft202012Validator(result)
+    for data in ({"a": 1, "b": "x"}, {"a": "x", "b": [1]}, {"a": 1, "b": {"k": 1}}):
+        assert schema(data) == data
+        assert validator.is_valid(data), data
+
+    # A single-type enum keeps the type its members give it.
+    result = to_openapi(Schema({"a": probatio.In(["x", "y"])}))
+    assert result["properties"]["a"] == {"type": "string", "enum": ["x", "y"]}
 
 
 def test_an_open_value_under_a_variable_key_folds_to_an_open_object() -> None:

@@ -269,22 +269,26 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
 
 
 def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
-    """Infer a type for a constraint-only schema, the way voluptuous-openapi does.
+    """Type a schema that carries only numeric bounds as a number.
 
-    Bounds imply a number; anything else (a length, a pattern) a string. Two
-    schemas are complete without a ``type`` and are left alone. A ``$ref`` (a
-    recursive ``Self``) is one; a ``type`` beside it would contradict the
-    reference. The empty schema is the other: it is what ``object``, an un-hinted
-    callable and a widened construct render as, and it accepts every value, which
-    is exactly what those validate. voluptuous-openapi stamps ``type: string`` on
-    it, and that rejects the numbers, lists, objects and nulls the validator lets
-    through.
+    A ``Range`` renders as bare ``minimum``/``maximum`` bounds, and those compare
+    numbers, so the schema is typed ``number`` the way voluptuous-openapi does it.
+    Nothing else earns a type. An enum already pins its values, whatever their
+    types (a mixed one is left untyped on purpose, see ``_oa_enum``). A bare
+    ``Length`` counts strings, arrays and objects alike. A ``$ref`` (a recursive
+    ``Self``) is complete on its own. The empty schema is what ``object``, an
+    un-hinted callable and a widened construct render as, and it accepts every
+    value, which is exactly what those validate. voluptuous-openapi stamps
+    ``type: string`` on every one of those, and each stamp rejects values the
+    validator accepts: the ``1`` in ``In([1, "x"])``, the ``[1]`` a ``Length``
+    takes, anything but a string for ``object``.
     """
-    if not value or "$ref" in value:
+    if "$ref" in value:
         return value
-    if all(key not in value for key in ("type", "anyOf", "oneOf", "allOf", "not")):
-        bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
-        value["type"] = "number" if any(key in value for key in bounds) else "string"
+    typed = any(key in value for key in ("type", "anyOf", "oneOf", "allOf", "not"))
+    bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+    if not typed and any(key in value for key in bounds):
+        value["type"] = "number"
     return value
 
 
