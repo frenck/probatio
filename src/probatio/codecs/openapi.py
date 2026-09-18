@@ -408,9 +408,10 @@ def _oa_mapping(
                 pval["default"] = default
         if facets.secret:
             pval["writeOnly"] = True
-        if _declines(resolved_default):
-            # The key may go unfilled and then be reported missing, which no
-            # keyword here can express; the document accepts its absence.
+        if isinstance(marker, Required) and _declines(resolved_default):
+            # A required key may go unfilled and then be reported missing, which
+            # no keyword here can express; the document accepts its absence. An
+            # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
         if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
             required.append(str(pkey))

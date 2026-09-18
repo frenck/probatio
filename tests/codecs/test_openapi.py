@@ -698,6 +698,16 @@ def test_a_declining_default_is_reported_not_encoded() -> None:
         to_openapi(schema, strict=True)
 
 
+def test_a_declining_default_on_an_optional_key_reports_nothing() -> None:
+    """An optional key's absence never fails, so a decline there loses nothing."""
+    from probatio import UNDEFINED, Optional  # noqa: PLC0415
+
+    schema = Schema({Optional("a", default=lambda: UNDEFINED): int})
+    assert schema({}) == {}
+    # Lossless both ways, so strict has nothing to report.
+    assert "required" not in to_openapi(schema, strict=True)
+
+
 def test_a_stateful_default_factory_never_narrows() -> None:
     """A factory that declines once and yields next must not demand the key."""
     from probatio import UNDEFINED, Required  # noqa: PLC0415
