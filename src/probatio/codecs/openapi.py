@@ -44,6 +44,7 @@ from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
+    Extra,
     Forbidden,
     Inclusive,
     Optional,
@@ -463,7 +464,12 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
             # no keyword here can express; the document accepts its absence. An
             # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
-        demands = _demands_presence(marker, required_default=required_default)
+        # ``Extra`` is the catch-all for names nothing else matched; the engine
+        # compiles it optional whatever the schema-wide policy says, so it never
+        # demands presence and must not be reported as an unrepresentable one.
+        demands = pkey is not Extra and _demands_presence(
+            marker, required_default=required_default
+        )
         # Only a concrete string key can be named in ``required``. A key that
         # matches by shape (a type, a callable) has no name to demand.
         if demands and isinstance(pkey, str):

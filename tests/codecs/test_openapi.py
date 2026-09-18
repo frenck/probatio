@@ -717,6 +717,28 @@ def test_a_shape_key_never_enters_required() -> None:
         to_openapi(schema, strict=True)
 
 
+def test_extra_never_demands_presence_under_the_policy() -> None:
+    """Extra is the catch-all; the engine compiles it optional whatever the policy."""
+    from probatio import Extra  # noqa: PLC0415
+
+    schema = Schema({Extra: int}, required=True)
+    assert schema({}) == {}
+    result = to_openapi(schema, strict=True)  # nothing to report: nothing is lost
+    assert "required" not in result
+    assert result["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_bare_any_key_under_the_policy_demands_one_of_its_names() -> None:
+    """A bare Any key is a bare key, so required=True demands one of its names."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({AnyKey("a", "b"): int}, required=True)
+    with pytest.raises(Invalid):
+        schema({})
+    assert to_openapi(schema)["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+
+
 def test_the_required_policy_reaches_a_mapping_inside_a_list() -> None:
     """The policy travels through a sequence to the dict it holds, as validation does."""
     from probatio import Invalid  # noqa: PLC0415
