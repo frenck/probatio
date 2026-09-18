@@ -4,6 +4,9 @@
     'ALLOW_EXTRA': dict({
       'kind': 'value',
     }),
+    'ANNOTATIONS_ATTR': dict({
+      'kind': 'value',
+    }),
     'ASCII': dict({
       'kind': 'class',
       'signature': list([
@@ -77,6 +80,13 @@
         'msg KEYWORD_ONLY None',
         'required KEYWORD_ONLY False',
         'kwargs VAR_KEYWORD required',
+      ]),
+    }),
+    'Annotations': dict({
+      'kind': 'class',
+      'signature': list([
+        'annotations POSITIONAL_ONLY None',
+        'extra VAR_KEYWORD required',
       ]),
     }),
     'Any': dict({
@@ -1826,6 +1836,27 @@
     '__version__': dict({
       'kind': 'value',
     }),
+    'annotate': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_ONLY required',
+        'annotations POSITIONAL_ONLY None',
+        'extra VAR_KEYWORD required',
+      ]),
+    }),
+    'annotations_of': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'carry_annotations': dict({
+      'kind': 'function',
+      'signature': list([
+        'source POSITIONAL_OR_KEYWORD required',
+        'target POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
     'create_dataclass_schema': dict({
       'kind': 'function',
       'signature': list([
@@ -1923,6 +1954,12 @@
       'kind': 'function',
       'signature': list([
         'policy POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'supports_annotations': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
       ]),
     }),
     'to_field_list': dict({
