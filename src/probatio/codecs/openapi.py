@@ -269,22 +269,26 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
 
 
 def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
-    """Infer a type for a constraint-only schema, the way voluptuous-openapi does.
+    """Type a schema that carries only numeric bounds as a number.
 
-    Bounds imply a number; anything else (a length, a pattern) a string. Two
-    schemas are complete without a ``type`` and are left alone. A ``$ref`` (a
-    recursive ``Self``) is one; a ``type`` beside it would contradict the
-    reference. The empty schema is the other: it is what ``object``, an un-hinted
-    callable and a widened construct render as, and it accepts every value, which
-    is exactly what those validate. voluptuous-openapi stamps ``type: string`` on
-    it, and that rejects the numbers, lists, objects and nulls the validator lets
-    through.
+    A ``Range`` renders as bare ``minimum``/``maximum`` bounds, and those compare
+    numbers, so the schema is typed ``number`` the way voluptuous-openapi does it.
+    Nothing else earns a type. An enum already pins its values, whatever their
+    types (a mixed one is left untyped on purpose, see ``_oa_enum``). A bare
+    ``Length`` counts strings, arrays and objects alike. A ``$ref`` (a recursive
+    ``Self``) is complete on its own. The empty schema is what ``object``, an
+    un-hinted callable and a widened construct render as, and it accepts every
+    value, which is exactly what those validate. voluptuous-openapi stamps
+    ``type: string`` on every one of those, and each stamp rejects values the
+    validator accepts: the ``1`` in ``In([1, "x"])``, the ``[1]`` a ``Length``
+    takes, anything but a string for ``object``.
     """
-    if not value or "$ref" in value:
+    if "$ref" in value:
         return value
-    if all(key not in value for key in ("type", "anyOf", "oneOf", "allOf", "not")):
-        bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
-        value["type"] = "number" if any(key in value for key in bounds) else "string"
+    typed = any(key in value for key in ("type", "anyOf", "oneOf", "allOf", "not"))
+    bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
+    if not typed and any(key in value for key in bounds):
+        value["type"] = "number"
     return value
 
 
@@ -877,7 +881,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, Clamp | Range):
         return _oa_range(node, version)
     if isinstance(node, Length):
-        return _oa_length(node)
+        return _oa_length_alone(node)
 
     # Date and Time subclass Datetime, so they must be matched before it. The As*
     # parsers are not subclasses, but describe the same string on the wire.
@@ -902,7 +906,9 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         # renders as a plain string rather than crashing on the missing ``.pattern``.
         if isinstance(source, bytes):
             return {"type": "string"}
-        return {"pattern": source}
+        # ``Match`` rejects anything but a string, and ``pattern`` on its own
+        # constrains only strings, so the type has to travel with it.
+        return {"type": "string", "pattern": source}
     if isinstance(node, Equal | Literal):
         return _oa_enum([node.target if isinstance(node, Equal) else node.lit])
     if isinstance(node, In):
@@ -1007,7 +1013,7 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     fallback = False
 
     for validator in node.validators:
-        part = _oa(validator, custom, version)
+        part = _oa_all_part(validator, custom, version)
         if not part or part in all_of or part == _OPEN_OBJECT:
             continue
         if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
@@ -1018,7 +1024,21 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
 
     if fallback:
         return {"allOf": all_of}
-    return _ensure_default(_retarget_length(merged))
+    merged = _retarget_length(merged)
+
+    # Length bounds no sized type owns after the retarget: the merge has no type
+    # at all (``All(Length(min=1))``), a union, or a type with no length
+    # (``All(int, Length(min=1))``, which nothing satisfies). Merged raw they would
+    # constrain strings only, so they keep their own typed branches and the rest
+    # of the merge intersects them.
+    bounds: dict[str, Any] = {
+        key: merged.pop(key) for key in ("minLength", "maxLength") if key in merged
+    }
+    if bounds and merged.get("type") != "string":
+        typed = _oa_length_branches(bounds)
+        return {"allOf": [_ensure_default(merged), typed]} if merged else typed
+    merged.update(bounds)
+    return _ensure_default(merged)
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an
@@ -1083,6 +1103,22 @@ def _oa_bound(
     return {key: value, exclusive_key: True}
 
 
+def _oa_all_part(validator: Any, custom: Any, version: str) -> dict[str, Any]:
+    """Render one part of an All for the merge.
+
+    A ``Length`` goes in as raw string-length bounds: a sibling supplies the type
+    they apply to, and ``_retarget_length`` moves them onto that type's keyword.
+    On its own a ``Length`` renders one branch per sized type, which has no place
+    in a merge. A ``custom_serializer`` still gets the first say, as in ``_oa``.
+    """
+    if isinstance(validator, Length):
+        override = custom(validator) if custom is not None else UNSUPPORTED
+        if override is UNSUPPORTED:
+            return _oa_length(validator)
+        return cast("dict[str, Any]", override)
+    return _oa(validator, custom, version)
+
+
 def _oa_length(node: Length) -> dict[str, Any]:
     """Render a Length as OpenAPI string-length bounds."""
     result: dict[str, Any] = {}
@@ -1091,6 +1127,39 @@ def _oa_length(node: Length) -> dict[str, Any]:
     if node.max is not None:
         result["maxLength"] = node.max
     return result
+
+
+def _oa_length_alone(node: Length) -> dict[str, Any]:
+    """Render a Length that no sibling types: one branch per sized JSON type.
+
+    With no bounds at all ``Length`` never measures the value and passes every
+    one, numbers included, so that is the empty schema.
+    """
+    bounds = _oa_length(node)
+    if not bounds:
+        return {}
+    return _oa_length_branches(bounds)
+
+
+def _oa_length_branches(bounds: dict[str, Any]) -> dict[str, Any]:
+    """Spread string-length bounds over one typed branch per sized JSON type.
+
+    ``Length`` counts strings, arrays and objects alike and rejects anything with
+    no length. OpenAPI has a length keyword per type (``minLength`` is ignored on
+    anything but a string), so one untyped keyword would leave the other two
+    types unconstrained. Each sized type gets its own typed branch, with the
+    bounds on that type's keyword; a value with no length matches none of them,
+    which is what the validator does with it.
+    """
+    branches: list[dict[str, Any]] = [{"type": "string", **bounds}]
+    for json_type, (min_key, max_key) in _LENGTH_KEYS_BY_TYPE.items():
+        branch: dict[str, Any] = {"type": json_type}
+        if "minLength" in bounds:
+            branch[min_key] = bounds["minLength"]
+        if "maxLength" in bounds:
+            branch[max_key] = bounds["maxLength"]
+        branches.append(branch)
+    return {"anyOf": branches}
 
 
 def _oa_enum(values: list[Any]) -> dict[str, Any]:

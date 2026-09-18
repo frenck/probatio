@@ -40,9 +40,14 @@ A value that accepts anything (`object`, a callable without a type hint) renders
 the empty schema `{}`, in every position, the same as `to_json_schema`.
 voluptuous-openapi renders `object` as a JSON object and gives any other untyped
 property `type: string`; both reject values the validator accepts, so `to_openapi`
-does neither. A constraint-only value still gets its type inferred the way
-voluptuous-openapi does: a bound makes it a `number`, a length or pattern a
-`string`.
+does neither. A bare bound (`Range`) is still typed `number`, as voluptuous-openapi
+does. A mixed enum stays untyped, since a `string` stamp would reject the `1` in
+`In([1, "x"])`. A bounded `Length` on its own renders one branch per sized type
+(`string`, `array`, `object`) with the bounds on that type's keyword, because
+`Length` accepts all three and `minLength` alone constrains only strings. Beside a
+sized type, as in `All(str, Length(min=1))`, the bounds land on that type's keyword
+directly; beside anything else the branches stay and the rest is intersected with
+them. An unbounded `Length()` accepts every value and renders as `{}`.
 
 Going the other way, an OpenAPI Schema object becomes a working validator.
 `nullable` is read back too, so a nullable field accepts both `None` and a real
