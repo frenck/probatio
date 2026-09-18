@@ -150,9 +150,11 @@ def build(lib: Any) -> dict[str, Any]:
 # probatio's closed one unsatisfiable. A bare ``object`` is the empty schema, since
 # it accepts any value, and a bare ``list`` has the empty schema as its items; the
 # oracle renders the first as a JSON object and the second's items as strings,
-# which rejects the scalars and the non-strings the validator accepts. They are
-# asserted directly below, and the behavioral oracle in ``test_openapi_oracle.py``
-# covers them property-based.
+# which rejects the scalars and the non-strings the validator accepts. A ``Match``
+# carries ``type: string`` wherever it renders; the oracle types it only inside a
+# property, so at the root its ``pattern`` constrains nothing but strings and the
+# rest passes. They are asserted directly below, and the behavioral oracle in
+# ``test_openapi_oracle.py`` covers them property-based.
 _DIVERGING = frozenset(
     {
         "any_three",
@@ -162,6 +164,7 @@ _DIVERGING = frozenset(
         "required_any_object",
         "bare_object",
         "bare_list",
+        "match",
     },
 )
 _CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
@@ -1302,23 +1305,85 @@ def test_bare_bounds_are_typed_as_a_number() -> None:
     assert result["properties"]["a"] == {"type": "number", "minimum": 1, "default": 2}
 
 
-def test_a_mixed_enum_and_a_bare_length_are_not_typed_as_strings() -> None:
-    """An enum pins its own values and a Length counts any sized value."""
-    # voluptuous-openapi stamps ``type: string`` on both, which rejects the ``1``
-    # in ``In([1, "x"])`` and the list and object a ``Length`` accepts.
-    schema = Schema({"a": probatio.In([1, "x"]), "b": probatio.Length(min=1)})
+def test_a_mixed_enum_is_not_typed_as_a_string() -> None:
+    """An enum pins its own values, whatever their types."""
+    # voluptuous-openapi stamps ``type: string`` on it, which rejects the ``1``.
+    schema = Schema({"a": probatio.In([1, "x"])})
     result = to_openapi(schema)
     assert result["properties"]["a"] == {"enum": [1, "x"]}
-    assert result["properties"]["b"] == {"minLength": 1}
 
     validator = jsonschema.Draft202012Validator(result)
-    for data in ({"a": 1, "b": "x"}, {"a": "x", "b": [1]}, {"a": 1, "b": {"k": 1}}):
+    for data in ({"a": 1}, {"a": "x"}):
         assert schema(data) == data
         assert validator.is_valid(data), data
 
     # A single-type enum keeps the type its members give it.
     result = to_openapi(Schema({"a": probatio.In(["x", "y"])}))
     assert result["properties"]["a"] == {"type": "string", "enum": ["x", "y"]}
+
+
+def test_a_bare_length_renders_a_branch_per_sized_type() -> None:
+    """A Length counts strings, arrays and objects; each gets its own bounds."""
+    # voluptuous-openapi types it ``string``, rejecting the list and object the
+    # validator accepts; an untyped ``minLength`` would constrain strings only.
+    schema = Schema({"a": probatio.Length(min=1, max=2)})
+    result = to_openapi(schema, strict=True)
+    assert result["properties"]["a"] == {
+        "anyOf": [
+            {"type": "string", "minLength": 1, "maxLength": 2},
+            {"type": "array", "minItems": 1, "maxItems": 2},
+            {"type": "object", "minProperties": 1, "maxProperties": 2},
+        ],
+    }
+
+    validator = jsonschema.Draft202012Validator(result)
+    for value in ("x", [1], {"k": 1}, "xy"):
+        assert schema({"a": value}) == {"a": value}
+        assert validator.is_valid({"a": value}), value
+    for value in ("", [], {}, "xyz", [1, 2, 3], 1, None, True):
+        with pytest.raises(probatio.Invalid):
+            schema({"a": value})
+        assert not validator.is_valid({"a": value}), value
+
+    # No bounds still says "any sized value", which a number is not.
+    assert to_openapi(Schema(probatio.Length())) == {
+        "anyOf": [{"type": "string"}, {"type": "array"}, {"type": "object"}],
+    }
+
+    # Beside a type the bounds land on that type's keyword, as before.
+    assert to_openapi(Schema(probatio.All(str, probatio.Length(min=1)))) == {
+        "type": "string",
+        "minLength": 1,
+    }
+
+
+def test_custom_serializer_still_overrides_a_length_inside_an_all() -> None:
+    """The merge takes a Length's bounds raw, but a custom rendering wins first."""
+
+    def custom(node: Any) -> Any:
+        if isinstance(node, probatio.Length):
+            return {"type": "string", "x-length": "custom"}
+        return UNSUPPORTED
+
+    result = to_openapi(
+        Schema(probatio.All(str, probatio.Length(min=1))), custom_serializer=custom
+    )
+    assert result == {"type": "string", "x-length": "custom"}
+
+
+def test_match_keeps_its_string_type() -> None:
+    """A Match rejects non-strings, and a pattern alone would not."""
+    from probatio import Match  # noqa: PLC0415
+
+    schema = Schema({"a": Match("^x")})
+    result = to_openapi(schema)
+    assert result["properties"]["a"] == {"type": "string", "pattern": "^x"}
+    assert to_openapi(Schema(Match("^x"))) == {"type": "string", "pattern": "^x"}
+
+    validator = jsonschema.Draft202012Validator(result)
+    with pytest.raises(probatio.Invalid):
+        schema({"a": 1})
+    assert not validator.is_valid({"a": 1})
 
 
 def test_an_open_value_under_a_variable_key_folds_to_an_open_object() -> None:
