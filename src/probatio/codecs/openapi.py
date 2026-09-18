@@ -44,8 +44,10 @@ from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
+    Forbidden,
     Inclusive,
     Optional,
+    Remove,
     Required,
     Self,
     Undefined,
@@ -363,15 +365,15 @@ def _resolve_default(marker: Any) -> Any:
 def _demands_presence(marker: Any, *, required_default: bool) -> bool:
     """Whether a key demands presence, given its marker and the schema's policy.
 
-    A bare key follows the schema-wide ``required=`` setting. A ``Required`` marker
-    demands presence unless it carries a default: the engine fills a defaulted key
-    in when it is absent, so the mapping accepts input without it, and emitting
-    ``required`` for it would reject what the mapping accepts. Every other marker
-    accepts absence, whatever the policy: ``Optional`` by definition, the group
-    markers and ``Alias`` because they are ``Optional`` underneath, ``Remove`` and
-    ``Forbidden`` because a key that is stripped or refused is never demanded.
-    That is the engine's behaviour, checked directly, not a reading of
-    ``to_json_schema``.
+    This mirrors the engine's own rule (``_compile.py``, the mapping compiler). A
+    ``Required`` marker demands presence unless it carries a default: the engine
+    fills a defaulted key in when it is absent, so the mapping accepts input
+    without it, and emitting ``required`` for it would reject what the mapping
+    accepts. Under a schema-wide ``required=True`` every other key is demanded
+    too, including a bare key, a bare ``Marker`` and any custom ``Marker``
+    subclass, except the kinds that opt out: ``Optional`` (and so ``Inclusive`` and
+    ``Exclusive``, which derive from it), ``Remove``, ``Forbidden``, and ``Alias``,
+    which carries its own ``required`` flag and is handled by its own branch here.
 
     Only the *presence* of a factory is consulted, never what it returns. A factory
     may decline (return an ``Undefined``), and it may decline this time and yield a
@@ -379,9 +381,32 @@ def _demands_presence(marker: Any, *, required_default: bool) -> bool:
     very next validation fills in. Declining is reported under ``strict`` instead,
     where a false alarm costs nothing and a wrong document costs correctness.
     """
-    if marker is None:
-        return required_default
-    return isinstance(marker, Required) and isinstance(marker.default, Undefined)
+    if isinstance(marker, Required):
+        return isinstance(marker.default, Undefined)
+    if isinstance(marker, Optional | Remove | Forbidden | Alias):
+        return False
+    return required_default
+
+
+def _record_variable_key(
+    pkey: Any,
+    pval: dict[str, Any],
+    variable_keys: list[Any],
+    variable_values: list[dict[str, Any]],
+    *,
+    demands: bool,
+) -> None:
+    """Record a key that matches by shape, reporting a presence rule it cannot carry.
+
+    A shape key has no name to put in ``required``. If the mapping demands one
+    anyway (a bare type key under ``required=True``, or ``Required(str)``), no
+    keyword says "some property matching this must exist", so the document accepts
+    its absence: a widening, which strict mode refuses.
+    """
+    if demands:
+        _open("a required key matched by shape rather than by name")
+    variable_keys.append(pkey)
+    variable_values.append(pval)
 
 
 def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
@@ -438,10 +463,11 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
             # no keyword here can express; the document accepts its absence. An
             # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
-        if _demands_presence(
-            marker, required_default=required_default
-        ) and not isinstance(pkey, AnyValidator):
-            required.append(str(pkey))
+        demands = _demands_presence(marker, required_default=required_default)
+        # Only a concrete string key can be named in ``required``. A key that
+        # matches by shape (a type, a callable) has no name to demand.
+        if demands and isinstance(pkey, str):
+            required.append(pkey)
         pval = _ensure_default(pval)
 
         _record_group_member(
@@ -476,8 +502,9 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
-            variable_keys.append(pkey)
-            variable_values.append(pval)
+            _record_variable_key(
+                pkey, pval, variable_keys, variable_values, demands=demands
+            )
 
     additional = _absorb_extra(
         variable_values, variable_keys, additional, closed=closed

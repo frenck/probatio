@@ -686,6 +686,47 @@ def test_the_required_policy_reaches_a_nested_mapping() -> None:
     assert "required" not in result["properties"]["own"]
 
 
+def test_a_bare_or_custom_marker_follows_the_policy_like_the_engine() -> None:
+    """The engine requires any marker that does not opt out, so the codec must too."""
+    from probatio import Invalid  # noqa: PLC0415
+    from probatio.markers import Marker  # noqa: PLC0415
+
+    class Tagged(Marker):
+        """A user-defined marker that adds nothing to presence semantics."""
+
+    for key in (Marker("a"), Tagged("a")):
+        schema = Schema({key: int, "z": int}, required=True)
+        with pytest.raises(Invalid):
+            schema({"z": 1})
+        assert "a" in to_openapi(schema)["required"], type(key).__name__
+
+
+def test_a_shape_key_never_enters_required() -> None:
+    """A key matching by shape has no name to demand, so it widens, reported by strict."""
+    from probatio import Optional  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({str: int, Optional("label"): str}, required=True)
+    result = to_openapi(schema)
+
+    # The mapping accepts {"x": 1}; a document demanding "<class 'str'>" would not.
+    assert schema({"x": 1}) == {"x": 1}
+    assert "required" not in result
+    assert "<class" not in str(result)
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_openapi(schema, strict=True)
+
+
+def test_the_required_policy_reaches_a_mapping_inside_a_list() -> None:
+    """The policy travels through a sequence to the dict it holds, as validation does."""
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({"a": [{"b": int}]}, required=True)
+    with pytest.raises(Invalid):
+        schema({"a": [{}]})
+    assert to_openapi(schema)["properties"]["a"]["items"]["required"] == ["b"]
+
+
 def test_only_a_bare_or_required_key_follows_the_policy() -> None:
     """Every other marker accepts absence under required=True, as the engine does."""
     from probatio import (  # noqa: PLC0415
