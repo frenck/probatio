@@ -728,6 +728,20 @@ def test_extra_never_demands_presence_under_the_policy() -> None:
     assert result["additionalProperties"] == {"type": "integer"}
 
 
+def test_a_wrapped_extra_follows_ordinary_marker_rules() -> None:
+    """Only the raw Extra spelling is the catch-all; Required(Extra) demands a key."""
+    from probatio import Extra, Invalid, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Required(Extra): int})
+    with pytest.raises(Invalid):
+        schema({})
+    # No keyword can demand "some key exists", so the document widens, and strict
+    # must say so rather than treat it as the catch-all.
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_openapi(schema, strict=True)
+
+
 def test_a_bare_any_key_under_the_policy_demands_one_of_its_names() -> None:
     """A bare Any key is a bare key, so required=True demands one of its names."""
     from probatio import Any as AnyKey  # noqa: PLC0415

@@ -464,10 +464,12 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
             # no keyword here can express; the document accepts its absence. An
             # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
-        # ``Extra`` is the catch-all for names nothing else matched; the engine
-        # compiles it optional whatever the schema-wide policy says, so it never
-        # demands presence and must not be reported as an unrepresentable one.
-        demands = pkey is not Extra and _demands_presence(
+        # A raw ``Extra`` key is the catch-all for names nothing else matched; the
+        # compiler special-cases exactly that spelling as optional, whatever the
+        # schema-wide policy says. A *wrapped* one (``Required(Extra)``) resolves to
+        # the same key but follows ordinary marker rules, so the test is on the raw
+        # mapping key, not on what it resolves to.
+        demands = key is not Extra and _demands_presence(
             marker, required_default=required_default
         )
         # Only a concrete string key can be named in ``required``. A key that
