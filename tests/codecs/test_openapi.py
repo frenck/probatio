@@ -144,10 +144,19 @@ def build(lib: Any) -> dict[str, Any]:
 # comparison against the oracle is meaningless: an ``Any`` with an open-object
 # branch keeps that branch (the oracle collapses the whole ``anyOf`` to the open
 # object) and a nullable ``Any`` admits null with a dedicated branch (the oracle
-# emits an inert top-level ``nullable``). They are asserted directly below, and
-# the behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
+# emits an inert top-level ``nullable``). A required ``Any`` key whose value is
+# the wildcard ``object`` names each of its keys with an open schema; the oracle
+# emits no properties, which is harmless in its open object but would make
+# probatio's closed one unsatisfiable. They are asserted directly below, and the
+# behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
 _DIVERGING = frozenset(
-    {"any_three", "any_open", "any_open_nullable", "any_nested_nullable"},
+    {
+        "any_three",
+        "any_open",
+        "any_open_nullable",
+        "any_nested_nullable",
+        "required_any_object",
+    },
 )
 _CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
 
@@ -165,6 +174,26 @@ def test_matches_voluptuous_openapi(case: str, version: str) -> None:
     # ``to_openapi`` renders a closed mapping's ``additionalProperties`` and a
     # null enum member more correctly than the oracle; compare the rest.
     assert canonical_openapi(actual) == canonical_openapi(expected)
+
+
+def test_a_required_wildcard_any_key_names_its_keys_openly() -> None:
+    """The names stay allowed with open schemas; omitting them would forbid them.
+
+    voluptuous-openapi emits no properties for ``Required(Any("a", "b")): object``,
+    which its open object tolerates. probatio closes the object, so the same
+    omission plus the ``anyOf`` demanding a name would be a document nothing
+    satisfies, while validation accepts ``{"a": 1}``.
+    """
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Required  # noqa: PLC0415
+
+    schema = Schema({Required(AnyKey("a", "b")): object})
+    result = to_openapi(schema)
+
+    assert result["properties"] == {"a": {}, "b": {}}
+    assert result["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+    assert schema({"a": 1}) == {"a": 1}
+    assert jsonschema.Draft202012Validator(result).is_valid({"a": 1})
 
 
 def test_any_with_null_branch_admits_null_directly() -> None:
@@ -659,6 +688,140 @@ def test_duration_renders_a_duration_string() -> None:
     expected = {"type": "string", "format": "duration"}
     assert to_openapi(Schema(Duration())) == expected
     assert to_openapi(Schema(AsTimedelta())) == expected
+
+
+def test_a_schema_wide_required_policy_reaches_bare_keys() -> None:
+    """Under required=True a bare key demands presence, as it does in validation."""
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({"a": int, "b": str}, required=True)
+    with pytest.raises(Invalid):
+        schema({"a": 1})
+    assert sorted(to_openapi(schema)["required"]) == ["a", "b"]
+
+    # The default policy leaves a bare key optional, and emits no requirement.
+    assert "required" not in to_openapi(Schema({"a": int, "b": str}))
+
+
+def test_the_required_policy_reaches_a_nested_mapping() -> None:
+    """A nested plain dict inherits the policy; a nested Schema keeps its own."""
+    schema = Schema(
+        {"a": int, "nested": {"b": int}, "own": Schema({"c": int}, required=False)},
+        required=True,
+    )
+    result = to_openapi(schema)
+
+    assert result["properties"]["nested"]["required"] == ["b"]
+    assert "required" not in result["properties"]["own"]
+
+
+def test_a_bare_or_custom_marker_follows_the_policy_like_the_engine() -> None:
+    """The engine requires any marker that does not opt out, so the codec must too."""
+    from probatio import Invalid  # noqa: PLC0415
+    from probatio.markers import Marker  # noqa: PLC0415
+
+    class Tagged(Marker):
+        """A user-defined marker that adds nothing to presence semantics."""
+
+    for key in (Marker("a"), Tagged("a")):
+        schema = Schema({key: int, "z": int}, required=True)
+        with pytest.raises(Invalid):
+            schema({"z": 1})
+        assert "a" in to_openapi(schema)["required"], type(key).__name__
+
+
+def test_a_shape_key_never_enters_required() -> None:
+    """A key matching by shape has no name to demand, so it widens, reported by strict."""
+    from probatio import Optional  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({str: int, Optional("label"): str}, required=True)
+    result = to_openapi(schema)
+
+    # The mapping accepts {"x": 1}; a document demanding "<class 'str'>" would not.
+    assert schema({"x": 1}) == {"x": 1}
+    assert "required" not in result
+    assert "<class" not in str(result)
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_openapi(schema, strict=True)
+
+
+def test_extra_never_demands_presence_under_the_policy() -> None:
+    """Extra is the catch-all; the engine compiles it optional whatever the policy."""
+    from probatio import Extra  # noqa: PLC0415
+
+    schema = Schema({Extra: int}, required=True)
+    assert schema({}) == {}
+    result = to_openapi(schema, strict=True)  # nothing to report: nothing is lost
+    assert "required" not in result
+    assert result["additionalProperties"] == {"type": "integer"}
+
+
+def test_a_wrapped_extra_follows_ordinary_marker_rules() -> None:
+    """Only the raw Extra spelling is the catch-all; Required(Extra) demands a key."""
+    from probatio import Extra, Invalid, Required  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Required(Extra): int})
+    with pytest.raises(Invalid):
+        schema({})
+    # No keyword can demand "some key exists", so the document widens, and strict
+    # must say so rather than treat it as the catch-all.
+    with pytest.raises(SchemaError, match="matched by shape"):
+        to_openapi(schema, strict=True)
+
+
+def test_a_bare_any_key_under_the_policy_demands_one_of_its_names() -> None:
+    """A bare Any key is a bare key, so required=True demands one of its names."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({AnyKey("a", "b"): int}, required=True)
+    with pytest.raises(Invalid):
+        schema({})
+    assert to_openapi(schema)["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+
+
+def test_the_required_policy_reaches_a_mapping_inside_a_list() -> None:
+    """The policy travels through a sequence to the dict it holds, as validation does."""
+    from probatio import Invalid  # noqa: PLC0415
+
+    schema = Schema({"a": [{"b": int}]}, required=True)
+    with pytest.raises(Invalid):
+        schema({"a": [{}]})
+    assert to_openapi(schema)["properties"]["a"]["items"]["required"] == ["b"]
+
+
+def test_only_a_bare_or_required_key_follows_the_policy() -> None:
+    """Every other marker accepts absence under required=True, as the engine does."""
+    from probatio import (  # noqa: PLC0415
+        Alias,
+        Exclusive,
+        Forbidden,
+        Inclusive,
+        Invalid,
+        Optional,
+        Remove,
+        Required,
+    )
+
+    markers = {
+        "Optional": Optional("a"),
+        "Remove": Remove("a"),
+        "Forbidden": Forbidden("a"),
+        "Inclusive": Inclusive("a", "g"),
+        "Exclusive": Exclusive("a", "g"),
+        "Alias": Alias("a", "b"),
+        "Required with default": Required("a", default=1),
+    }
+    for label, marker in markers.items():
+        schema = Schema({marker: int, "z": int}, required=True)
+        # The engine accepts the key's absence, so the document must too.
+        assert schema({"z": 1}) is not None, label
+        assert "a" not in to_openapi(schema).get("required", []), label
+
+    with pytest.raises(Invalid):
+        Schema({Required("a"): int, "z": int}, required=True)({"z": 1})
 
 
 def test_a_required_default_does_not_demand_presence() -> None:

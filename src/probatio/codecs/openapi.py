@@ -44,8 +44,11 @@ from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
     Exclusive,
+    Extra,
+    Forbidden,
     Inclusive,
     Optional,
+    Remove,
     Required,
     Self,
     Undefined,
@@ -277,8 +280,17 @@ def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
-    """Convert one schema node into an OpenAPI Schema object."""
+def _oa(
+    node: Any, custom: Any, version: str, *, required_default: bool = False
+) -> dict[str, Any]:
+    """Convert one schema node into an OpenAPI Schema object.
+
+    ``required_default`` is the schema-wide ``required=`` policy for the mapping
+    being rendered: a bare key under ``Schema(..., required=True)`` demands
+    presence. It is read off each ``Schema`` as it is unwrapped (a nested one with
+    its own setting overrides the outer), carried into mapping values and sequence
+    items, and, matching ``to_json_schema``, not into leaf validators.
+    """
     additional: Any = None
     # The strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
     # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
@@ -289,6 +301,7 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
     while isinstance(node, Schema):
         closed = node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA)
         additional = True if node.extra == ALLOW_EXTRA else None
+        required_default = node.required
         node = node.schema
 
     if custom is not None:
@@ -302,9 +315,16 @@ def _oa(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return {"$ref": "#"}
 
     if isinstance(node, dict):
-        return _oa_mapping(node, custom, version, additional, closed=closed)
+        return _oa_mapping(
+            node,
+            custom,
+            version,
+            additional,
+            closed=closed,
+            required_default=required_default,
+        )
     if isinstance(node, list | tuple | set | frozenset):
-        return _oa_sequence(node, custom, version)
+        return _oa_sequence(node, custom, version, required_default=required_default)
 
     generic = _oa_generic(node, custom, version)
     if generic is not None:
@@ -359,13 +379,18 @@ def _resolve_default(marker: Any) -> Any:
     return factory()
 
 
-def _demands_presence(marker: Any) -> bool:
-    """Whether a ``Required`` marker actually demands the key be present.
+def _demands_presence(marker: Any, *, required_default: bool) -> bool:
+    """Whether a key demands presence, given its marker and the schema's policy.
 
-    A ``Required`` carrying a default does not: the engine fills the key in when it
-    is absent, so the mapping accepts input without it. Emitting ``required`` for
-    such a key rejects what the mapping accepts, which ``to_json_schema`` has
-    always avoided through ``_is_required``.
+    This mirrors the engine's own rule (``_compile.py``, the mapping compiler). A
+    ``Required`` marker demands presence unless it carries a default: the engine
+    fills a defaulted key in when it is absent, so the mapping accepts input
+    without it, and emitting ``required`` for it would reject what the mapping
+    accepts. Under a schema-wide ``required=True`` every other key is demanded
+    too, including a bare key, a bare ``Marker`` and any custom ``Marker``
+    subclass, except the kinds that opt out: ``Optional`` (and so ``Inclusive`` and
+    ``Exclusive``, which derive from it), ``Remove``, ``Forbidden``, and ``Alias``,
+    which carries its own ``required`` flag and is handled by its own branch here.
 
     Only the *presence* of a factory is consulted, never what it returns. A factory
     may decline (return an ``Undefined``), and it may decline this time and yield a
@@ -373,16 +398,42 @@ def _demands_presence(marker: Any) -> bool:
     very next validation fills in. Declining is reported under ``strict`` instead,
     where a false alarm costs nothing and a wrong document costs correctness.
     """
-    return isinstance(marker, Required) and isinstance(marker.default, Undefined)
+    if isinstance(marker, Required):
+        return isinstance(marker.default, Undefined)
+    if isinstance(marker, Optional | Remove | Forbidden | Alias):
+        return False
+    return required_default
 
 
-def _oa_mapping(
+def _record_variable_key(
+    pkey: Any,
+    pval: dict[str, Any],
+    variable_keys: list[Any],
+    variable_values: list[dict[str, Any]],
+    *,
+    demands: bool,
+) -> None:
+    """Record a key that matches by shape, reporting a presence rule it cannot carry.
+
+    A shape key has no name to put in ``required``. If the mapping demands one
+    anyway (a bare type key under ``required=True``, or ``Required(str)``), no
+    keyword says "some property matching this must exist", so the document accepts
+    its absence: a widening, which strict mode refuses.
+    """
+    if demands:
+        _open("a required key matched by shape rather than by name")
+    variable_keys.append(pkey)
+    variable_values.append(pval)
+
+
+def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     node: dict[Any, Any],
     custom: Any,
     version: str,
     additional: Any,
     *,
     closed: bool = True,
+    required_default: bool = False,
 ) -> dict[str, Any]:
     """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
     properties: dict[str, Any] = {}
@@ -407,7 +458,7 @@ def _oa_mapping(
         facets = resolve_key(key)
         marker = facets.marker
         pkey = facets.key
-        pval = _oa(value, custom, version)
+        pval = _oa(value, custom, version, required_default=required_default)
         if facets.description:
             pval["description"] = facets.description
         # User code, possibly one-shot or stateful: ask it once, read it twice.
@@ -429,8 +480,18 @@ def _oa_mapping(
             # no keyword here can express; the document accepts its absence. An
             # optional key's absence never fails, so a decline there loses nothing.
             _open("a default that may decline to fill a required key")
-        if _demands_presence(marker) and not isinstance(pkey, AnyValidator):
-            required.append(str(pkey))
+        # A raw ``Extra`` key is the catch-all for names nothing else matched; the
+        # compiler special-cases exactly that spelling as optional, whatever the
+        # schema-wide policy says. A *wrapped* one (``Required(Extra)``) resolves to
+        # the same key but follows ordinary marker rules, so the test is on the raw
+        # mapping key, not on what it resolves to.
+        demands = key is not Extra and _demands_presence(
+            marker, required_default=required_default
+        )
+        # Only a concrete string key can be named in ``required``. A key that
+        # matches by shape (a type, a callable) has no name to demand.
+        if demands and isinstance(pkey, str):
+            required.append(pkey)
         pval = _ensure_default(pval)
 
         _record_group_member(
@@ -451,7 +512,7 @@ def _oa_mapping(
             props, any_group = _expand_any_key(
                 any_names,
                 pval,
-                required=_demands_presence(marker),
+                required=_demands_presence(marker, required_default=required_default),
                 wildcard=value is object,
             )
             properties.update(props)
@@ -465,8 +526,9 @@ def _oa_mapping(
         elif isinstance(pkey, str):
             properties[pkey] = pval
         else:
-            variable_keys.append(pkey)
-            variable_values.append(pval)
+            _record_variable_key(
+                pkey, pval, variable_keys, variable_values, demands=demands
+            )
 
     additional = _absorb_extra(
         variable_values, variable_keys, additional, closed=closed
@@ -613,7 +675,16 @@ def _expand_any_key(
 ) -> tuple[dict[str, Any], list[str] | None]:
     """Expand an ``Any`` key's names into (properties to add, constraint group)."""
     if required:
-        props = {} if wildcard else {name: pval.copy() for name in names}
+        # A wildcard value constrains nothing, so each name gets an open schema
+        # rather than the rendered ``object``. It cannot be left out: the mapping
+        # is closed by default, and an ``anyOf`` demanding a name that
+        # ``additionalProperties: false`` then forbids is a document nothing
+        # satisfies, while the engine accepts ``{"a": 1}``.
+        props = (
+            {name: {} for name in names}
+            if wildcard
+            else {name: pval.copy() for name in names}
+        )
         return props, names
     return {name: pval.copy() for name in names}, None
 
@@ -712,7 +783,9 @@ def _assemble_object(
     return result
 
 
-def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
+def _oa_sequence(
+    node: Any, custom: Any, version: str, *, required_default: bool = False
+) -> dict[str, Any]:
     """Render a sequence schema as an OpenAPI array.
 
     A single element schema is the item schema. Several elements ([int, str])
@@ -720,7 +793,10 @@ def _oa_sequence(node: Any, custom: Any, version: str) -> dict[str, Any]:
     schema, not a positional ``items`` array (which would wrongly constrain by
     position). An empty sequence accepts only the empty array.
     """
-    items = [_ensure_default(_oa(item, custom, version)) for item in _ordered(node)]
+    items = [
+        _ensure_default(_oa(item, custom, version, required_default=required_default))
+        for item in _ordered(node)
+    ]
     if len(items) == 1:
         return {"type": "array", "items": items[0]}
     if not items:
