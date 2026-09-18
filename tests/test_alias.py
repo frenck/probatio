@@ -12,7 +12,7 @@ from types import MappingProxyType
 
 import pytest
 
-from probatio import ALLOW_EXTRA, Alias, Schema
+from probatio import ALLOW_EXTRA, Alias, Any, Extra, Schema, Secret
 from probatio.error import MultipleInvalid, SchemaError
 
 
@@ -95,6 +95,40 @@ def test_alias_without_any_alias_name_is_a_schema_error() -> None:
     """Alias needs at least one alias besides the canonical key."""
     with pytest.raises(SchemaError, match="at least one"):
         Alias("lonely")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [Any("a", "b"), str, Extra, lambda key: key],
+    ids=["validator", "type", "Extra", "callable"],
+)
+def test_alias_over_a_non_literal_canonical_key_is_a_schema_error(name: object) -> None:
+    """A canonical name that matches rather than names has nothing to emit under."""
+    with pytest.raises(SchemaError, match="literal"):
+        Alias(name, "x")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [Any("a", "b"), str, Extra, lambda key: key],
+    ids=["validator", "type", "Extra", "callable"],
+)
+def test_alias_with_a_non_literal_alias_name_is_a_schema_error(name: object) -> None:
+    """An alias name is looked up by equality, so a validator there matches nothing."""
+    with pytest.raises(SchemaError, match="literal"):
+        Alias("x", name)
+
+
+def test_alias_names_may_be_any_literal() -> None:
+    """A literal of any hashable type is a name; only matching keys are refused."""
+    schema = Schema({Alias(1, "one"): int})
+    assert schema({"one": 1}) == {1: 1}
+
+
+def test_alias_canonical_may_be_wrapped_in_secret() -> None:
+    """The canonical is resolved through its markers before the literal check."""
+    schema = Schema({Alias(Secret("a"), "b"): int})
+    assert schema({"b": 1}) == {"a": 1}
 
 
 def test_unknown_key_still_errors_under_prevent_extra() -> None:
