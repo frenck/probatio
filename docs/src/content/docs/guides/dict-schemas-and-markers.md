@@ -230,7 +230,9 @@ actually unknown key would raise.
 An aliased key is optional by default (its `default` applies when absent under
 every name); pass `required=True` to demand one of its names. An alias that names
 another key in the schema, or that two keys share, is rejected at build time, so
-an ambiguous schema fails fast rather than at validation.
+an ambiguous schema fails fast rather than at validation. So is a name that is not
+a literal: a type or a validator (`Alias(Any("a", "b"), "x")`) has no single
+spelling to look up in the input or to emit under.
 
 ## Redacting secret values
 
