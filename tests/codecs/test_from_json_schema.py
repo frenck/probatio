@@ -157,6 +157,39 @@ def test_enum_and_const() -> None:
         const_schema("off")
 
 
+def test_const_null_is_a_subschema_not_an_absent_one() -> None:
+    """``{"const": null}`` decodes to a null check in every position.
+
+    The bare ``None`` schema is also the decoder's "no facet" sentinel, so a
+    ``const: null`` that decoded to it read as an absent subschema:
+    ``additionalProperties: {"const": null}`` closed the object and rejected the
+    ``{"x": null}`` the document accepts.
+    """
+    schema = from_json_schema({"const": None})
+    assert schema(None) is None
+    for value in (0, "", False):
+        with pytest.raises(Invalid):
+            schema(value)
+
+    schema = from_json_schema(
+        {"type": "object", "additionalProperties": {"const": None}}
+    )
+    assert schema({"x": None}) == {"x": None}
+    with pytest.raises(Invalid):
+        schema({"x": 1})
+
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "additionalProperties": {"const": None},
+            "propertyNames": {"enum": ["a", "b"]},
+        }
+    )
+    assert schema({"a": None}) == {"a": None}
+    with pytest.raises(Invalid):
+        schema({"a": 1})
+
+
 def test_anyof_and_allof() -> None:
     """anyOf accepts any branch; allOf requires all branches."""
     any_schema = from_json_schema({"anyOf": [{"type": "integer"}, {"type": "string"}]})

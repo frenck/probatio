@@ -134,7 +134,7 @@ round-trip:
 | `ExactSequence`               | `prefixItems` (with `items: false`, matching `minItems`/`maxItems`)                                                               |
 | `Unique`                      | `uniqueItems`                                                                                                                     |
 | `Contains`                    | `contains`                                                                                                                        |
-| `Equal` / `Literal`           | `const`                                                                                                                           |
+| `Equal` / `Literal`           | `const` (`type: null` for a `None` target)                                                                                        |
 | `NotIn`                       | `not` over an `enum`                                                                                                              |
 | `Email` / `Email()`           | `format: email`                                                                                                                   |
 | `Url` / `Url()` / `FqdnUrl()` | `format: uri`                                                                                                                     |

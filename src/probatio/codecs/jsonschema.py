@@ -965,7 +965,15 @@ def _enum(container: Any) -> dict[str, Any]:
 
 
 def _const(value: Any) -> dict[str, Any]:
-    """Render an equality target as a ``const``, or open when unrepresentable."""
+    """Render an equality target as a ``const``, or open when unrepresentable.
+
+    Null is the one target with a type of its own, and ``{"type": "null"}`` is how
+    the bare ``None`` schema and ``Maybe`` already spell it. Spelling it the same
+    here keeps the round trip still: the decoder reads either form as one
+    validator, and that validator has to render back to one document.
+    """
+    if value is None:
+        return {"type": "null"}
     converted = _json_safe(value)
     if converted is _UNREPRESENTABLE:
         return _open("a const value with no JSON form")
@@ -1725,12 +1733,17 @@ def _from_const(value: Any) -> Any:
     equality). A list or dict literal would instead be read as a structural
     sub-schema, so it is wrapped in ``Equal`` to keep const's equality semantics.
     A value carrying a number or boolean anywhere gets the JSON-strict check,
-    since Python equality would conflate ``1`` with ``True``.
+    since Python equality would conflate ``1`` with ``True``. Null is the same
+    ``Literal(None)`` that ``{"type": "null"}`` decodes to: the bare ``None``
+    schema is also the "no facet" sentinel, so returned here it would read as an
+    absent subschema (``additionalProperties: {"const": null}`` closed the object).
     """
     if _needs_json_equality(value):
         return _JsonConst(value)
     if isinstance(value, list | dict):
         return Equal(value)
+    if value is None:
+        return Literal(None)
     return value
 
 
