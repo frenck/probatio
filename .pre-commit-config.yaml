@@ -60,17 +60,24 @@ repos:
   # pins. No `rev:` to drift.
   - repo: local
     hooks:
+      # Both ruff hooks run over the whole tree, exactly as CI does, rather than
+      # over the Python files prek hands them. Ruff also formats fenced Python
+      # inside markdown, so a docs-only change would otherwise never reach it
+      # (no .py file changed, so a python-typed hook does not run at all) and a
+      # gate that is green locally could still fail CI on a docs code block.
       - id: ruff-check
         name: "🐶 Ruff linter"
         language: system
-        types: [python]
-        entry: uv run --no-sync ruff check --fix
+        always_run: true
+        pass_filenames: false
+        entry: uv run --no-sync ruff check --fix .
         require_serial: true
       - id: ruff-format
         name: "🐶 Ruff formatter"
         language: system
-        types: [python]
-        entry: uv run --no-sync ruff format
+        always_run: true
+        pass_filenames: false
+        entry: uv run --no-sync ruff format .
         require_serial: true
       - id: mypy
         name: "🆎 Static typing with mypy"
