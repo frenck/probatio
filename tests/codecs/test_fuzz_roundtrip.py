@@ -3,10 +3,11 @@
 JSON Schema is probatio's own dialect, so these are properties rather than a
 differential: ``to_json_schema`` never crashes and always yields a dict;
 ``from_json_schema`` turns that back into a working validator; and the
-encode/decode round trip reaches a *behavioral* fixed point. The first round trip
-can be lossy (``Coerce(int)`` becomes a plain ``int`` check; JSON Schema "number"
-decodes to an int-or-float validator), but once round-tripped, validating again
-must not change which inputs are accepted or how they are normalized.
+encode/decode round trip reaches a fixed point, *behavioral* and *structural*.
+The first round trip can be lossy (``Coerce(int)`` becomes a plain ``int`` check;
+JSON Schema "number" decodes to an int-or-float validator), but once
+round-tripped, validating again must not change which inputs are accepted or how
+they are normalized, and encoding again must produce the same document.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def _outcome(schema: Any, value: Any) -> Any:
     max_examples=400, derandomize=True, suppress_health_check=[HealthCheck.too_slow]
 )
 def test_json_schema_roundtrip_is_stable_and_robust(spec: Any, value: Any) -> None:
-    """to_json_schema/from_json_schema never crash and the round trip is stable."""
+    """to_json_schema/from_json_schema never crash and the round trip is a fixpoint."""
     schema = probatio.Schema(strategies.build(spec, probatio))
 
     first = probatio.to_json_schema(schema)
@@ -44,3 +45,9 @@ def test_json_schema_roundtrip_is_stable_and_robust(spec: Any, value: Any) -> No
     # Both round-tripped schemas only ever raise Invalid, and they agree on the
     # outcome for the same input: the round trip has reached a behavioral fixpoint.
     assert _outcome(once, value) == _outcome(twice, value)
+
+    # And a structural one: the document a round-tripped schema renders to is the
+    # document it was decoded from. Behavior alone cannot see a document that
+    # grows a nesting level per trip, or flips between two spellings of the same
+    # thing, while validating exactly the same either way.
+    assert probatio.to_json_schema(once) == probatio.to_json_schema(twice)
