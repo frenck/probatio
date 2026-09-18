@@ -147,8 +147,12 @@ def build(lib: Any) -> dict[str, Any]:
 # emits an inert top-level ``nullable``). A required ``Any`` key whose value is
 # the wildcard ``object`` names each of its keys with an open schema; the oracle
 # emits no properties, which is harmless in its open object but would make
-# probatio's closed one unsatisfiable. They are asserted directly below, and the
-# behavioral oracle in ``test_openapi_oracle.py`` covers them property-based.
+# probatio's closed one unsatisfiable. A bare ``object`` is the empty schema, since
+# it accepts any value, and a bare ``list`` has the empty schema as its items; the
+# oracle renders the first as a JSON object and the second's items as strings,
+# which rejects the scalars and the non-strings the validator accepts. They are
+# asserted directly below, and the behavioral oracle in ``test_openapi_oracle.py``
+# covers them property-based.
 _DIVERGING = frozenset(
     {
         "any_three",
@@ -156,6 +160,8 @@ _DIVERGING = frozenset(
         "any_open_nullable",
         "any_nested_nullable",
         "required_any_object",
+        "bare_object",
+        "bare_list",
     },
 )
 _CASES = [case for case in build(voluptuous) if case not in _DIVERGING]
@@ -1239,11 +1245,74 @@ def test_strict_raises_on_an_inexpressible_some_of() -> None:
 
 
 def test_strict_allows_a_faithfully_open_schema() -> None:
-    """strict=True does not raise for object, which is faithfully an open schema."""
-    assert to_openapi(Schema(object), strict=True) == {
-        "type": "object",
-        "additionalProperties": True,
-    }
+    """strict=True does not raise for object, which is faithfully the empty schema."""
+    assert to_openapi(Schema(object), strict=True) == {}
+    assert to_openapi(Schema({"a": object}), strict=True)["properties"]["a"] == {}
+
+
+def test_object_renders_as_the_empty_schema() -> None:
+    """``object`` accepts anything, and only the empty schema says so.
+
+    voluptuous-openapi renders it as ``{"type": "object"}``, conflating Python's
+    ``object`` with a JSON object; that document rejects ``1``, ``"x"``, ``[1]`` and
+    ``None``, every one of which the validator accepts.
+    """
+    schema = Schema({"a": object})
+    result = to_openapi(schema)
+    assert result["properties"]["a"] == {}
+
+    validator = jsonschema.Draft202012Validator(result)
+    for value in (1, "x", [1], None, {"k": 1}):
+        assert schema({"a": value}) == {"a": value}
+        assert validator.is_valid({"a": value}), value
+
+
+def test_an_open_value_is_not_typed_as_a_string() -> None:
+    """An un-hinted callable widens to the empty schema, in every position.
+
+    voluptuous-openapi stamps ``type: string`` on a property or item with no type,
+    which rejects the numbers, lists and objects the validator lets through. The
+    open schema stays open, and a marker's default or description on it is an
+    annotation, not a reason to guess a type.
+    """
+
+    def anything(value: Any) -> Any:
+        return value
+
+    result = to_openapi(Schema({"a": anything}))
+    assert result["properties"]["a"] == {}
+
+    result = to_openapi(Schema([anything]))
+    assert result["items"] == {}
+
+    result = to_openapi(Schema(list))
+    assert result == {"type": "array", "items": {}}
+
+    result = to_openapi(
+        Schema({probatio.Optional("a", default=1, description="anything"): object})
+    )
+    assert result["properties"]["a"] == {"default": 1, "description": "anything"}
+
+
+def test_a_constraint_only_value_still_infers_its_type() -> None:
+    """The type inference stays for constraint-only schemas, as the oracle does."""
+    result = to_openapi(
+        Schema({probatio.Optional("a", default=2): probatio.Range(min=1)})
+    )
+    assert result["properties"]["a"] == {"type": "number", "minimum": 1, "default": 2}
+
+    result = to_openapi(Schema({"a": probatio.Length(min=1)}))
+    assert result["properties"]["a"] == {"type": "string", "minLength": 1}
+
+
+def test_an_open_value_under_a_variable_key_folds_to_an_open_object() -> None:
+    """``{}`` and ``true`` say the same thing for additionalProperties."""
+
+    def anything(value: Any) -> Any:
+        return value
+
+    assert to_openapi(Schema({str: anything}))["additionalProperties"] is True
+    assert to_openapi(Schema({str: object}))["additionalProperties"] is True
 
 
 def test_non_strict_still_widens_by_default() -> None:

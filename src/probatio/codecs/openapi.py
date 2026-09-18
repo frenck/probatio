@@ -269,10 +269,18 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
 
 
 def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
-    """Give a value a type when it has none, the way voluptuous-openapi does."""
-    # A ``$ref`` (a recursive ``Self``) is a complete schema on its own; adding a
-    # ``type`` beside it would contradict the reference.
-    if "$ref" in value:
+    """Infer a type for a constraint-only schema, the way voluptuous-openapi does.
+
+    Bounds imply a number; anything else (a length, a pattern) a string. Two
+    schemas are complete without a ``type`` and are left alone. A ``$ref`` (a
+    recursive ``Self``) is one; a ``type`` beside it would contradict the
+    reference. The empty schema is the other: it is what ``object``, an un-hinted
+    callable and a widened construct render as, and it accepts every value, which
+    is exactly what those validate. voluptuous-openapi stamps ``type: string`` on
+    it, and that rejects the numbers, lists, objects and nulls the validator lets
+    through.
+    """
+    if not value or "$ref" in value:
         return value
     if all(key not in value for key in ("type", "anyOf", "oneOf", "allOf", "not")):
         bounds = ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum")
@@ -459,6 +467,10 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
         marker = facets.marker
         pkey = facets.key
         pval = _oa(value, custom, version, required_default=required_default)
+        # Infer the type from the value schema alone, before the marker's
+        # description and default land on it. Those are annotations, not
+        # constraints, and must not turn an open value into a string.
+        pval = _ensure_default(pval)
         if facets.description:
             pval["description"] = facets.description
         # User code, possibly one-shot or stateful: ask it once, read it twice.
@@ -492,7 +504,6 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
         # matches by shape (a type, a callable) has no name to demand.
         if demands and isinstance(pkey, str):
             required.append(pkey)
-        pval = _ensure_default(pval)
 
         _record_group_member(
             marker, pkey, _GroupState(contested, abandoned, inclusive, exclusive)
@@ -721,9 +732,11 @@ def _absorb_extra(
         _open("a partial variable key on an open mapping")
         return True
 
-    # An "any object" value folds to the open ``additionalProperties``, matching
-    # voluptuous-openapi.
-    if any(pval == _OPEN_OBJECT for pval in variable_values):
+    # An "any value" value (``object``, an un-hinted callable) folds to the open
+    # ``additionalProperties``: ``{}`` and ``true`` say the same thing, and ``true``
+    # is what voluptuous-openapi emits for ``{str: object}``. An "any object" value
+    # (a bare ``dict``) folds the same way, matching voluptuous-openapi.
+    if any(not pval or pval == _OPEN_OBJECT for pval in variable_values):
         return True
 
     if len(variable_values) == 1:
@@ -818,7 +831,7 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return _oa_null(version)
 
     typed = _oa_type(node, version)
-    if typed:
+    if typed is not None:
         return typed
     if callable(node):
         return _oa_callable(node, custom, version)
@@ -1254,8 +1267,8 @@ def _enum_twin(
     return None
 
 
-def _oa_type(node: Any, version: str) -> dict[str, Any]:
-    """Render a Python type as an OpenAPI Schema object."""
+def _oa_type(node: Any, version: str) -> dict[str, Any] | None:
+    """Render a Python type as an OpenAPI Schema object, or None if it is not one."""
     if node in _OPENAPI_TYPES:
         return {"type": _OPENAPI_TYPES[node]}
 
@@ -1270,5 +1283,8 @@ def _oa_type(node: Any, version: str) -> dict[str, Any]:
             return _oa_null(version)
 
     if node is object:
-        return dict(_OPEN_OBJECT)
-    return {}
+        # ``object`` accepts any value at all, which only the empty schema says. It
+        # is not a JSON object: rendering it as one (as voluptuous-openapi does)
+        # rejects the ``1``, ``"x"``, ``[1]`` and ``None`` the validator accepts.
+        return {}
+    return None
