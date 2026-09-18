@@ -154,7 +154,7 @@ so they do not round-trip:
 
 | Probatio construct         | JSON Schema output                                                                                                                                                     |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Any` / `Or`               | `anyOf`                                                                                                                                                                |
+| `Any` / `Or`               | `anyOf` (one branch renders as that branch alone, none as `not: {}`)                                                                                                   |
 | `Union` / `Switch`         | `anyOf` (the discriminant is an optimization, so any branch is allowed)                                                                                                |
 | `All` / `And`              | one merged object, or `allOf` when two validators disagree on a keyword                                                                                                |
 | `Maybe`                    | `anyOf` with `{"type": "null"}`                                                                                                                                        |

@@ -872,7 +872,7 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
     # optimization), so they render as ``anyOf`` like ``Any``. Checked with
     # ``Any`` since both wrap ``.validators``.
     if isinstance(node, AnyValidator | Union):
-        return {"anyOf": [_child(validator) for validator in node.validators]}
+        return _convert_any([_child(validator) for validator in node.validators])
 
     if isinstance(node, SomeOf):
         return _convert_some_of(node)
@@ -881,6 +881,23 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
         return _convert_all(node)
 
     return _convert_constraint(node)
+
+
+def _convert_any(branches: list[dict[str, Any]]) -> dict[str, Any]:
+    """Render the branches of an ``Any``/``Union`` as ``anyOf``, or as less.
+
+    One branch is exactly that branch, so it renders bare. The wrapper would also
+    unsettle a round trip: ``items: {"anyOf": [x]}`` decodes to the sequence
+    ``[x]``, which renders as ``items: x``, one level flatter on every trip. No
+    branch at all (``Any()``) accepts nothing; an empty ``anyOf`` would say so too
+    but is not a schema, since the metaschema demands at least one branch, so it
+    renders as ``not: {}``, the rejection JSON Schema does spell.
+    """
+    if not branches:
+        return {"not": {}}
+    if len(branches) == 1:
+        return branches[0]
+    return {"anyOf": branches}
 
 
 def _convert_some_of(node: SomeOf) -> dict[str, Any]:
