@@ -659,6 +659,19 @@ def test_all_with_disagreeing_values_for_a_keyword_uses_all_of() -> None:
     }
 
 
+def test_all_agreeing_only_under_python_equality_keeps_both_branches() -> None:
+    """``1`` and ``true`` are different JSON values, however Python compares them.
+
+    A decoded conjunction of the two rejects every value. Merged under Python
+    equality it would render as a satisfiable ``{"const": true}``.
+    """
+    for document in (
+        {"allOf": [{"const": 1}, {"const": True}]},
+        {"allOf": [{"enum": [1]}, {"enum": [True]}]},
+    ):
+        assert to_json_schema(from_json_schema(document)) == document
+
+
 def test_a_typed_pattern_round_trip_is_a_structural_fixpoint() -> None:
     """The document a decoded pattern renders to is the one it was decoded from.
 

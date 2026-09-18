@@ -916,11 +916,18 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     Agreement has to merge for a round trip to settle: a decoded ``{"type":
     "string", "pattern": ...}`` is ``All(str, pattern)``, and rendering that as an
     ``allOf`` would wrap the document one level deeper on every trip, forever.
+
+    Agreement is judged under JSON's type model, since the document is read by a
+    JSON Schema consumer: ``const: 1`` and ``const: true`` are different values
+    there, however Python compares them, so they keep their own branches.
     """
     parts = [_child(validator) for validator in node.validators]
     merged: dict[str, Any] = {}
     for part in parts:
-        if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
+        if any(
+            not _json_equal(part[key], merged[key])
+            for key in part.keys() & merged.keys()
+        ):
             return {"allOf": [part for part in parts if part]}
         merged.update(part)
 
