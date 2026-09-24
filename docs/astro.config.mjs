@@ -50,9 +50,9 @@ export default defineConfig({
               description:
                 "How-to walkthroughs: the validation model, dict and sequence " +
                 "schemas, combinators, the built-in validators, error handling, " +
-                "custom validators, the probatio decorator, recursive, compiled, " +
-                "and lazy schemas, dataclass and TypedDict schemas, and the JSON " +
-                "Schema, OpenAPI, and field-list codecs.",
+                "custom validators, annotations, the probatio decorator, " +
+                "recursive, compiled, and lazy schemas, dataclass and TypedDict " +
+                "schemas, and the JSON Schema, OpenAPI, and field-list codecs.",
               paths: ["guides/**"],
             },
             {
@@ -183,6 +183,7 @@ export default defineConfig({
               slug: "guides/loading-and-dumping",
             },
             { label: "Custom validators", slug: "guides/custom-validators" },
+            { label: "Annotations", slug: "guides/annotations" },
             {
               label: "The probatio decorator",
               slug: "guides/probatio-decorator",
