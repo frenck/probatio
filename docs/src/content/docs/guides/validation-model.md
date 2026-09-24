@@ -76,6 +76,56 @@ schema(data)  # {'port': 443}
 data  # {'port': '443'}  (unchanged)
 ```
 
+### A container subclass keeps its type and its state
+
+A `dict` or `list` subclass comes back as that subclass. The rebuilt container is
+a fresh instance, so Probatio copies the original's instance state onto it: its
+`__dict__` and its set `__slots__`, read through `object.__getstate__`. Nothing
+has to opt in.
+
+How the fresh instance is built differs between the two, and so does what happens
+when a subclass cannot be built that way. A sequence is rebuilt from the
+validated items, so a `list` or `tuple` subclass whose constructor does not take
+them as one iterable falls back to a plain `list` or `tuple`, as it always has. A
+mapping is rebuilt empty and filled, so a `dict` subclass needs a constructor
+callable with no arguments; one that requires an argument raises `TypeError`
+rather than degrading, which is what it does in voluptuous too.
+
+That is the default instance state, and only that. A class that defines its own
+`__getstate__`/`__setstate__` pair keeps its plain attributes like any other
+class, but the custom state those two exchange is not carried: Probatio never
+calls either of them. Reconstructing an object through `__setstate__` would run
+user code against a container that already holds the validated items, and a
+`__setstate__` that restores contents would put the unvalidated ones back.
+
+That is what keeps an annotating loader's bookkeeping alive. Home Assistant's
+YAML loader records the file and line of every node in `__slots__`, and those
+survive validation, so an error message about a value can still say where the
+value was written:
+
+```python
+from probatio import Coerce, Schema
+
+
+class Node(dict):
+    __slots__ = ("line",)
+
+
+data = Node({"port": "443"})
+data.line = 12
+
+result = Schema({"port": Coerce(int)})(data)
+
+print(result)  # {'port': 443}
+print(type(result) is Node)  # True
+print(result.line)  # 12
+```
+
+voluptuous keeps the class but not the state, so this is a deliberate deviation
+(see the [intentional
+deviations](/reference/compatibility-matrix/#intentional-deviations)). A plain
+`dict` or `list` carries no state, so nothing about it changes.
+
 ## Failure is an exception, not a return value
 
 A valid value comes back from the call. An invalid one raises, so there is no
