@@ -296,7 +296,7 @@ def test_ensure_list_turns_none_into_empty() -> None:
 
 def test_ensure_list_keeps_the_element_type() -> None:
     """EnsureList overloads __call__ so a caller keeps its element type."""
-    none_case, list_case, scalar_case = (
+    none_case, list_case, union_case = (
         # A type parameter is scoped to its own overload, so resolving the
         # annotations needs it in the local namespace.
         get_type_hints(
@@ -309,7 +309,10 @@ def test_ensure_list_keeps_the_element_type() -> None:
     assert none_case == {"value": type(None), "return": list[Any]}
     # The element type that goes in is the element type that comes back out.
     assert get_args(list_case["value"])[0] is get_args(list_case["return"])[0]
-    assert scalar_case["value"] is get_args(scalar_case["return"])[0]
+    # The last overload takes the shape the validator exists to normalize: one
+    # value or a list of them, both yielding a list of that element type.
+    element = get_args(union_case["return"])[0]
+    assert get_args(union_case["value"]) == (list[element], element)
 
 
 @pytest.mark.parametrize(
