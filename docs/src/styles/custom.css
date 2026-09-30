@@ -224,7 +224,7 @@ body::before {
    The wordmarks ship as single-theme artwork, so each theme gets its own
    file and the other is hidden. */
 .adopter-logo {
-  max-width: 18rem;
+  max-width: 28rem;
   height: auto;
   margin-block: 1rem;
 }
