@@ -8,9 +8,7 @@ the ecosystems it is built to serve. If you adopt Probatio, please
 [edit this page on GitHub](https://github.com/frenck/probatio/edit/main/docs/src/content/docs/project/projects.md)
 and open a pull request to add yourself here.
 
-## Using Probatio
-
-### Home Assistant
+## Home Assistant
 
 <img
   src="/logos/home-assistant-light.svg"
@@ -35,7 +33,7 @@ that compatibility is measured, including against Home Assistant's own test
 suite, is on the [about page](/project/about/). See the
 [Home Assistant recipe](/recipes/home-assistant/).
 
-### Libraries
+## Libraries
 
 A library that Home Assistant installs and that declares voluptuous pulls in a
 package Home Assistant then shadows, since the name is aliased to Probatio at

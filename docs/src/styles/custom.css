@@ -224,9 +224,11 @@ body::before {
    The wordmarks ship as single-theme artwork, so each theme gets its own
    file and the other is hidden. */
 .adopter-logo {
-  max-width: 18rem;
+  display: block;
+  max-width: 28rem;
   height: auto;
-  margin-block: 1rem;
+  margin-block: 1.5rem;
+  margin-inline: auto;
 }
 
 :root[data-theme="light"] .adopter-logo--dark,
