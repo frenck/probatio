@@ -219,3 +219,17 @@ body::before {
 .sl-markdown-content table code {
   white-space: nowrap;
 }
+
+/* -- Adopter logos ---------------------------------------------------
+   The wordmarks ship as single-theme artwork, so each theme gets its own
+   file and the other is hidden. */
+.adopter-logo {
+  max-width: 18rem;
+  height: auto;
+  margin-block: 1rem;
+}
+
+:root[data-theme="light"] .adopter-logo--dark,
+:root[data-theme="dark"] .adopter-logo--light {
+  display: none;
+}
