@@ -10,26 +10,50 @@ and open a pull request to add yourself here.
 
 ## Using Probatio
 
-_Be the first._ There are no public adopters yet. If your project validates data
-with Probatio, I would love to list it.
+### Home Assistant
+
+<img
+  src="/logos/home-assistant-light.svg"
+  alt="Home Assistant"
+  class="adopter-logo adopter-logo--light"
+/>
+<img
+  src="/logos/home-assistant-dark.svg"
+  alt="Home Assistant"
+  class="adopter-logo adopter-logo--dark"
+/>
+
+[Home Assistant](https://www.home-assistant.io) has validated every
+integration's configuration with Probatio since Core 2026.9, on a hot path hit
+by millions of installations at startup and on every reload. voluptuous is no
+longer installed at all: the `voluptuous` name is aliased to Probatio in
+`sys.modules` at startup, so custom integrations keep working unchanged while
+the core itself imports Probatio directly.
+
+Probatio tracks voluptuous behavior closely, with documented deviations; how
+that compatibility is measured, including against Home Assistant's own test
+suite, is on the [about page](/project/about/). See the
+[Home Assistant recipe](/recipes/home-assistant/).
+
+### Libraries
+
+A library that Home Assistant installs and that declares voluptuous pulls in a
+package Home Assistant then shadows, since the name is aliased to Probatio at
+startup. Depending on Probatio directly drops the redundant install.
+
+- [ramses-rf](https://github.com/ramses-rf/ramses_rf), an interface for the
+  RAMSES-II RF protocol used by Honeywell-compatible HVAC and CH/DHW systems.
+  It backs [ramses_cc](https://github.com/ramses-rf/ramses_cc).
+- [evohome-async](https://github.com/zxdavb/evohome-async), an async client for
+  the Resideo TCC web API, behind Home Assistant's evohome integration.
+  Switched on `main`, not yet released.
 
 ## Where Probatio fits
 
 Probatio was designed as a drop-in successor to voluptuous, so it fits anywhere
 voluptuous is used today: a maintained library, the same schema-is-data API, and
-fixes for the rough edges. The following ecosystems are the primary motivation
-for its design.
-
-### Home Assistant
-
-Home Assistant validates every integration's configuration with voluptuous, on a
-hot path hit by millions of installations at startup and on every reload.
-Probatio tracks that behavior closely, with documented deviations; how that
-compatibility is measured, including against Home Assistant's own test suite, is
-on the [about page](/project/about/). On top of it, Probatio adds a cleaner
-error model with paths, no interpreter-level `RecursionError` on deep
-configuration, and "did you mean ...?" suggestions for misspelled keys. See the
-[Home Assistant recipe](/recipes/home-assistant/).
+fixes for the rough edges. Home Assistant, above, is the first of those. The
+following are the other ecosystems that motivated its design.
 
 ### ESPHome
 
@@ -42,8 +66,9 @@ for what that move looks like.
 
 ### Anywhere voluptuous is used
 
-Beyond the big two, voluptuous validates configuration and request data across a
-long tail of libraries, CLIs, and services. For any of them the move is the same:
-change the import, keep the schemas, and gain a maintained library with a richer
-error model and codecs for JSON Schema, OpenAPI, dataclasses, and field lists.
+Beyond Home Assistant and ESPHome, voluptuous validates configuration and
+request data across a long tail of libraries, CLIs, and services. For any of
+them the move is the same: change the import, keep the schemas, and gain a
+maintained library with a richer error model and codecs for JSON Schema,
+OpenAPI, dataclasses, and field lists.
 Start with [migrating from voluptuous](/getting-started/migrating-from-voluptuous/).
