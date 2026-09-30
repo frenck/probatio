@@ -35,6 +35,19 @@ that compatibility is measured, including against Home Assistant's own test
 suite, is on the [about page](/project/about/). See the
 [Home Assistant recipe](/recipes/home-assistant/).
 
+### Libraries
+
+A library that Home Assistant installs and that declares voluptuous pulls in a
+package Home Assistant then shadows, since the name is aliased to Probatio at
+startup. Depending on Probatio directly drops the redundant install.
+
+- [ramses-rf](https://github.com/ramses-rf/ramses_rf), an interface for the
+  RAMSES-II RF protocol used by Honeywell-compatible HVAC and CH/DHW systems.
+  It backs [ramses_cc](https://github.com/ramses-rf/ramses_cc).
+- [evohome-async](https://github.com/zxdavb/evohome-async), an async client for
+  the Resideo TCC web API, behind Home Assistant's evohome integration.
+  Switched on `main`, not yet released.
+
 ## Where Probatio fits
 
 Probatio was designed as a drop-in successor to voluptuous, so it fits anywhere
