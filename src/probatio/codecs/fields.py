@@ -17,7 +17,7 @@ as nullable in either member order.
 from __future__ import annotations
 
 import enum
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Iterator, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
@@ -321,11 +321,13 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
 
     if isinstance(node, All):
         merged: dict[str, Any] = {}
-        for validator in node.validators:
+        for member in _all_members(node, custom):
             _merge_field(
                 merged,
-                _serialize_value(validator, custom),
-                intersect=not _replaces_bounds(validator),
+                _serialize_value(member, custom),
+                # Clamp bends a value into range instead of rejecting it, so the
+                # bounds it emits describe what comes out, not what may be sent.
+                replace=isinstance(member, Clamp),
             )
         return merged
 
@@ -346,42 +348,61 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     return _serialize_constraint(node)
 
 
-def _replaces_bounds(node: Any) -> bool:
-    """Say whether this node's bounds replace the ones before it, rather than narrow them.
+def _all_members(node: All[Any], custom: Any) -> Iterator[Any]:
+    """Yield an All()'s members in the order they run, flattening nested All()s.
 
-    Clamp bends a value into range instead of rejecting it, so its bounds describe
-    what comes out, not what a form may submit. Narrowing those against a bound
-    that does reject would describe an interval no value can be in. Nesting an
-    All() means the same chain as writing it flat, so a Clamp anywhere inside one
-    carries the same answer out.
+    A nested All() is the same chain with brackets around part of it, so its
+    members have to merge one at a time like the outer ones. Treating the group
+    as a single member would let one member's behavior stand in for all of it.
+    A nested All() the custom hook claims stays whole, because the hook renders
+    that node itself.
     """
-    if isinstance(node, Clamp):
-        return True
+    for member in node.validators:
+        if isinstance(member, All) and not _is_custom(member, custom):
+            yield from _all_members(member, custom)
+            continue
 
-    if isinstance(node, All):
-        return any(_replaces_bounds(member) for member in node.validators)
+        yield member
 
-    return False
+
+def _is_custom(node: Any, custom: Any) -> bool:
+    """Say whether the custom hook renders this node itself."""
+    return custom is not None and custom(node) is not UNSUPPORTED
 
 
 def _merge_field(
-    merged: dict[str, Any], field: dict[str, Any], *, intersect: bool
+    merged: dict[str, Any], field: dict[str, Any], *, replace: bool
 ) -> None:
     """Fold one All() member's field hints into the hints collected so far.
 
-    Every member of an All() has to accept the value, so bounds that reject
-    intersect: the narrowest lower bound and the narrowest upper bound win,
-    whatever order the members are in. Plain overwriting would let
+    Every member of an All() has to accept the value, so bounds narrow: the
+    tightest lower bound and the tightest upper bound win, whatever order the
+    members are written in. Plain overwriting would let
     ``All(Length(min=5), NonEmpty())`` advertise a minimum of 1 and offer the
-    user a value the schema then rejects. A member that transforms rather than
-    rejects passes ``intersect=False`` and replaces the bounds instead.
+    user a value the schema then rejects. A member that bends the value rather
+    than rejecting it passes ``replace=True`` for its own keys.
     """
     for key, value in field.items():
         current = merged.get(key)
-        if not intersect or current is None or key not in _SERIALIZE_BOUNDS:
+        if replace or current is None or key not in _SERIALIZE_BOUNDS:
             merged[key] = value
             continue
-        merged[key] = _SERIALIZE_BOUNDS[key](current, value)
+
+        merged[key] = _narrow(key, current, value)
+
+
+def _narrow(key: str, current: Any, value: Any) -> Any:
+    """Return the tighter of two bounds, or the later one when they do not compare.
+
+    An All() may change domains between two bounds, as in
+    ``All(Range(min=5), Coerce(str), Range(min="7"))``. Comparing those raises,
+    and the value reaching the later bound is the converted one, so that bound
+    is the one describing what may be submitted.
+    """
+    try:
+        return _SERIALIZE_BOUNDS[key](current, value)
+    except TypeError:
+        return value
 
 
 def _serialize_typed(node: Any) -> dict[str, Any] | None:

@@ -401,6 +401,56 @@ def test_nesting_does_not_change_an_intersection() -> None:
     ) == {"lengthMin": 5}
 
 
+def test_a_clamp_only_replaces_the_bounds_it_emits() -> None:
+    """A Clamp inside a nested All does not hand its exemption to the rest of the group.
+
+    ``Clamp(max=20)`` says nothing about the lower bound, so the ``Range(min=0)``
+    behind it still narrows against the ``Range(min=10)`` in front of the group,
+    exactly as the same chain written flat does.
+    """
+    nested = probatio.All(
+        probatio.Range(min=10),
+        probatio.All(probatio.Clamp(max=20), probatio.Range(min=0)),
+    )
+    flat = probatio.All(
+        probatio.Range(min=10), probatio.Clamp(max=20), probatio.Range(min=0)
+    )
+
+    assert to_field_list(Schema(nested)) == {"valueMin": 10, "valueMax": 20}
+    assert to_field_list(Schema(nested)) == to_field_list(Schema(flat))
+
+
+def test_bounds_of_different_types_do_not_raise() -> None:
+    """An All() that changes domains between two bounds serializes the later one.
+
+    Comparing the two would raise, and the value reaching the later bound is the
+    converted one, so that bound is the one describing what may be submitted.
+    """
+    schema = Schema(
+        probatio.All(
+            probatio.Range(min=5), probatio.Coerce(str), probatio.Range(min="7")
+        )
+    )
+
+    assert schema(8) == "8"
+    assert to_field_list(schema) == {"type": "string", "valueMin": "7"}
+
+
+def test_a_custom_serializer_still_owns_a_nested_all() -> None:
+    """Flattening skips a nested All() the hook renders itself."""
+    claimed = probatio.All(probatio.Range(min=1), probatio.Range(min=99))
+
+    def hook(node: object) -> object:
+        return {"type": "custom_thing"} if node is claimed else UNSUPPORTED
+
+    schema = Schema(probatio.All(probatio.Range(min=5), claimed))
+
+    assert to_field_list(schema, custom_serializer=hook) == {
+        "valueMin": 5,
+        "type": "custom_thing",
+    }
+
+
 def test_non_empty_matches_an_explicit_minimum_length() -> None:
     """NonEmpty and Length(min=1) describe the same field to a frontend."""
     assert to_field_list(Schema(NonEmpty())) == to_field_list(
