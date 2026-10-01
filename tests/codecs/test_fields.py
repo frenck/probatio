@@ -8,6 +8,8 @@ probatio schemas unchanged.
 
 from __future__ import annotations
 
+import collections
+import decimal
 import enum
 from dataclasses import dataclass
 from typing import Any, TypedDict
@@ -449,6 +451,56 @@ def test_a_custom_serializer_still_owns_a_nested_all() -> None:
         "valueMin": 5,
         "type": "custom_thing",
     }
+
+
+def test_a_custom_serializer_sees_each_node_once() -> None:
+    """Asking the hook whether it owns a nested All() is not a second visit.
+
+    A hook that counts, caches or otherwise carries state would answer a
+    different thing the second time and lose its own override.
+    """
+    claimed = probatio.All(probatio.Range(min=1))
+    seen: collections.Counter[int] = collections.Counter()
+
+    def hook(node: object) -> object:
+        seen[id(node)] += 1
+        return {"type": "claimed"} if node is claimed else UNSUPPORTED
+
+    schema = Schema(probatio.All(probatio.Range(min=5), claimed))
+
+    assert to_field_list(schema, custom_serializer=hook) == {
+        "valueMin": 5,
+        "type": "claimed",
+    }
+    assert max(seen.values()) == 1
+
+
+def test_a_deferring_hook_still_flattens_a_nested_all() -> None:
+    """A hook that defers on a nested All() leaves it to be flattened as usual."""
+    schema = Schema(
+        probatio.All(probatio.Range(min=5), probatio.All(probatio.Range(min=9)))
+    )
+
+    def defer(_node: object) -> object:
+        return UNSUPPORTED
+
+    assert to_field_list(schema, custom_serializer=defer) == {"valueMin": 9}
+
+
+def test_bounds_that_raise_on_comparison_do_not_escape() -> None:
+    """A comparison can raise something other than TypeError, and must not kill the list.
+
+    ``Decimal("NaN")`` raises ``InvalidOperation`` rather than refusing the type,
+    so the guard answers the same way it does for a mismatched type.
+    """
+    schema = Schema(
+        probatio.All(
+            probatio.Range(min=decimal.Decimal("NaN")),
+            probatio.Range(min=decimal.Decimal(1)),
+        )
+    )
+
+    assert to_field_list(schema) == {"valueMin": decimal.Decimal(1)}
 
 
 def test_non_empty_matches_an_explicit_minimum_length() -> None:
