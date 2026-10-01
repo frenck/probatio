@@ -353,16 +353,52 @@ def test_all_intersects_the_serialized_bounds(
     assert to_field_list(Schema(validator)) == expected
 
 
-def test_a_clamp_replaces_the_bounds_it_follows() -> None:
+@pytest.mark.parametrize(
+    "validator",
+    [
+        pytest.param(
+            probatio.All(probatio.Range(min=10), probatio.Clamp(min=0, max=5)),
+            id="flat",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.Range(min=10), probatio.All(probatio.Clamp(min=0, max=5))
+            ),
+            id="clamp_nested",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.Range(min=10),
+                probatio.All(probatio.All(probatio.Clamp(min=0, max=5))),
+            ),
+            id="clamp_nested_twice",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.All(probatio.Range(min=10)), probatio.Clamp(min=0, max=5)
+            ),
+            id="range_nested",
+        ),
+    ],
+)
+def test_a_clamp_replaces_the_bounds_it_follows(validator: object) -> None:
     """Clamp bends the value, so its bounds replace rather than narrow.
 
     ``All(Range(min=10), Clamp(min=0, max=5))`` accepts 10 and returns 5.
     Intersecting the two would advertise 10 to 5, an interval no value is in.
+    Nesting an All() means the same chain, so it must mean the same bounds.
     """
-    schema = Schema(probatio.All(probatio.Range(min=10), probatio.Clamp(min=0, max=5)))
+    schema = Schema(validator)
 
     assert schema(10) == 5
     assert to_field_list(schema) == {"valueMin": 0, "valueMax": 5}
+
+
+def test_nesting_does_not_change_an_intersection() -> None:
+    """A member with no Clamp inside still narrows, however deeply it is nested."""
+    assert to_field_list(
+        Schema(probatio.All(probatio.Length(min=5), probatio.All(NonEmpty())))
+    ) == {"lengthMin": 5}
 
 
 def test_non_empty_matches_an_explicit_minimum_length() -> None:

@@ -143,12 +143,6 @@ _SERIALIZE_BOUNDS: dict[str, Any] = {
     "lengthMax": min,
 }
 
-# Clamp bends a value into range instead of rejecting it, so its bounds describe
-# what comes out, not what a form may submit. Intersecting those with a bound
-# that does reject would describe an interval no value can be in, so a Clamp
-# replaces what came before it rather than narrowing it.
-_SERIALIZE_REPLACES_BOUNDS = (Clamp,)
-
 # The type names voluptuous-serialize emits (note: float -> "float", not
 # "number" as in JSON Schema).
 _SERIALIZE_TYPES: dict[type, str] = {
@@ -331,7 +325,7 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
             _merge_field(
                 merged,
                 _serialize_value(validator, custom),
-                intersect=not isinstance(validator, _SERIALIZE_REPLACES_BOUNDS),
+                intersect=not _replaces_bounds(validator),
             )
         return merged
 
@@ -350,6 +344,24 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
         return typed
 
     return _serialize_constraint(node)
+
+
+def _replaces_bounds(node: Any) -> bool:
+    """Say whether this node's bounds replace the ones before it, rather than narrow them.
+
+    Clamp bends a value into range instead of rejecting it, so its bounds describe
+    what comes out, not what a form may submit. Narrowing those against a bound
+    that does reject would describe an interval no value can be in. Nesting an
+    All() means the same chain as writing it flat, so a Clamp anywhere inside one
+    carries the same answer out.
+    """
+    if isinstance(node, Clamp):
+        return True
+
+    if isinstance(node, All):
+        return any(_replaces_bounds(member) for member in node.validators)
+
+    return False
 
 
 def _merge_field(
