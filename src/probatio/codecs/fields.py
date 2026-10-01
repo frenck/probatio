@@ -143,6 +143,12 @@ _SERIALIZE_BOUNDS: dict[str, Any] = {
     "lengthMax": min,
 }
 
+# Clamp bends a value into range instead of rejecting it, so its bounds describe
+# what comes out, not what a form may submit. Intersecting those with a bound
+# that does reject would describe an interval no value can be in, so a Clamp
+# replaces what came before it rather than narrowing it.
+_SERIALIZE_REPLACES_BOUNDS = (Clamp,)
+
 # The type names voluptuous-serialize emits (note: float -> "float", not
 # "number" as in JSON Schema).
 _SERIALIZE_TYPES: dict[type, str] = {
@@ -322,7 +328,11 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     if isinstance(node, All):
         merged: dict[str, Any] = {}
         for validator in node.validators:
-            _merge_field(merged, _serialize_value(validator, custom))
+            _merge_field(
+                merged,
+                _serialize_value(validator, custom),
+                intersect=not isinstance(validator, _SERIALIZE_REPLACES_BOUNDS),
+            )
         return merged
 
     if isinstance(node, Coerce):
@@ -342,17 +352,21 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     return _serialize_constraint(node)
 
 
-def _merge_field(merged: dict[str, Any], field: dict[str, Any]) -> None:
+def _merge_field(
+    merged: dict[str, Any], field: dict[str, Any], *, intersect: bool
+) -> None:
     """Fold one All() member's field hints into the hints collected so far.
 
-    All() is an intersection, so its bounds intersect too: the narrowest lower
-    bound and the narrowest upper bound win, whatever order the members are in.
-    Plain overwriting would let ``All(Length(min=5), NonEmpty())`` advertise a
-    minimum of 1 and offer the user a value the schema then rejects.
+    Every member of an All() has to accept the value, so bounds that reject
+    intersect: the narrowest lower bound and the narrowest upper bound win,
+    whatever order the members are in. Plain overwriting would let
+    ``All(Length(min=5), NonEmpty())`` advertise a minimum of 1 and offer the
+    user a value the schema then rejects. A member that transforms rather than
+    rejects passes ``intersect=False`` and replaces the bounds instead.
     """
     for key, value in field.items():
         current = merged.get(key)
-        if current is None or key not in _SERIALIZE_BOUNDS:
+        if not intersect or current is None or key not in _SERIALIZE_BOUNDS:
             merged[key] = value
             continue
         merged[key] = _SERIALIZE_BOUNDS[key](current, value)

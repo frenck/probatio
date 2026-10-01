@@ -353,6 +353,18 @@ def test_all_intersects_the_serialized_bounds(
     assert to_field_list(Schema(validator)) == expected
 
 
+def test_a_clamp_replaces_the_bounds_it_follows() -> None:
+    """Clamp bends the value, so its bounds replace rather than narrow.
+
+    ``All(Range(min=10), Clamp(min=0, max=5))`` accepts 10 and returns 5.
+    Intersecting the two would advertise 10 to 5, an interval no value is in.
+    """
+    schema = Schema(probatio.All(probatio.Range(min=10), probatio.Clamp(min=0, max=5)))
+
+    assert schema(10) == 5
+    assert to_field_list(schema) == {"valueMin": 0, "valueMax": 5}
+
+
 def test_non_empty_matches_an_explicit_minimum_length() -> None:
     """NonEmpty and Length(min=1) describe the same field to a frontend."""
     assert to_field_list(Schema(NonEmpty())) == to_field_list(

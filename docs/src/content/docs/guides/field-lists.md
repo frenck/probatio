@@ -68,6 +68,30 @@ The other difference is nullability: `Any(X, None)` renders as a nullable field,
 where the oracle only recognizes the shape when `None` comes first. Both orders
 mean the same thing, so both serialize.
 
+Bounds inside an `All` are the third. Every member of an `All` has to accept the
+value, so repeated bounds intersect: the narrowest lower bound and the narrowest
+upper bound reach the field, in whatever order the members are written.
+voluptuous-serialize merges members with `dict.update`, so there the last one
+wins and a wider bound can overwrite a narrower one:
+
+```python
+from probatio import All, Length, NonEmpty, Range, Schema, to_field_list
+
+to_field_list(Schema(All(Length(min=5), NonEmpty())))
+# {'lengthMin': 5}                  the oracle says lengthMin 1
+
+to_field_list(Schema(All(Range(min=5), Range(min=1))))
+# {'valueMin': 5}                   the oracle says valueMin 1
+```
+
+A field that advertises a bound the schema rejects sends the user back a form
+error for a value the form invited, which is why Probatio narrows instead.
+
+`Clamp` is the exception, because it bends a value into range rather than
+rejecting it. Its bounds describe what comes out, not what may be submitted, so
+a `Clamp` replaces the bounds it follows instead of narrowing them, exactly as
+the oracle does.
+
 ## A custom-serializer hook
 
 `to_field_list` and `to_openapi` take a `custom_serializer` hook, called first for
