@@ -8,6 +8,8 @@ probatio schemas unchanged.
 
 from __future__ import annotations
 
+import collections
+import decimal
 import enum
 from dataclasses import dataclass
 from typing import Any, TypedDict
@@ -250,7 +252,37 @@ def test_new_validators_serialize_to_fields() -> None:
     }
     assert by_name["pw"]["type"] == "string"
     assert by_name["pw"]["secret"] is True
-    assert by_name["pct"]["type"] == "float"
+    assert by_name["pct"] == {
+        "valueMin": 0,
+        "valueMax": 100,
+        "name": "pct",
+        "required": True,
+    }
+
+
+def test_percentage_keeps_the_coerced_type() -> None:
+    """Percentage carries bounds only, so a paired Coerce still sets the type."""
+    assert to_field_list(Schema(probatio.All(probatio.Coerce(int), Percentage()))) == {
+        "type": "integer",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
+    assert to_field_list(
+        Schema(probatio.All(probatio.Coerce(float), Percentage()))
+    ) == {
+        "type": "float",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
+
+
+def test_from_percentage_serializes_as_a_float() -> None:
+    """FromPercentage parses to a float, so it does assert the type."""
+    assert to_field_list(Schema(probatio.FromPercentage())) == {
+        "type": "float",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
 
 
 @pytest.mark.parametrize(
@@ -263,7 +295,7 @@ def test_validators_without_a_frontend_shape_serialize_empty(validator: object) 
 
 
 def test_string_and_no_shape_validators_serialize() -> None:
-    """The new string validators serialize to a string field, and NonEmpty to empty."""
+    """The new string validators serialize to a string field, NonEmpty to a minimum length."""
     fields = to_field_list(
         Schema(
             {Required("a"): Alpha(), Required("b"): Base64(), Required("c"): NonEmpty()}
@@ -274,6 +306,208 @@ def test_string_and_no_shape_validators_serialize() -> None:
     assert by_name["a"]["type"] == "string"
     assert by_name["b"]["type"] == "string"
     assert "type" not in by_name["c"]
+    assert by_name["c"]["lengthMin"] == 1
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            probatio.All(probatio.Length(min=5), NonEmpty()),
+            {"lengthMin": 5},
+            id="non_empty_does_not_widen_a_length",
+        ),
+        pytest.param(
+            probatio.All(NonEmpty(), probatio.Length(min=5)),
+            {"lengthMin": 5},
+            id="non_empty_first",
+        ),
+        pytest.param(
+            probatio.All(probatio.Range(min=5), probatio.Range(min=1)),
+            {"valueMin": 5},
+            id="narrowest_lower_bound",
+        ),
+        pytest.param(
+            probatio.All(probatio.Range(max=99), probatio.Range(max=10)),
+            {"valueMax": 10},
+            id="narrowest_upper_bound",
+        ),
+        pytest.param(
+            probatio.All(probatio.Length(min=1, max=20), probatio.Length(max=5)),
+            {"lengthMin": 1, "lengthMax": 5},
+            id="bounds_fold_independently",
+        ),
+        pytest.param(
+            probatio.All(probatio.Coerce(int), probatio.Coerce(float)),
+            {"type": "float"},
+            id="a_non_bound_key_is_overwritten",
+        ),
+    ],
+)
+def test_all_intersects_the_serialized_bounds(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """All() is an intersection, so the narrowest bound reaches the frontend.
+
+    A member that widens a bound would otherwise offer the user a value the
+    schema rejects, and the result must not depend on the member order.
+    """
+    assert to_field_list(Schema(validator)) == expected
+
+
+@pytest.mark.parametrize(
+    "validator",
+    [
+        pytest.param(
+            probatio.All(probatio.Range(min=10), probatio.Clamp(min=0, max=5)),
+            id="flat",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.Range(min=10), probatio.All(probatio.Clamp(min=0, max=5))
+            ),
+            id="clamp_nested",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.Range(min=10),
+                probatio.All(probatio.All(probatio.Clamp(min=0, max=5))),
+            ),
+            id="clamp_nested_twice",
+        ),
+        pytest.param(
+            probatio.All(
+                probatio.All(probatio.Range(min=10)), probatio.Clamp(min=0, max=5)
+            ),
+            id="range_nested",
+        ),
+    ],
+)
+def test_a_clamp_replaces_the_bounds_it_follows(validator: object) -> None:
+    """Clamp bends the value, so its bounds replace rather than narrow.
+
+    ``All(Range(min=10), Clamp(min=0, max=5))`` accepts 10 and returns 5.
+    Intersecting the two would advertise 10 to 5, an interval no value is in.
+    Nesting an All() means the same chain, so it must mean the same bounds.
+    """
+    schema = Schema(validator)
+
+    assert schema(10) == 5
+    assert to_field_list(schema) == {"valueMin": 0, "valueMax": 5}
+
+
+def test_nesting_does_not_change_an_intersection() -> None:
+    """A member with no Clamp inside still narrows, however deeply it is nested."""
+    assert to_field_list(
+        Schema(probatio.All(probatio.Length(min=5), probatio.All(NonEmpty())))
+    ) == {"lengthMin": 5}
+
+
+def test_a_clamp_only_replaces_the_bounds_it_emits() -> None:
+    """A Clamp inside a nested All does not hand its exemption to the rest of the group.
+
+    ``Clamp(max=20)`` says nothing about the lower bound, so the ``Range(min=0)``
+    behind it still narrows against the ``Range(min=10)`` in front of the group,
+    exactly as the same chain written flat does.
+    """
+    nested = probatio.All(
+        probatio.Range(min=10),
+        probatio.All(probatio.Clamp(max=20), probatio.Range(min=0)),
+    )
+    flat = probatio.All(
+        probatio.Range(min=10), probatio.Clamp(max=20), probatio.Range(min=0)
+    )
+
+    assert to_field_list(Schema(nested)) == {"valueMin": 10, "valueMax": 20}
+    assert to_field_list(Schema(nested)) == to_field_list(Schema(flat))
+
+
+def test_bounds_of_different_types_do_not_raise() -> None:
+    """An All() that changes domains between two bounds serializes the later one.
+
+    Comparing the two would raise, and the value reaching the later bound is the
+    converted one, so that bound is the one describing what may be submitted.
+    """
+    schema = Schema(
+        probatio.All(
+            probatio.Range(min=5), probatio.Coerce(str), probatio.Range(min="7")
+        )
+    )
+
+    assert schema(8) == "8"
+    assert to_field_list(schema) == {"type": "string", "valueMin": "7"}
+
+
+def test_a_custom_serializer_still_owns_a_nested_all() -> None:
+    """Flattening skips a nested All() the hook renders itself."""
+    claimed = probatio.All(probatio.Range(min=1), probatio.Range(min=99))
+
+    def hook(node: object) -> object:
+        return {"type": "custom_thing"} if node is claimed else UNSUPPORTED
+
+    schema = Schema(probatio.All(probatio.Range(min=5), claimed))
+
+    assert to_field_list(schema, custom_serializer=hook) == {
+        "valueMin": 5,
+        "type": "custom_thing",
+    }
+
+
+def test_a_custom_serializer_sees_each_node_once() -> None:
+    """Asking the hook whether it owns a nested All() is not a second visit.
+
+    A hook that counts, caches or otherwise carries state would answer a
+    different thing the second time and lose its own override.
+    """
+    claimed = probatio.All(probatio.Range(min=1))
+    seen: collections.Counter[int] = collections.Counter()
+
+    def hook(node: object) -> object:
+        seen[id(node)] += 1
+        return {"type": "claimed"} if node is claimed else UNSUPPORTED
+
+    schema = Schema(probatio.All(probatio.Range(min=5), claimed))
+
+    assert to_field_list(schema, custom_serializer=hook) == {
+        "valueMin": 5,
+        "type": "claimed",
+    }
+    assert max(seen.values()) == 1
+
+
+def test_a_deferring_hook_still_flattens_a_nested_all() -> None:
+    """A hook that defers on a nested All() leaves it to be flattened as usual."""
+    schema = Schema(
+        probatio.All(probatio.Range(min=5), probatio.All(probatio.Range(min=9)))
+    )
+
+    def defer(_node: object) -> object:
+        return UNSUPPORTED
+
+    assert to_field_list(schema, custom_serializer=defer) == {"valueMin": 9}
+
+
+def test_bounds_that_raise_on_comparison_do_not_escape() -> None:
+    """A comparison can raise something other than TypeError, and must not kill the list.
+
+    ``Decimal("NaN")`` raises ``InvalidOperation`` rather than refusing the type,
+    so the guard answers the same way it does for a mismatched type.
+    """
+    schema = Schema(
+        probatio.All(
+            probatio.Range(min=decimal.Decimal("NaN")),
+            probatio.Range(min=decimal.Decimal(1)),
+        )
+    )
+
+    assert to_field_list(schema) == {"valueMin": decimal.Decimal(1)}
+
+
+def test_non_empty_matches_an_explicit_minimum_length() -> None:
+    """NonEmpty and Length(min=1) describe the same field to a frontend."""
+    assert to_field_list(Schema(NonEmpty())) == to_field_list(
+        Schema(probatio.Length(min=1))
+    )
 
 
 class _Color(enum.Enum):

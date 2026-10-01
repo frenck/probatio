@@ -17,7 +17,7 @@ as nullable in either member order.
 from __future__ import annotations
 
 import enum
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable, Iterator, Mapping
 from typing import Any, cast
 
 from probatio.codecs._shared import UNSUPPORTED
@@ -133,6 +133,15 @@ _SERIALIZE_PORT_MIN = 1
 _SERIALIZE_PORT_MAX = 65535
 _SERIALIZE_PERCENT_MIN = 0
 _SERIALIZE_PERCENT_MAX = 100
+_SERIALIZE_NON_EMPTY_MIN = 1
+
+# The field keys that are bounds, and how two of them intersect.
+_SERIALIZE_BOUNDS: dict[str, Any] = {
+    "valueMin": max,
+    "lengthMin": max,
+    "valueMax": min,
+    "lengthMax": min,
+}
 
 # The type names voluptuous-serialize emits (note: float -> "float", not
 # "number" as in JSON Schema).
@@ -312,8 +321,14 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
 
     if isinstance(node, All):
         merged: dict[str, Any] = {}
-        for validator in node.validators:
-            merged.update(_serialize_value(validator, custom))
+        for member, rendered in _all_members(node, custom):
+            _merge_field(
+                merged,
+                rendered if rendered is not None else _serialize_value(member, custom),
+                # Clamp bends a value into range instead of rejecting it, so the
+                # bounds it emits describe what comes out, not what may be sent.
+                replace=isinstance(member, Clamp),
+            )
         return merged
 
     if isinstance(node, Coerce):
@@ -333,6 +348,83 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     return _serialize_constraint(node)
 
 
+def _all_members(
+    node: All[Any], custom: Any
+) -> Iterator[tuple[Any, dict[str, Any] | None]]:
+    """Yield an All()'s members in the order they run, flattening nested All()s.
+
+    A nested All() is the same chain with brackets around part of it, so its
+    members have to merge one at a time like the outer ones. Treating the group
+    as a single member would let one member's behavior stand in for all of it.
+    A nested All() the custom hook claims stays whole, because the hook renders
+    that node itself.
+
+    Deciding that takes asking the hook, so a claimed group is yielded with what
+    the hook returned rather than being rendered again later: a hook sees each
+    node once, as it does outside an All().
+    """
+    for member in node.validators:
+        if not isinstance(member, All):
+            yield member, None
+            continue
+
+        rendered = _custom_field(member, custom)
+        if rendered is None:
+            yield from _all_members(member, custom)
+            continue
+
+        yield member, rendered
+
+
+def _custom_field(node: Any, custom: Any) -> dict[str, Any] | None:
+    """Return what the custom hook renders for this node, or None if it defers."""
+    if custom is None:
+        return None
+
+    result = custom(node)
+    if result is UNSUPPORTED:
+        return None
+
+    return cast("dict[str, Any]", result)
+
+
+def _merge_field(
+    merged: dict[str, Any], field: dict[str, Any], *, replace: bool
+) -> None:
+    """Fold one All() member's field hints into the hints collected so far.
+
+    Every member of an All() has to accept the value, so bounds narrow: the
+    tightest lower bound and the tightest upper bound win, whatever order the
+    members are written in. Plain overwriting would let
+    ``All(Length(min=5), NonEmpty())`` advertise a minimum of 1 and offer the
+    user a value the schema then rejects. A member that bends the value rather
+    than rejecting it passes ``replace=True`` for its own keys.
+    """
+    for key, value in field.items():
+        current = merged.get(key)
+        if replace or current is None or key not in _SERIALIZE_BOUNDS:
+            merged[key] = value
+            continue
+
+        merged[key] = _narrow(key, current, value)
+
+
+def _narrow(key: str, current: Any, value: Any) -> Any:
+    """Return the tighter of two bounds, or the later one when they do not compare.
+
+    An All() may change domains between two bounds, as in
+    ``All(Range(min=5), Coerce(str), Range(min="7"))``. Comparing those raises,
+    and the value reaching the later bound is the converted one, so that bound
+    is the one describing what may be submitted. Any comparison may raise, not
+    only a mismatched type: ``Decimal("NaN")`` raises ``InvalidOperation``. A
+    field list must not die on one, so every failure answers the same way.
+    """
+    try:
+        return _SERIALIZE_BOUNDS[key](current, value)
+    except Exception:  # noqa: BLE001
+        return value
+
+
 def _serialize_typed(node: Any) -> dict[str, Any] | None:
     """Render the probatio-only validators for a frontend, or None if not one.
 
@@ -350,16 +442,24 @@ def _serialize_typed(node: Any) -> dict[str, Any] | None:
             "valueMax": _SERIALIZE_PORT_MAX,
         }
 
-    if isinstance(node, Percentage | FromPercentage):
+    if isinstance(node, FromPercentage):
         return {
             "type": "float",
             "valueMin": _SERIALIZE_PERCENT_MIN,
             "valueMax": _SERIALIZE_PERCENT_MAX,
         }
 
+    # Percentage returns the value unchanged, so it carries bounds but no type:
+    # an All() that pairs it with a Coerce must keep the Coerce's type.
+    if isinstance(node, Percentage):
+        return {
+            "valueMin": _SERIALIZE_PERCENT_MIN,
+            "valueMax": _SERIALIZE_PERCENT_MAX,
+        }
+
     if isinstance(
         node,
-        MultipleOf | Duration | AsTimedelta | EnsureList | NonEmpty | Sorted | HexInt,
+        MultipleOf | Duration | AsTimedelta | EnsureList | Sorted | HexInt,
     ):
         return {}
 
@@ -367,7 +467,7 @@ def _serialize_typed(node: Any) -> dict[str, Any] | None:
 
 
 def _serialize_constraint(node: Any) -> dict[str, Any] | None:  # noqa: PLR0911
-    """Render Range/Clamp/Length/Datetime/Match, or None if not recognized."""
+    """Render Range/Clamp/NonEmpty/Length/Datetime/Match, or None if not recognized."""
     if isinstance(node, Range | Clamp):
         bounds: dict[str, Any] = {}
         if node.min is not None:
@@ -375,6 +475,9 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:  # noqa: PLR0911
         if node.max is not None:
             bounds["valueMax"] = node.max
         return bounds
+
+    if isinstance(node, NonEmpty):
+        return {"lengthMin": _SERIALIZE_NON_EMPTY_MIN}
 
     if isinstance(node, Length):
         bounds = {}
