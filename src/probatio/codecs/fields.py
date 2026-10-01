@@ -135,6 +135,14 @@ _SERIALIZE_PERCENT_MIN = 0
 _SERIALIZE_PERCENT_MAX = 100
 _SERIALIZE_NON_EMPTY_MIN = 1
 
+# The field keys that are bounds, and how two of them intersect.
+_SERIALIZE_BOUNDS: dict[str, Any] = {
+    "valueMin": max,
+    "lengthMin": max,
+    "valueMax": min,
+    "lengthMax": min,
+}
+
 # The type names voluptuous-serialize emits (note: float -> "float", not
 # "number" as in JSON Schema).
 _SERIALIZE_TYPES: dict[type, str] = {
@@ -314,7 +322,7 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
     if isinstance(node, All):
         merged: dict[str, Any] = {}
         for validator in node.validators:
-            merged.update(_serialize_value(validator, custom))
+            _merge_field(merged, _serialize_value(validator, custom))
         return merged
 
     if isinstance(node, Coerce):
@@ -332,6 +340,22 @@ def _serialize_validator(node: Any, custom: Any) -> dict[str, Any] | None:  # no
         return typed
 
     return _serialize_constraint(node)
+
+
+def _merge_field(merged: dict[str, Any], field: dict[str, Any]) -> None:
+    """Fold one All() member's field hints into the hints collected so far.
+
+    All() is an intersection, so its bounds intersect too: the narrowest lower
+    bound and the narrowest upper bound win, whatever order the members are in.
+    Plain overwriting would let ``All(Length(min=5), NonEmpty())`` advertise a
+    minimum of 1 and offer the user a value the schema then rejects.
+    """
+    for key, value in field.items():
+        current = merged.get(key)
+        if current is None or key not in _SERIALIZE_BOUNDS:
+            merged[key] = value
+            continue
+        merged[key] = _SERIALIZE_BOUNDS[key](current, value)
 
 
 def _serialize_typed(node: Any) -> dict[str, Any] | None:

@@ -307,6 +307,52 @@ def test_string_and_no_shape_validators_serialize() -> None:
     assert by_name["c"]["lengthMin"] == 1
 
 
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            probatio.All(probatio.Length(min=5), NonEmpty()),
+            {"lengthMin": 5},
+            id="non_empty_does_not_widen_a_length",
+        ),
+        pytest.param(
+            probatio.All(NonEmpty(), probatio.Length(min=5)),
+            {"lengthMin": 5},
+            id="non_empty_first",
+        ),
+        pytest.param(
+            probatio.All(probatio.Range(min=5), probatio.Range(min=1)),
+            {"valueMin": 5},
+            id="narrowest_lower_bound",
+        ),
+        pytest.param(
+            probatio.All(probatio.Range(max=99), probatio.Range(max=10)),
+            {"valueMax": 10},
+            id="narrowest_upper_bound",
+        ),
+        pytest.param(
+            probatio.All(probatio.Length(min=1, max=20), probatio.Length(max=5)),
+            {"lengthMin": 1, "lengthMax": 5},
+            id="bounds_fold_independently",
+        ),
+        pytest.param(
+            probatio.All(probatio.Coerce(int), probatio.Coerce(float)),
+            {"type": "float"},
+            id="a_non_bound_key_is_overwritten",
+        ),
+    ],
+)
+def test_all_intersects_the_serialized_bounds(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """All() is an intersection, so the narrowest bound reaches the frontend.
+
+    A member that widens a bound would otherwise offer the user a value the
+    schema rejects, and the result must not depend on the member order.
+    """
+    assert to_field_list(Schema(validator)) == expected
+
+
 def test_non_empty_matches_an_explicit_minimum_length() -> None:
     """NonEmpty and Length(min=1) describe the same field to a frontend."""
     assert to_field_list(Schema(NonEmpty())) == to_field_list(
