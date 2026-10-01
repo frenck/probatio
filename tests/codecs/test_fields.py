@@ -250,7 +250,37 @@ def test_new_validators_serialize_to_fields() -> None:
     }
     assert by_name["pw"]["type"] == "string"
     assert by_name["pw"]["secret"] is True
-    assert by_name["pct"]["type"] == "float"
+    assert by_name["pct"] == {
+        "valueMin": 0,
+        "valueMax": 100,
+        "name": "pct",
+        "required": True,
+    }
+
+
+def test_percentage_keeps_the_coerced_type() -> None:
+    """Percentage carries bounds only, so a paired Coerce still sets the type."""
+    assert to_field_list(Schema(probatio.All(probatio.Coerce(int), Percentage()))) == {
+        "type": "integer",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
+    assert to_field_list(
+        Schema(probatio.All(probatio.Coerce(float), Percentage()))
+    ) == {
+        "type": "float",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
+
+
+def test_from_percentage_serializes_as_a_float() -> None:
+    """FromPercentage parses to a float, so it does assert the type."""
+    assert to_field_list(Schema(probatio.FromPercentage())) == {
+        "type": "float",
+        "valueMin": 0,
+        "valueMax": 100,
+    }
 
 
 @pytest.mark.parametrize(
@@ -263,7 +293,7 @@ def test_validators_without_a_frontend_shape_serialize_empty(validator: object) 
 
 
 def test_string_and_no_shape_validators_serialize() -> None:
-    """The new string validators serialize to a string field, and NonEmpty to empty."""
+    """The new string validators serialize to a string field, NonEmpty to a minimum length."""
     fields = to_field_list(
         Schema(
             {Required("a"): Alpha(), Required("b"): Base64(), Required("c"): NonEmpty()}
@@ -274,6 +304,14 @@ def test_string_and_no_shape_validators_serialize() -> None:
     assert by_name["a"]["type"] == "string"
     assert by_name["b"]["type"] == "string"
     assert "type" not in by_name["c"]
+    assert by_name["c"]["lengthMin"] == 1
+
+
+def test_non_empty_matches_an_explicit_minimum_length() -> None:
+    """NonEmpty and Length(min=1) describe the same field to a frontend."""
+    assert to_field_list(Schema(NonEmpty())) == to_field_list(
+        Schema(probatio.Length(min=1))
+    )
 
 
 class _Color(enum.Enum):

@@ -133,6 +133,7 @@ _SERIALIZE_PORT_MIN = 1
 _SERIALIZE_PORT_MAX = 65535
 _SERIALIZE_PERCENT_MIN = 0
 _SERIALIZE_PERCENT_MAX = 100
+_SERIALIZE_NON_EMPTY_MIN = 1
 
 # The type names voluptuous-serialize emits (note: float -> "float", not
 # "number" as in JSON Schema).
@@ -350,16 +351,24 @@ def _serialize_typed(node: Any) -> dict[str, Any] | None:
             "valueMax": _SERIALIZE_PORT_MAX,
         }
 
-    if isinstance(node, Percentage | FromPercentage):
+    if isinstance(node, FromPercentage):
         return {
             "type": "float",
             "valueMin": _SERIALIZE_PERCENT_MIN,
             "valueMax": _SERIALIZE_PERCENT_MAX,
         }
 
+    # Percentage returns the value unchanged, so it carries bounds but no type:
+    # an All() that pairs it with a Coerce must keep the Coerce's type.
+    if isinstance(node, Percentage):
+        return {
+            "valueMin": _SERIALIZE_PERCENT_MIN,
+            "valueMax": _SERIALIZE_PERCENT_MAX,
+        }
+
     if isinstance(
         node,
-        MultipleOf | Duration | AsTimedelta | EnsureList | NonEmpty | Sorted | HexInt,
+        MultipleOf | Duration | AsTimedelta | EnsureList | Sorted | HexInt,
     ):
         return {}
 
@@ -367,7 +376,7 @@ def _serialize_typed(node: Any) -> dict[str, Any] | None:
 
 
 def _serialize_constraint(node: Any) -> dict[str, Any] | None:  # noqa: PLR0911
-    """Render Range/Clamp/Length/Datetime/Match, or None if not recognized."""
+    """Render Range/Clamp/NonEmpty/Length/Datetime/Match, or None if not recognized."""
     if isinstance(node, Range | Clamp):
         bounds: dict[str, Any] = {}
         if node.min is not None:
@@ -375,6 +384,9 @@ def _serialize_constraint(node: Any) -> dict[str, Any] | None:  # noqa: PLR0911
         if node.max is not None:
             bounds["valueMax"] = node.max
         return bounds
+
+    if isinstance(node, NonEmpty):
+        return {"lengthMin": _SERIALIZE_NON_EMPTY_MIN}
 
     if isinstance(node, Length):
         bounds = {}
