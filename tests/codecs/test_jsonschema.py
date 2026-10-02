@@ -16,11 +16,14 @@ from probatio import (
     UUID,
     Alias,
     All,
+    AllOrNone,
     Alpha,
     Any,
     AsDate,
     AsDatetime,
     AsTime,
+    AtLeastOne,
+    AtMostOne,
     Base64,
     Boolean,
     ByteLength,
@@ -30,6 +33,7 @@ from probatio import (
     Datetime,
     Email,
     Equal,
+    ExactlyOne,
     ExactSequence,
     Exclusive,
     Extra,
@@ -1182,6 +1186,58 @@ def test_a_group_keyed_on_an_any_agrees_with_the_schema(slots: dict) -> None:
             except Invalid:
                 accepts = False
             assert validator.is_valid(value) is accepts, value
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            AtLeastOne("a", "b"),
+            {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+            id="at_least_one",
+        ),
+        pytest.param(
+            ExactlyOne("a", "b"),
+            {"oneOf": [{"required": ["a"]}, {"required": ["b"]}]},
+            id="exactly_one",
+        ),
+        pytest.param(
+            AtMostOne("a", "b"),
+            {"not": {"anyOf": [{"required": ["a", "b"]}]}},
+            id="at_most_one",
+        ),
+        pytest.param(
+            AllOrNone("a", "b"),
+            {"dependentRequired": {"a": ["b"], "b": ["a"]}},
+            id="all_or_none",
+        ),
+        pytest.param(AtMostOne("a"), {}, id="at_most_one_constrains_nothing_alone"),
+        pytest.param(AllOrNone("a"), {}, id="all_or_none_constrains_nothing_alone"),
+    ],
+)
+def test_key_presence_rules_reach_the_document(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """A rule beside the mapping is rendered, not dropped.
+
+    Losing one leaves a document that accepts combinations the schema rejects,
+    which is the wrong direction for a constraint to go missing in.
+    """
+    base = Schema({Optional("a"): str, Optional("b"): str})
+    rendered = to_json_schema(Schema(All(validator, base)))
+
+    assert {key: rendered[key] for key in expected} == expected
+
+
+def test_a_key_presence_rule_on_unnameable_keys_still_widens() -> None:
+    """A key that is not a plain string has no spelling here, so strict reports it."""
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(All(AtLeastOne(1, 2), Schema({Optional("a"): str})))
+
+    assert "anyOf" not in to_json_schema(schema)
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True)
 
 
 def test_inclusive_group_keyed_on_an_any_renders_an_implication_per_member() -> None:

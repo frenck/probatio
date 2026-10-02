@@ -113,6 +113,30 @@ accepts every member present or none present and rejects any partial combination
 The 3.1 `dependentRequired` decodes back to an `Inclusive` group through
 `from_openapi`; the 3.0 form round-trips by behavior, not back to the marker.
 
+The same object-level constraints come from the key-presence validators, which
+sit beside the mapping rather than on one of its keys. `AtLeastOne` renders as
+`anyOf` over the per-key `required`, `ExactlyOne` as `oneOf`, `AtMostOne` as the
+`not` over the pairs, and `AllOrNone` splits on version exactly as `Inclusive`
+does:
+
+```python
+from probatio import AllOrNone, AtLeastOne, All, Optional, Schema, to_openapi
+
+base = Schema({Optional("a"): str, Optional("b"): str})
+
+to_openapi(Schema(All(AtLeastOne("a", "b"), base)))["anyOf"]
+# [{'required': ['a']}, {'required': ['b']}]
+
+all_or_none = to_openapi(
+    Schema(All(AllOrNone("a", "b"), base)), openapi_version="3.1.0"
+)
+all_or_none["dependentRequired"]
+# {'a': ['b'], 'b': ['a']}
+```
+
+A key that is not a plain string has no spelling in either document, so such a
+rule widens instead, which `strict=True` reports.
+
 A group member does not have to be a literal key. `Inclusive(Any("hours",
 "minutes"), "d")` is one member that either name satisfies, and the rule is the
 usual all-or-none: that member and every other member of the group are either all

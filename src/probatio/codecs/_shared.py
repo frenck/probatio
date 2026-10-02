@@ -20,13 +20,17 @@ from probatio.validators import (
     IBAN,
     ULID,
     UUID,
+    AllOrNone,
     Alpha,
     Alphanumeric,
     AsTimezone,
+    AtLeastOne,
+    AtMostOne,
     ByteLength,
     CreditCard,
     DataURI,
     EndsWith,
+    ExactlyOne,
     Fqdn,
     Hex,
     HexColor,
@@ -228,6 +232,15 @@ def exclusive_constraint(group: ExclusiveGroup) -> dict[str, Any]:
     members = group.members
     if group.required and not group.has_default:
         return {"oneOf": [member_present(member) for member in members]}
+    return at_most_one(members)
+
+
+def at_most_one(members: list[list[str]]) -> dict[str, Any]:
+    """Match an object carrying no two of these members at once.
+
+    The negation of any pair being present together. A lone member can never
+    collide with another, so it constrains nothing.
+    """
     pairs = [
         (members[i], members[j])
         for i in range(len(members))
@@ -238,6 +251,57 @@ def exclusive_constraint(group: ExclusiveGroup) -> dict[str, Any]:
         if pairs
         else {}
     )
+
+
+def key_presence_constraint(
+    node: Any, *, dependent_required: bool
+) -> dict[str, Any] | None:
+    """Render AtLeastOne, AtMostOne, ExactlyOne or AllOrNone as object keywords.
+
+    These rules sit beside a mapping schema rather than on one of its keys, so
+    without this they left no trace in the rendered document and the result
+    accepted combinations the schema rejects, which is the wrong direction for a
+    constraint to be lost in.
+
+    Returns None when the node is not one of those rules, or when a key is not a
+    plain string and so has no spelling here. The caller then falls back to its
+    usual widening, which ``strict=True`` still reports.
+
+    ``dependent_required`` says whether the target understands
+    ``dependentRequired``; OpenAPI 3.0 does not, and spells all-or-none out
+    instead.
+    """
+    if not isinstance(node, AtLeastOne | AtMostOne | ExactlyOne | AllOrNone):
+        return None
+
+    names = list(node.keys)
+    if not all(isinstance(name, str) for name in names):
+        return None
+
+    members = [[name] for name in names]
+
+    if isinstance(node, AtLeastOne):
+        return member_present(names)
+
+    if isinstance(node, ExactlyOne):
+        return {"oneOf": [member_present(member) for member in members]}
+
+    if isinstance(node, AtMostOne):
+        return at_most_one(members)
+
+    return _all_or_none_constraint(names, dependent_required=dependent_required)
+
+
+def _all_or_none_constraint(
+    names: list[str], *, dependent_required: bool
+) -> dict[str, Any]:
+    """Say "all of these keys or none" with the keywords the target has."""
+    if dependent_required:
+        dependent = merge_dependent_required([names])
+        return {"dependentRequired": dependent} if dependent else {}
+
+    constraints = _all_or_none([[name] for name in names])
+    return {"allOf": constraints} if constraints else {}
 
 
 def inclusive_constraints(

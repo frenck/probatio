@@ -36,6 +36,7 @@ from probatio.codecs._shared import (
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
+    key_presence_constraint,
     literal_any_names,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -879,6 +880,10 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, All):
         return _convert_all(node)
+
+    presence = key_presence_constraint(node, dependent_required=True)
+    if presence is not None:
+        return presence
 
     return _convert_constraint(node)
 
