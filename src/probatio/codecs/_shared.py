@@ -45,6 +45,9 @@ from probatio.validators import (
     NormalizeMacAddress,
     NoWhitespace,
     PrintableASCII,
+    RequiredIf,
+    RequiredWith,
+    RequiredWithout,
     Slug,
     StartsWith,
     TimeZone,
@@ -290,6 +293,92 @@ def key_presence_constraint(
         return at_most_one(members)
 
     return _all_or_none_constraint(names, dependent_required=dependent_required)
+
+
+def conditional_required_constraint(
+    node: Any, *, dependent_required: bool
+) -> dict[str, Any] | None:
+    """Render RequiredWith, RequiredWithout or RequiredIf as object keywords.
+
+    Like the key-presence rules these sit beside the mapping, and dropping one
+    leaves a document that accepts what the schema rejects. An implication is
+    spelled ``anyOf: [{not: trigger}, consequence]`` rather than ``if``/``then``,
+    because OpenAPI 3.0 has the first and not the second, and the single-trigger
+    ``RequiredWith`` collapses to ``dependentRequired`` where that exists.
+
+    Returns None when the node is not one of those rules, or when a key or a
+    compared value has no spelling here; the caller then widens as before, which
+    ``strict=True`` still reports.
+    """
+    if not isinstance(node, RequiredWith | RequiredWithout | RequiredIf):
+        return None
+
+    required = list(node.required)
+    if not all(isinstance(name, str) for name in required):
+        return None
+
+    if isinstance(node, RequiredIf):
+        return _required_if_constraint(node, required)
+
+    triggers = list(node.triggers)
+    if not all(isinstance(name, str) for name in triggers):
+        return None
+
+    return _trigger_constraint(
+        node, triggers, required, dependent_required=dependent_required
+    )
+
+
+def _trigger_constraint(
+    node: RequiredWith | RequiredWithout,
+    triggers: list[str],
+    required: list[str],
+    *,
+    dependent_required: bool,
+) -> dict[str, Any]:
+    """Render a rule driven by a trigger key being present or absent."""
+    if isinstance(node, RequiredWithout):
+        # An absent trigger fires it, so the escape is the trigger being there:
+        # under "any" one present is not enough, every one has to be.
+        present = (
+            {"required": triggers}
+            if node.mode == "any"
+            else {"anyOf": [{"required": [name]} for name in triggers]}
+        )
+        return {"anyOf": [present, {"required": required}]}
+
+    if node.mode == "any" and dependent_required:
+        return {"dependentRequired": dict.fromkeys(triggers, required)}
+
+    fired = (
+        {"anyOf": [{"required": [name]} for name in triggers]}
+        if node.mode == "any"
+        else {"required": triggers}
+    )
+    return {"anyOf": [{"not": fired}, {"required": required}]}
+
+
+def _required_if_constraint(
+    node: RequiredIf, required: list[str]
+) -> dict[str, Any] | None:
+    """Render a value-driven rule, or None when a key or value has no spelling."""
+    conditions = node.conditions
+    if not all(isinstance(name, str) for name in conditions):
+        return None
+
+    held = []
+    for name, value in conditions.items():
+        safe = json_safe(value)
+        if safe is UNREPRESENTABLE:
+            return None
+        held.append({"properties": {name: {"const": safe}}, "required": [name]})
+
+    fired = (
+        held[0]
+        if len(held) == 1
+        else {"anyOf" if node.mode == "any" else "allOf": held}
+    )
+    return {"anyOf": [{"not": fired}, {"required": required}]}
 
 
 def _all_or_none_constraint(

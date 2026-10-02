@@ -28,6 +28,7 @@ from probatio.codecs._shared import (
     UNSUPPORTED,
     ExclusiveGroup,
     abandoned_group_names,
+    conditional_required_constraint,
     constraint_names,
     contested_names,
     covers_every_property_name,
@@ -842,6 +843,12 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
     presence = key_presence_constraint(node, dependent_required=version == _V3_1)
     if presence is not None:
         return presence
+
+    conditional = conditional_required_constraint(
+        node, dependent_required=version == _V3_1
+    )
+    if conditional is not None:
+        return conditional
 
     if callable(node):
         return _oa_callable(node, custom, version)

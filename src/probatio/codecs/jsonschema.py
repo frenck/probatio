@@ -32,6 +32,7 @@ from probatio.codecs._shared import (
     UNSUPPORTED,
     ExclusiveGroup,
     abandoned_group_names,
+    conditional_required_constraint,
     contested_names,
     covers_every_property_name,
     exclusive_constraint,
@@ -884,6 +885,10 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
     presence = key_presence_constraint(node, dependent_required=True)
     if presence is not None:
         return presence
+
+    conditional = conditional_required_constraint(node, dependent_required=True)
+    if conditional is not None:
+        return conditional
 
     return _convert_constraint(node)
 
