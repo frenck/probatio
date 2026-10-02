@@ -166,6 +166,8 @@ so they do not round-trip:
 | `Any` key of literal names | one property per name (plus `anyOf` of `required` when the key is required)                                                                                            |
 | A group keyed on an `Any`  | one member satisfied by any of its names, so the group renders under `allOf` rather than `dependentRequired`; a name another key can also match carries no rule at all |
 | `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required                                                                                              |
+| `AtLeastOne` / `ExactlyOne` | `anyOf` / `oneOf` over the per-key `required`                                                                                                                         |
+| `AtMostOne` / `AllOrNone`  | at-most-one (`not` over the pairs) / `dependentRequired`; a key that is not a plain string has no spelling, so the rule widens                                        |
 | `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string                                                                                              |
 
 The known widener: JSON Schema has a single `hostname` format, so both

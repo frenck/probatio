@@ -33,6 +33,7 @@ from probatio.codecs._shared import (
     covers_every_property_name,
     exclusive_constraint,
     inclusive_constraints,
+    key_presence_constraint,
     literal_any_names,
     member_present,
 )
@@ -837,6 +838,11 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
     typed = _oa_type(node, version)
     if typed is not None:
         return typed
+
+    presence = key_presence_constraint(node, dependent_required=version == _V3_1)
+    if presence is not None:
+        return presence
+
     if callable(node):
         return _oa_callable(node, custom, version)
 

@@ -975,6 +975,47 @@ def test_inclusive_group_renders_all_or_none_per_version() -> None:
     ]
 
 
+def test_key_presence_rules_reach_the_document() -> None:
+    """A rule beside the mapping is rendered, not dropped.
+
+    Losing one leaves a document that tells a consumer, an LLM reading a tool
+    schema among them, that a combination is valid which the schema rejects.
+    """
+    from probatio import AtLeastOne, AtMostOne, ExactlyOne  # noqa: PLC0415
+
+    base = Schema({probatio.Optional("a"): str, probatio.Optional("b"): str})
+
+    at_least = to_openapi(Schema(probatio.All(AtLeastOne("a", "b"), base)))
+    assert at_least["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+
+    exactly = to_openapi(Schema(probatio.All(ExactlyOne("a", "b"), base)))
+    assert exactly["oneOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+
+    at_most = to_openapi(Schema(probatio.All(AtMostOne("a", "b"), base)))
+    assert at_most["not"] == {"anyOf": [{"required": ["a", "b"]}]}
+
+
+def test_all_or_none_rule_renders_per_version() -> None:
+    """AllOrNone uses dependentRequired on 3.1 and spells it out on 3.0."""
+    from probatio import AllOrNone  # noqa: PLC0415
+
+    schema = Schema(
+        probatio.All(
+            AllOrNone("a", "b"),
+            Schema({probatio.Optional("a"): str, probatio.Optional("b"): str}),
+        ),
+    )
+
+    assert to_openapi(schema, openapi_version="3.1.0")["dependentRequired"] == {
+        "a": ["b"],
+        "b": ["a"],
+    }
+    assert to_openapi(schema, openapi_version="3.0")["allOf"] == [
+        {"anyOf": [{"not": {"required": ["a"]}}, {"required": ["b"]}]},
+        {"anyOf": [{"not": {"required": ["b"]}}, {"required": ["a"]}]},
+    ]
+
+
 def test_group_keyed_on_an_any_keeps_its_constraint_per_version() -> None:
     """A group member can be an Any over names, and the constraint still renders.
 
