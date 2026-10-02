@@ -1,6 +1,6 @@
 ---
 title: The probatio decorator
-description: Validate a function's arguments straight from its type annotations, with coercion, per-parameter rules, optional return checking, and async support.
+description: Validate a function's arguments straight from its type annotations, with coercion, per-parameter rules, optional return checking, your own error, and async support.
 ---
 
 `@probatio` validates a callable's arguments against its type annotations before
@@ -172,6 +172,71 @@ def shout(name: str) -> str:
 
 shout("ada")  # 'ADA'
 ```
+
+## Raising your own error
+
+A library usually has an exception hierarchy of its own, and its callers expect
+one `except` to cover everything it raises. Pass `error` to raise that exception
+for an invalid argument instead of `MultipleInvalid`. It is called with the
+`Invalid`, and the result is raised from it, so the original failure (with its
+`path`) stays reachable as `__cause__`.
+
+```python
+from typing import Annotated
+
+from probatio import probatio, Range
+
+
+class ClientError(Exception):
+    """Base for everything the client raises."""
+
+
+class ClientValueError(ClientError, ValueError):
+    """The caller passed an invalid argument."""
+
+
+@probatio(error=ClientValueError)
+def fetch(limit: Annotated[int, Range(min=0)]) -> int:
+    return limit
+
+
+try:
+    fetch(-1)
+except ClientError as err:
+    print(err)  # value must be at least 0 at 'limit'
+```
+
+Any callable taking the `Invalid` works, when the exception wants more than the
+message:
+
+```python
+from probatio import Invalid, probatio
+
+
+class ClientValueError(ValueError):
+    """The caller passed an invalid argument."""
+
+
+def bad_argument(invalid: Invalid) -> ClientValueError:
+    return ClientValueError(f"invalid {invalid.path[0]}: {invalid.msg}")
+
+
+@probatio(error=bad_argument)
+def fetch(limit: int) -> int:
+    return limit
+
+
+try:
+    fetch("ten")
+except ClientValueError as err:
+    print(err)  # invalid limit: expected int
+```
+
+Only argument validation is translated. A result failing `returns` still raises
+`MultipleInvalid`, since that is a mistake in the function rather than the
+caller. A malformed call still raises the `TypeError` Python gives it, and
+whatever the body raises is left alone, so a rule that spans several arguments
+and is checked in the body raises the library's exception itself.
 
 ## Async functions
 
