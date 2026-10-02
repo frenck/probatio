@@ -148,9 +148,11 @@ to_openapi(Schema(All(RequiredWithout("cert", "cert_path"), base)))["anyOf"]
 # [{'required': ['cert']}, {'required': ['cert_path']}]
 ```
 
-A key that is not a plain string has no spelling in either document, and neither
-does a `RequiredIf` comparing against a value JSON cannot hold, so such a rule
-widens instead, which `strict=True` reports.
+Two things leave a rule out. A key that is not a plain string has no spelling in
+either document. So does a `RequiredIf` whose compared value JSON cannot hold, or
+holds differently: `(1, 2)` would render as `[1, 2]`, which the tuple never
+equals, so emitting it would make the document fire where Probatio does not.
+Either way the rule widens, which `strict=True` reports.
 
 A group member does not have to be a literal key. `Inclusive(Any("hours",
 "minutes"), "d")` is one member that either name satisfies, and the rule is the

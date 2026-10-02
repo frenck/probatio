@@ -1281,22 +1281,48 @@ def test_conditional_required_rules_reach_the_document(
     assert {key: rendered[key] for key in expected} == expected
 
 
+def test_a_conditional_rule_names_each_key_once() -> None:
+    """A ``required`` array holds unique names, so a repeated key is folded."""
+    base = Schema({Optional(name): str for name in ("a", "b")})
+
+    rendered = to_json_schema(Schema(All(RequiredWith(["a", "a"], "b", "b"), base)))
+
+    assert rendered["dependentRequired"] == {"a": ["b"]}
+
+
+def test_one_trigger_collapses_whatever_the_mode() -> None:
+    """With a single trigger the two modes say the same thing, so both collapse."""
+    base = Schema({Optional(name): str for name in ("a", "b")})
+
+    for mode in ("any", "all"):
+        rendered = to_json_schema(
+            Schema(All(RequiredWith("a", "b", mode=mode), base)),
+        )
+        assert rendered["dependentRequired"] == {"a": ["b"]}
+
+
 @pytest.mark.parametrize(
     "validator",
     [
         pytest.param(RequiredIf({"a": object()}, "b"), id="compared_value"),
+        pytest.param(RequiredIf({"a": (1, 2)}, "b"), id="value_json_cannot_match"),
         pytest.param(RequiredIf({1: "x"}, "b"), id="condition_key"),
         pytest.param(RequiredWith("a", 1), id="required_key"),
         pytest.param(RequiredWith(1, "b"), id="trigger_key"),
+        pytest.param(RequiredWith("a"), id="no_required_keys"),
     ],
 )
 def test_a_conditional_rule_without_a_json_spelling_still_widens(
     validator: object,
 ) -> None:
-    """A key or compared value JSON cannot hold leaves the rule out of the document.
+    """A rule with no faithful JSON form is left out of the document.
 
-    Widening is the documented default for anything with no form here, and
-    ``strict=True`` is what turns that into an error.
+    That covers a key JSON cannot name, a value it cannot hold, a value whose
+    JSON form compares unequal to the original (``(1, 2)`` renders as
+    ``[1, 2]``, which the tuple never equals, so emitting it would make the
+    document fire where Probatio does not), and a rule requiring no keys at all.
+    Widening is the documented default for all of them, and ``strict=True`` is
+    what turns it into an error.
     """
     from probatio.error import SchemaError  # noqa: PLC0415
 

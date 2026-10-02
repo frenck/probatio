@@ -296,37 +296,50 @@ def key_presence_constraint(
 
 
 def conditional_required_constraint(
-    node: Any, *, dependent_required: bool
+    node: Any, *, modern_keywords: bool
 ) -> dict[str, Any] | None:
     """Render RequiredWith, RequiredWithout or RequiredIf as object keywords.
 
     Like the key-presence rules these sit beside the mapping, and dropping one
     leaves a document that accepts what the schema rejects. An implication is
     spelled ``anyOf: [{not: trigger}, consequence]`` rather than ``if``/``then``,
-    because OpenAPI 3.0 has the first and not the second, and the single-trigger
-    ``RequiredWith`` collapses to ``dependentRequired`` where that exists.
+    because OpenAPI 3.0 has the first and not the second.
 
-    Returns None when the node is not one of those rules, or when a key or a
-    compared value has no spelling here; the caller then widens as before, which
-    ``strict=True`` still reports.
+    ``modern_keywords`` says whether the target understands ``dependentRequired``
+    and ``const``; OpenAPI 3.0 has neither, and spells equality as a one-member
+    ``enum`` instead.
+
+    Returns None when the node is not one of those rules, when a key or a
+    compared value has no spelling here, or when the rule requires no keys at
+    all; the caller then widens as before, which ``strict=True`` still reports.
     """
     if not isinstance(node, RequiredWith | RequiredWithout | RequiredIf):
         return None
 
-    required = list(node.required)
-    if not all(isinstance(name, str) for name in required):
+    required = _unique_names(node.required)
+    if required is None:
         return None
 
     if isinstance(node, RequiredIf):
-        return _required_if_constraint(node, required)
+        return _required_if_constraint(node, required, modern=modern_keywords)
 
-    triggers = list(node.triggers)
-    if not all(isinstance(name, str) for name in triggers):
+    triggers = _unique_names(node.triggers)
+    if triggers is None:
         return None
 
-    return _trigger_constraint(
-        node, triggers, required, dependent_required=dependent_required
-    )
+    return _trigger_constraint(node, triggers, required, modern=modern_keywords)
+
+
+def _unique_names(keys: Any) -> list[str] | None:
+    """Return the keys as unique names in order, or None if that cannot be done.
+
+    A ``required`` array holds unique strings, and OpenAPI 3.0 wants at least
+    one, so a repeated name or an empty list has no document to go in.
+    """
+    names = list(dict.fromkeys(keys))
+    if not names or not all(isinstance(name, str) for name in names):
+        return None
+    return names
 
 
 def _trigger_constraint(
@@ -334,32 +347,35 @@ def _trigger_constraint(
     triggers: list[str],
     required: list[str],
     *,
-    dependent_required: bool,
+    modern: bool,
 ) -> dict[str, Any]:
     """Render a rule driven by a trigger key being present or absent."""
+    # With one trigger the two modes say the same thing.
+    fires_on_any = node.mode == "any" or len(triggers) == 1
+
     if isinstance(node, RequiredWithout):
         # An absent trigger fires it, so the escape is the trigger being there:
         # under "any" one present is not enough, every one has to be.
         present = (
             {"required": triggers}
-            if node.mode == "any"
+            if fires_on_any
             else {"anyOf": [{"required": [name]} for name in triggers]}
         )
         return {"anyOf": [present, {"required": required}]}
 
-    if node.mode == "any" and dependent_required:
+    if fires_on_any and modern:
         return {"dependentRequired": dict.fromkeys(triggers, required)}
 
     fired = (
         {"anyOf": [{"required": [name]} for name in triggers]}
-        if node.mode == "any"
+        if fires_on_any
         else {"required": triggers}
     )
     return {"anyOf": [{"not": fired}, {"required": required}]}
 
 
 def _required_if_constraint(
-    node: RequiredIf, required: list[str]
+    node: RequiredIf, required: list[str], *, modern: bool
 ) -> dict[str, Any] | None:
     """Render a value-driven rule, or None when a key or value has no spelling."""
     conditions = node.conditions
@@ -368,10 +384,10 @@ def _required_if_constraint(
 
     held = []
     for name, value in conditions.items():
-        safe = json_safe(value)
-        if safe is UNREPRESENTABLE:
+        match = _equality_schema(value, modern=modern)
+        if match is None:
             return None
-        held.append({"properties": {name: {"const": safe}}, "required": [name]})
+        held.append({"properties": {name: match}, "required": [name]})
 
     fired = (
         held[0]
@@ -379,6 +395,20 @@ def _required_if_constraint(
         else {"anyOf" if node.mode == "any" else "allOf": held}
     )
     return {"anyOf": [{"not": fired}, {"required": required}]}
+
+
+def _equality_schema(value: Any, *, modern: bool) -> dict[str, Any] | None:
+    """Match exactly this value, or None when JSON cannot hold it as it compares.
+
+    The rule fires on ``==`` against the decoded document, so a value whose JSON
+    form compares unequal to it would make the document fire where Probatio does
+    not: ``(1, 2)`` renders as ``[1, 2]``, which the tuple never equals. Such a
+    value is reported as unrenderable rather than narrowing the document.
+    """
+    safe = json_safe(value)
+    if safe is UNREPRESENTABLE or safe != value:
+        return None
+    return {"const": safe} if modern else {"enum": [safe]}
 
 
 def _all_or_none_constraint(

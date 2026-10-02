@@ -845,7 +845,7 @@ def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
         return presence
 
     conditional = conditional_required_constraint(
-        node, dependent_required=version == _V3_1
+        node, modern_keywords=version == _V3_1
     )
     if conditional is not None:
         return conditional

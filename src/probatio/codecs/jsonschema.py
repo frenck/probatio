@@ -886,7 +886,7 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
     if presence is not None:
         return presence
 
-    conditional = conditional_required_constraint(node, dependent_required=True)
+    conditional = conditional_required_constraint(node, modern_keywords=True)
     if conditional is not None:
         return conditional
 

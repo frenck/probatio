@@ -1004,8 +1004,13 @@ def test_conditional_required_rules_reach_the_document() -> None:
     without = to_openapi(Schema(probatio.All(RequiredWithout("a", "b"), base)))
     assert without["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
 
-    conditional = to_openapi(Schema(probatio.All(RequiredIf({"a": "x"}, "b"), base)))
-    assert conditional["anyOf"] == [
+    conditional = Schema(probatio.All(RequiredIf({"a": "x"}, "b"), base))
+    # OpenAPI 3.0 has no const, so equality is a one-member enum there.
+    assert to_openapi(conditional, openapi_version="3.0")["anyOf"] == [
+        {"not": {"properties": {"a": {"enum": ["x"]}}, "required": ["a"]}},
+        {"required": ["b"]},
+    ]
+    assert to_openapi(conditional, openapi_version="3.1.0")["anyOf"] == [
         {"not": {"properties": {"a": {"const": "x"}}, "required": ["a"]}},
         {"required": ["b"]},
     ]
