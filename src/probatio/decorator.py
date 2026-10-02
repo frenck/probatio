@@ -15,7 +15,7 @@ import typing
 from functools import wraps
 
 from probatio.dataclass_schema import _annotation_to_schema
-from probatio.error import SchemaError
+from probatio.error import Invalid, SchemaError
 from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, Schema
 from probatio.validators import All
 
@@ -188,6 +188,26 @@ def _return_schema(
     return Schema(returns)
 
 
+def _raising(
+    schema: typing.Callable[[typing.Any], typing.Any],
+    error: typing.Callable[[Invalid], BaseException],
+) -> typing.Callable[[typing.Any], typing.Any]:
+    """Wrap ``schema`` so a failure raises ``error(invalid)`` instead.
+
+    The original ``Invalid`` stays reachable as ``__cause__``, so its ``path``
+    and its sub errors are not lost to the caller's own exception.
+    """
+
+    def validate(value: typing.Any) -> typing.Any:
+        """Run ``schema``, translating a validation failure."""
+        try:
+            return schema(value)
+        except Invalid as exc:
+            raise error(exc) from exc
+
+    return validate
+
+
 @typing.overload
 def probatio[**P, R](
     constraints: typing.Callable[P, R], /
@@ -198,12 +218,16 @@ def probatio[**P, R](
 def probatio[**P, R](
     constraints: dict[str, typing.Any] | None = ...,
     returns: typing.Any = ...,
+    *,
+    error: typing.Callable[[Invalid], BaseException] | None = ...,
 ) -> typing.Callable[[typing.Callable[P, R]], typing.Callable[P, R]]: ...
 
 
 def probatio(
     constraints: typing.Any = None,
     returns: typing.Any = None,
+    *,
+    error: typing.Callable[[Invalid], BaseException] | None = None,
 ) -> typing.Any:
     """Validate a callable's arguments (and optionally its result) from annotations.
 
@@ -223,6 +247,17 @@ def probatio(
         @probatio({"name": Length(min=2)}, returns=User)
         def make(name: str, age: int) -> User: ...
 
+    ``error`` raises an exception of your own when an argument is invalid: it is
+    called with the ``Invalid`` and the result is raised from it. Pass the
+    exception class a library already raises, so its callers need one
+    ``except``::
+
+        @probatio(error=ClientValueError)
+        def fetch(limit: Annotated[int, Range(min=0)]) -> list[Item]: ...
+
+    Only argument validation is translated. A failing result, a malformed call,
+    and anything the body raises propagate unchanged.
+
     A coroutine function is validated the same way, awaiting the call before the
     result schema runs. Unannotated parameters (``self``, ``cls``, a bare
     ``*args``) are left alone. The undecorated callable stays reachable through the
@@ -230,11 +265,17 @@ def probatio(
     """
     # Bare ``@probatio``: the decorated callable arrives as the first argument.
     if callable(constraints) and not isinstance(constraints, dict):
-        return _decorate(constraints, {}, None)
+        return _decorate(constraints, {}, None, None)
+
+    if error is not None and not callable(error):
+        message = (
+            f"probatio: error must be an exception class or callable, not {error!r}"
+        )
+        raise SchemaError(message)
 
     def decorate[**P, R](func: typing.Callable[P, R]) -> typing.Callable[P, R]:
         """Wrap ``func`` so its arguments and result are validated."""
-        return _decorate(func, constraints or {}, returns)
+        return _decorate(func, constraints or {}, returns, error)
 
     return decorate
 
@@ -243,6 +284,7 @@ def _decorate[**P, R](
     func: typing.Callable[P, R],
     constraints: dict[str, typing.Any],
     returns: typing.Any,
+    error: typing.Callable[[Invalid], BaseException] | None,
 ) -> typing.Callable[P, R]:
     """Build the validating wrapper (sync or async) around ``func``."""
     signature = inspect.signature(func)
@@ -261,6 +303,8 @@ def _decorate[**P, R](
     input_schema: typing.Callable[[typing.Any], typing.Any] = (
         Schema(parameter_schema, extra=ALLOW_EXTRA) if parameter_schema else _identity
     )
+    if error is not None and parameter_schema:
+        input_schema = _raising(input_schema, error)
     output_schema = _return_schema(func, returns, hints)
 
     def bind(

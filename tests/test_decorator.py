@@ -10,6 +10,7 @@ import pytest
 
 from probatio import (
     Coerce,
+    Invalid,
     Length,
     MultipleInvalid,
     Range,
@@ -424,3 +425,83 @@ def test_positional_only_parameter_by_keyword_is_a_bind_error() -> None:
     # positional-only argument: 'items'"), so match the stable part.
     with pytest.raises(TypeError, match=r"positional.only"):
         head(items=[1])
+
+
+class ClientValueError(ValueError):
+    """The exception a library raises for a caller mistake, in the tests below."""
+
+
+def test_error_raises_the_given_exception_from_the_invalid() -> None:
+    """An invalid argument raises ``error``, chained from the original failure."""
+
+    @probatio(error=ClientValueError)
+    def take(limit: Annotated[int, Range(min=0)]) -> int:
+        return limit
+
+    with pytest.raises(ClientValueError, match=r"at 'limit'") as exc_info:
+        take(-1)
+
+    assert isinstance(exc_info.value.__cause__, MultipleInvalid)
+    assert exc_info.value.__cause__.path == ["limit"]
+    assert take(5) == 5
+
+
+def test_error_accepts_a_factory() -> None:
+    """A callable ``error`` builds the exception from the ``Invalid``."""
+
+    def build(invalid: Invalid) -> ClientValueError:
+        return ClientValueError(f"bad argument: {invalid.path[0]}")
+
+    @probatio(error=build)
+    def take(limit: int) -> int:
+        return limit
+
+    with pytest.raises(ClientValueError, match="bad argument: limit"):
+        take("ten")
+
+
+def test_error_applies_to_a_coroutine_function() -> None:
+    """A coroutine function raises ``error`` for an invalid argument too."""
+
+    @probatio(error=ClientValueError)
+    async def take(limit: Annotated[int, Range(min=0)]) -> int:
+        return limit
+
+    with pytest.raises(ClientValueError):
+        asyncio.run(take(-1))
+
+
+def test_error_applies_to_a_variadic_signature() -> None:
+    """The reference binder, used for ``*args``, translates the failure as well."""
+
+    @probatio(error=ClientValueError)
+    def take(limit: int, *rest: object) -> int:
+        return limit + len(rest)
+
+    with pytest.raises(ClientValueError, match=r"at 'limit'"):
+        take("ten", 1, 2)
+
+
+def test_error_leaves_the_result_body_and_call_errors_alone() -> None:
+    """Only argument validation is translated, everything else propagates as is."""
+
+    @probatio(error=ClientValueError, returns=True)
+    def take(limit: int) -> Annotated[int, Range(max=10)]:
+        if limit == 0:
+            message = "raised by the body"
+            raise Invalid(message)
+        return limit
+
+    with pytest.raises(MultipleInvalid):
+        take(11)
+    with pytest.raises(Invalid, match="raised by the body") as exc_info:
+        take(0)
+    assert not isinstance(exc_info.value, ClientValueError)
+    with pytest.raises(TypeError, match="missing a required argument"):
+        take()  # type: ignore[call-arg]
+
+
+def test_error_must_be_callable() -> None:
+    """An ``error`` that cannot be called is refused when decorating."""
+    with pytest.raises(SchemaError, match="error must be an exception class"):
+        probatio(error="nope")  # type: ignore[arg-type]
