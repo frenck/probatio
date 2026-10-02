@@ -995,6 +995,35 @@ def test_key_presence_rules_reach_the_document() -> None:
     assert at_most["not"] == {"anyOf": [{"required": ["a", "b"]}]}
 
 
+def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
+    """EnsureList takes a scalar or None, and each version spells null its own way."""
+    from probatio import EnsureList  # noqa: PLC0415
+
+    schema = Schema(probatio.All(EnsureList(), [int]))
+
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "null"},
+            {"type": "array", "items": {"type": "integer"}},
+        ],
+    }
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "object", "nullable": True, "description": "Must be null"},
+            {"type": "array", "items": {"type": "integer"}},
+        ],
+    }
+
+
+def test_a_trailing_ensure_list_describes_the_unwrapped_value() -> None:
+    """The members before it judge the value unwrapped, so only that form is offered."""
+    from probatio import EnsureList  # noqa: PLC0415
+
+    assert to_openapi(Schema(probatio.All(int, EnsureList()))) == {"type": "integer"}
+
+
 def test_conditional_required_rules_reach_the_document() -> None:
     """A rule that makes one key depend on another is rendered, not dropped."""
     from probatio import RequiredIf, RequiredWithout  # noqa: PLC0415

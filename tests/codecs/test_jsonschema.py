@@ -32,6 +32,7 @@ from probatio import (
     Date,
     Datetime,
     Email,
+    EnsureList,
     Equal,
     ExactlyOne,
     ExactSequence,
@@ -1279,6 +1280,71 @@ def test_conditional_required_rules_reach_the_document(
     rendered = to_json_schema(Schema(All(validator, base)))
 
     assert {key: rendered[key] for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            All(EnsureList(), [int]),
+            {
+                "anyOf": [
+                    {"type": "integer"},
+                    {"type": "null"},
+                    {"type": "array", "items": {"type": "integer"}},
+                ],
+            },
+            id="scalar_and_null_beside_the_list",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(min=1)),
+            {
+                "anyOf": [
+                    {"type": "integer"},
+                    {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                ],
+            },
+            id="a_non_empty_list_takes_no_null",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(min=2)),
+            {"type": "array", "items": {"type": "integer"}, "minItems": 2},
+            id="no_unwrapped_value_fits",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(max=0)),
+            {
+                "anyOf": [
+                    {"type": "null"},
+                    {"type": "array", "items": {"type": "integer"}, "maxItems": 0},
+                ],
+            },
+            id="only_null_fits",
+        ),
+        pytest.param(
+            All(int, EnsureList()),
+            {"type": "integer"},
+            id="a_trailing_ensure_list_wraps_the_output",
+        ),
+        pytest.param(
+            All(EnsureList(), list),
+            {"type": "array"},
+            id="a_list_of_no_particular_thing_keeps_its_array",
+        ),
+    ],
+)
+def test_a_leading_ensure_list_offers_what_it_wraps(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """EnsureList takes a scalar or None, so the document has to say so.
+
+    Offering only the array is narrower than the schema and rejects input it
+    accepts. A trailing EnsureList is a different schema: the members before it
+    judge the value unwrapped, so only that form is on offer. A list that says
+    nothing about its items keeps its array: a scalar branch there would accept
+    anything and swallow the document whole.
+    """
+    assert to_json_schema(Schema(validator)) == expected
 
 
 def test_a_conditional_rule_names_each_key_once() -> None:

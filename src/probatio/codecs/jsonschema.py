@@ -35,6 +35,7 @@ from probatio.codecs._shared import (
     conditional_required_constraint,
     contested_names,
     covers_every_property_name,
+    ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
     key_presence_constraint,
@@ -76,6 +77,7 @@ from probatio.validators import (
     DefaultTo,
     Duration,
     Email,
+    EnsureList,
     Equal,
     ExactSequence,
     FqdnUrl,
@@ -958,7 +960,21 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
             return {"allOf": [part for part in parts if part]}
         merged.update(part)
 
-    return _retarget_length(merged)
+    return _widen_for_ensure_list(node, _retarget_length(merged))
+
+
+def _widen_for_ensure_list(node: All[Any], merged: dict[str, Any]) -> dict[str, Any]:
+    """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
+
+    Only a leading ``EnsureList`` counts: a later one wraps a value the members
+    before it already judged unwrapped, which is a different schema.
+    """
+    validators = node.validators
+    if not validators or not isinstance(validators[0], EnsureList):
+        return merged
+
+    branches = ensure_list_branches(merged, null_schema={"type": "null"})
+    return {"anyOf": [*branches, merged]} if branches else merged
 
 
 # JSON Schema spells "length" three ways depending on the type: minLength for a

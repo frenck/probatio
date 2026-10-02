@@ -256,6 +256,35 @@ def at_most_one(members: list[list[str]]) -> dict[str, Any]:
     )
 
 
+def ensure_list_branches(
+    merged: dict[str, Any], *, null_schema: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Say which unwrapped forms a leading ``EnsureList`` also accepts.
+
+    ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
+    ``None`` and validates ``[]``, so a document offering only the array is
+    narrower than the schema and rejects input it accepts. The scalar form is
+    whatever one item has to be, on offer while the length bounds leave room for
+    a list of exactly one; the null form while they leave room for an empty one.
+
+    Returns the extra branches to put beside ``merged``, empty when no unwrapped
+    value could survive it, or when the list says nothing about its items: the
+    scalar branch would then accept anything and swallow the whole document, so
+    a list of no particular thing keeps the array it already rendered.
+    """
+    item = merged.get("items")
+    if merged.get("type") != "array" or item is None:
+        return []
+
+    minimum = merged.get("minItems", 0)
+    branches = []
+    if minimum <= 1 <= merged.get("maxItems", 1):
+        branches.append(item)
+    if minimum == 0:
+        branches.append(null_schema)
+    return branches
+
+
 def key_presence_constraint(
     node: Any, *, dependent_required: bool
 ) -> dict[str, Any] | None:
