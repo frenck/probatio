@@ -168,6 +168,8 @@ so they do not round-trip:
 | `Exclusive` group          | at-most-one (`not` over the pairs), or `oneOf` when the group is required                                                                                              |
 | `AtLeastOne` / `ExactlyOne` | `anyOf` / `oneOf` over the per-key `required`                                                                                                                         |
 | `AtMostOne` / `AllOrNone`  | at-most-one (`not` over the pairs) / `dependentRequired`; a key that is not a plain string has no spelling, so the rule widens                                        |
+| `RequiredWith`             | `dependentRequired`, or an `anyOf` implication when every trigger has to fire                                                                                         |
+| `RequiredWithout` / `RequiredIf` | `anyOf: [{not: trigger}, {required: ...}]`; `RequiredIf` compares with `const`, so a value with no JSON form widens                                             |
 | `Duration` / `AsTimedelta` | `format: duration`, which has no decoder, so it decodes to a plain string                                                                                              |
 
 The known widener: JSON Schema has a single `hostname` format, so both

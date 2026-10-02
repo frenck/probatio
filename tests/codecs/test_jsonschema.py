@@ -62,6 +62,9 @@ from probatio import (
     Range,
     Remove,
     Required,
+    RequiredIf,
+    RequiredWith,
+    RequiredWithout,
     Schema,
     Secret,
     Slug,
@@ -1227,6 +1230,109 @@ def test_key_presence_rules_reach_the_document(
     rendered = to_json_schema(Schema(All(validator, base)))
 
     assert {key: rendered[key] for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            RequiredWith("a", "b"),
+            {"dependentRequired": {"a": ["b"]}},
+            id="required_with_one_trigger",
+        ),
+        pytest.param(
+            RequiredWith(["a", "b"], "c", mode="all"),
+            {
+                "anyOf": [
+                    {"not": {"required": ["a", "b"]}},
+                    {"required": ["c"]},
+                ],
+            },
+            id="required_with_every_trigger",
+        ),
+        pytest.param(
+            RequiredWithout("a", "b"),
+            {"anyOf": [{"required": ["a"]}, {"required": ["b"]}]},
+            id="required_without",
+        ),
+        pytest.param(
+            RequiredIf({"a": "x"}, "b"),
+            {
+                "anyOf": [
+                    {"not": {"properties": {"a": {"const": "x"}}, "required": ["a"]}},
+                    {"required": ["b"]},
+                ],
+            },
+            id="required_if",
+        ),
+    ],
+)
+def test_conditional_required_rules_reach_the_document(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """A rule that makes one key depend on another is rendered, not dropped.
+
+    An implication is spelled with ``anyOf``/``not`` rather than ``if``/``then``
+    so the same shape serves OpenAPI 3.0, which has the first and not the second.
+    """
+    base = Schema({Optional(name): str for name in ("a", "b", "c")})
+    rendered = to_json_schema(Schema(All(validator, base)))
+
+    assert {key: rendered[key] for key in expected} == expected
+
+
+def test_a_conditional_rule_names_each_key_once() -> None:
+    """A ``required`` array holds unique names, so a repeated key is folded."""
+    base = Schema({Optional(name): str for name in ("a", "b")})
+
+    rendered = to_json_schema(Schema(All(RequiredWith(["a", "a"], "b", "b"), base)))
+
+    assert rendered["dependentRequired"] == {"a": ["b"]}
+
+
+def test_one_trigger_collapses_whatever_the_mode() -> None:
+    """With a single trigger the two modes say the same thing, so both collapse."""
+    base = Schema({Optional(name): str for name in ("a", "b")})
+
+    for mode in ("any", "all"):
+        rendered = to_json_schema(
+            Schema(All(RequiredWith("a", "b", mode=mode), base)),
+        )
+        assert rendered["dependentRequired"] == {"a": ["b"]}
+
+
+@pytest.mark.parametrize(
+    "validator",
+    [
+        pytest.param(RequiredIf({"a": object()}, "b"), id="compared_value"),
+        pytest.param(RequiredIf({"a": (1, 2)}, "b"), id="value_json_cannot_match"),
+        pytest.param(RequiredIf({1: "x"}, "b"), id="condition_key"),
+        pytest.param(RequiredWith("a", 1), id="required_key"),
+        pytest.param(RequiredWith(1, "b"), id="trigger_key"),
+        pytest.param(RequiredWith("a"), id="no_required_keys"),
+    ],
+)
+def test_a_conditional_rule_without_a_json_spelling_still_widens(
+    validator: object,
+) -> None:
+    """A rule with no faithful JSON form is left out of the document.
+
+    That covers a key JSON cannot name, a value it cannot hold, a value whose
+    JSON form compares unequal to the original (``(1, 2)`` renders as
+    ``[1, 2]``, which the tuple never equals, so emitting it would make the
+    document fire where Probatio does not), and a rule requiring no keys at all.
+    Widening is the documented default for all of them, and ``strict=True`` is
+    what turns it into an error.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(All(validator, Schema({Optional("a"): str})))
+    rendered = to_json_schema(schema)
+
+    assert "anyOf" not in rendered
+    assert "dependentRequired" not in rendered
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True)
 
 
 def test_a_key_presence_rule_on_unnameable_keys_still_widens() -> None:

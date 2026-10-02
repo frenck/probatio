@@ -995,6 +995,43 @@ def test_key_presence_rules_reach_the_document() -> None:
     assert at_most["not"] == {"anyOf": [{"required": ["a", "b"]}]}
 
 
+def test_conditional_required_rules_reach_the_document() -> None:
+    """A rule that makes one key depend on another is rendered, not dropped."""
+    from probatio import RequiredIf, RequiredWithout  # noqa: PLC0415
+
+    base = Schema({probatio.Optional(name): str for name in ("a", "b")})
+
+    without = to_openapi(Schema(probatio.All(RequiredWithout("a", "b"), base)))
+    assert without["anyOf"] == [{"required": ["a"]}, {"required": ["b"]}]
+
+    conditional = Schema(probatio.All(RequiredIf({"a": "x"}, "b"), base))
+    # OpenAPI 3.0 has no const, so equality is a one-member enum there.
+    assert to_openapi(conditional, openapi_version="3.0")["anyOf"] == [
+        {"not": {"properties": {"a": {"enum": ["x"]}}, "required": ["a"]}},
+        {"required": ["b"]},
+    ]
+    assert to_openapi(conditional, openapi_version="3.1.0")["anyOf"] == [
+        {"not": {"properties": {"a": {"const": "x"}}, "required": ["a"]}},
+        {"required": ["b"]},
+    ]
+
+
+def test_required_with_renders_per_version() -> None:
+    """RequiredWith is dependentRequired on 3.1 and an implication on 3.0."""
+    from probatio import RequiredWith  # noqa: PLC0415
+
+    base = Schema({probatio.Optional(name): str for name in ("a", "b")})
+    schema = Schema(probatio.All(RequiredWith("a", "b"), base))
+
+    assert to_openapi(schema, openapi_version="3.1.0")["dependentRequired"] == {
+        "a": ["b"],
+    }
+    assert to_openapi(schema, openapi_version="3.0")["anyOf"] == [
+        {"not": {"anyOf": [{"required": ["a"]}]}},
+        {"required": ["b"]},
+    ]
+
+
 def test_all_or_none_rule_renders_per_version() -> None:
     """AllOrNone uses dependentRequired on 3.1 and spells it out on 3.0."""
     from probatio import AllOrNone  # noqa: PLC0415

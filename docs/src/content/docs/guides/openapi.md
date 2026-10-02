@@ -134,8 +134,25 @@ all_or_none["dependentRequired"]
 # {'a': ['b'], 'b': ['a']}
 ```
 
-A key that is not a plain string has no spelling in either document, so such a
-rule widens instead, which `strict=True` reports.
+The rules that make one key depend on another render too. `RequiredWith` is
+`dependentRequired` where that exists, and the rest are written as an implication,
+`anyOf: [{not: trigger}, {required: ...}]`, rather than `if`/`then`: OpenAPI 3.0
+has the first keyword and not the second, so one shape serves both versions.
+
+```python
+from probatio import All, Optional, RequiredWithout, Schema, to_openapi
+
+base = Schema({Optional("cert"): str, Optional("cert_path"): str})
+
+to_openapi(Schema(All(RequiredWithout("cert", "cert_path"), base)))["anyOf"]
+# [{'required': ['cert']}, {'required': ['cert_path']}]
+```
+
+Two things leave a rule out. A key that is not a plain string has no spelling in
+either document. So does a `RequiredIf` whose compared value JSON cannot hold, or
+holds differently: `(1, 2)` would render as `[1, 2]`, which the tuple never
+equals, so emitting it would make the document fire where Probatio does not.
+Either way the rule widens, which `strict=True` reports.
 
 A group member does not have to be a literal key. `Inclusive(Any("hours",
 "minutes"), "d")` is one member that either name satisfies, and the rule is the
