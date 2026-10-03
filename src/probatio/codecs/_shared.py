@@ -7,10 +7,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 from probatio.markers import Alias, Extra, resolve_key
 from probatio.schema import Schema
@@ -254,6 +254,170 @@ def at_most_one(members: list[list[str]]) -> dict[str, Any]:
         if pairs
         else {}
     )
+
+
+def custom_field(node: Any, custom: Any) -> dict[str, Any] | None:
+    """Return what the custom hook renders for this node, or None if it defers.
+
+    Shared so every codec asks the hook the same way, and asks it once.
+    """
+    if custom is None:
+        return None
+
+    result = custom(node)
+    if result is UNSUPPORTED:
+        return None
+
+    return cast("dict[str, Any]", result)
+
+
+# What an array schema may say that a one-item or empty list can be judged
+# against here: the shape of an item, how many there are, and what has to be
+# among them. Everything else either asserts something about the list as a
+# whole (``const``, ``enum``, ``not``, a counted ``contains``) or describes a
+# shape these branches cannot be read off, so it withdraws them rather than
+# being ignored. The annotations say nothing about a value at all.
+_ENSURE_LIST_READABLE = frozenset(
+    {
+        "type",
+        "items",
+        "minItems",
+        "maxItems",
+        "contains",
+        # A list of nought or one items is unique either way.
+        "uniqueItems",
+        "default",
+        "deprecated",
+        "description",
+        "examples",
+        "readOnly",
+        "title",
+        "writeOnly",
+    }
+)
+
+
+def ensure_list_branches(
+    merged: dict[str, Any], *, null_is_a_type: bool
+) -> tuple[list[dict[str, Any]], bool] | None:
+    """Say which unwrapped forms a leading ``EnsureList`` also accepts.
+
+    ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
+    ``None`` and validates ``[]``, so a document offering only the array is
+    narrower than the schema and rejects input it accepts.
+
+    Each branch stands on its own. The scalar form needs room for a list of
+    exactly one and an item a lone value can be: a list is passed through rather
+    than wrapped and ``None`` becomes the empty list, so both are ruled out,
+    spelled only where the item does not rule them out already. Under
+    ``contains`` the one-item list has to carry the sought item itself, so the
+    scalar form takes that on as well. The null form needs room for an empty
+    list, which ``contains`` never leaves.
+
+    ``null_is_a_type`` says whether the target can spell "not null". OpenAPI 3.0
+    cannot: ``nullable`` there modifies a named type rather than being one. A
+    scalar branch needing that exclusion is withdrawn whole on such a target,
+    since leaving it out would make the document narrower than the schema.
+
+    Returns ``(branches, accepts_null)``: the branches to put beside ``merged``,
+    and whether ``None`` is accepted, which each codec spells its own way. The
+    branches are empty when the array says it all. Returns None when they cannot
+    be read off it and the wrapping is a real loss.
+    """
+    if not merged:
+        # An open document already accepts everything the wrapping takes.
+        return [], False
+
+    if merged.get("type") != "array" or merged.keys() - _ENSURE_LIST_READABLE:
+        return None
+
+    item = merged.get("items", True)
+    if isinstance(item, bool):
+        # ``items: false`` lets no value be an item, so no lone value survives.
+        item = {} if item else None
+    elif not isinstance(item, dict):
+        return None
+
+    contains = merged.get("contains")
+    minimum = merged.get("minItems", 0)
+    branches = []
+
+    fits_one = minimum <= 1 <= merged.get("maxItems", 1)
+    if fits_one and item is not None and not _only_list_or_null(item):
+        scalar = _scalar_branch(item, contains, null_is_a_type=null_is_a_type)
+        if scalar is None:
+            return None
+        branches.append(scalar)
+
+    return branches, minimum == 0 and contains is None
+
+
+def _scalar_branch(
+    item: dict[str, Any], contains: dict[str, Any] | None, *, null_is_a_type: bool
+) -> dict[str, Any] | None:
+    """Match a lone value ``EnsureList`` would wrap into a one-item list.
+
+    Returns None when ruling out null is needed and the target cannot spell it.
+    """
+    without_null = _drop_nullable(item)
+    parts: list[dict[str, Any]] = []
+
+    if not _excludes_list_and_null(without_null):
+        if not null_is_a_type:
+            return None
+        parts += [{"not": {"type": "array"}}, {"not": {"type": "null"}}]
+    if contains is not None:
+        parts.append(contains)
+
+    if not parts:
+        return without_null
+    return {"allOf": [without_null, *parts]} if without_null else {"allOf": parts}
+
+
+def _drop_nullable(item: dict[str, Any]) -> dict[str, Any]:
+    """Return the item as the non-null half of itself, where that is written.
+
+    OpenAPI 3.0 adds null to a named type with ``nullable``, and the lone value
+    is never the null half, so dropping the flag says the rest exactly.
+    """
+    if not item.get("nullable") or not isinstance(item.get("type"), str):
+        return item
+    return {key: value for key, value in item.items() if key != "nullable"}
+
+
+def _excludes_list_and_null(item: dict[str, Any]) -> bool:
+    """Say whether this item shape can only be a value worth wrapping.
+
+    OpenAPI 3.0 adds null to a named type with ``nullable``, so a type alone
+    does not settle it there.
+    """
+    if item.get("nullable"):
+        return False
+    return _every_branch(item, lambda kind: kind not in {"array", "null"})
+
+
+def _only_list_or_null(item: dict[str, Any]) -> bool:
+    """Say whether an item can be nothing a wrap would ever produce.
+
+    A list of lists is reached only by passing a list through, so its scalar
+    branch could never match and is left out rather than written down as a
+    contradiction.
+    """
+    return _every_branch(item, lambda kind: kind in {"array", "null"})
+
+
+def _every_branch(item: dict[str, Any], holds: Callable[[str], bool]) -> bool:
+    """Say whether a named type holds for this shape, through any union."""
+    kind = item.get("type")
+    if isinstance(kind, str):
+        return holds(kind)
+
+    for keyword in ("anyOf", "oneOf"):
+        branches = item.get(keyword)
+        if branches:
+            return all(_every_branch(branch, holds) for branch in branches)
+
+    return False
 
 
 def key_presence_constraint(

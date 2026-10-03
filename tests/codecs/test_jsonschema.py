@@ -32,6 +32,7 @@ from probatio import (
     Date,
     Datetime,
     Email,
+    EnsureList,
     Equal,
     ExactlyOne,
     ExactSequence,
@@ -1279,6 +1280,273 @@ def test_conditional_required_rules_reach_the_document(
     rendered = to_json_schema(Schema(All(validator, base)))
 
     assert {key: rendered[key] for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            All(EnsureList(), [int]),
+            {
+                "anyOf": [
+                    {"type": "integer"},
+                    {"type": "null"},
+                    {"type": "array", "items": {"type": "integer"}},
+                ],
+            },
+            id="scalar_and_null_beside_the_list",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(min=1)),
+            {
+                "anyOf": [
+                    {"type": "integer"},
+                    {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+                ],
+            },
+            id="a_non_empty_list_takes_no_null",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(min=2)),
+            {"type": "array", "items": {"type": "integer"}, "minItems": 2},
+            id="no_unwrapped_value_fits",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Length(max=0)),
+            {
+                "anyOf": [
+                    {"type": "null"},
+                    {"type": "array", "items": {"type": "integer"}, "maxItems": 0},
+                ],
+            },
+            id="only_null_fits",
+        ),
+        pytest.param(
+            All(int, EnsureList()),
+            {"type": "integer"},
+            id="a_trailing_ensure_list_wraps_the_output",
+        ),
+        pytest.param(
+            All(EnsureList(), list),
+            {
+                "anyOf": [
+                    {"allOf": [{"not": {"type": "array"}}, {"not": {"type": "null"}}]},
+                    {"type": "null"},
+                    {"type": "array"},
+                ],
+            },
+            id="a_list_of_no_particular_thing_rules_out_what_it_must",
+        ),
+        pytest.param(
+            All(EnsureList(), [int, str]),
+            {
+                "anyOf": [
+                    {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+                    {"type": "null"},
+                    {
+                        "type": "array",
+                        "items": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+                    },
+                ],
+            },
+            id="a_union_item_is_read_branch_by_branch",
+        ),
+        pytest.param(
+            All(EnsureList(), [[int], int]),
+            {
+                "anyOf": [
+                    {
+                        "allOf": [
+                            {
+                                "anyOf": [
+                                    {"type": "array", "items": {"type": "integer"}},
+                                    {"type": "integer"},
+                                ],
+                            },
+                            {"not": {"type": "array"}},
+                            {"not": {"type": "null"}},
+                        ],
+                    },
+                    {"type": "null"},
+                    {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                {"type": "array", "items": {"type": "integer"}},
+                                {"type": "integer"},
+                            ],
+                        },
+                    },
+                ],
+            },
+            id="a_union_item_that_may_be_a_list_rules_it_out",
+        ),
+        pytest.param(
+            All(EnsureList(), [[int]]),
+            {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "array",
+                        "items": {"type": "array", "items": {"type": "integer"}},
+                    },
+                ],
+            },
+            id="a_list_of_lists_has_no_scalar_form",
+        ),
+        pytest.param(
+            All(EnsureList(), [int], Contains(5)),
+            {
+                "anyOf": [
+                    {"allOf": [{"type": "integer"}, {"const": 5}]},
+                    {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "contains": {"const": 5},
+                    },
+                ],
+            },
+            id="contains_constrains_the_scalar_and_drops_null",
+        ),
+    ],
+)
+def test_a_leading_ensure_list_offers_what_it_wraps(
+    validator: object, expected: dict[str, object]
+) -> None:
+    """EnsureList takes a scalar or None, so the document has to say so.
+
+    Offering only the array is narrower than the schema and rejects input it
+    accepts. A trailing EnsureList is a different schema: the members before it
+    judge the value unwrapped, so only that form is on offer.
+
+    A list is passed through rather than wrapped and None becomes the empty
+    list, so the scalar branch rules both out, spelled only where the item does
+    not rule them out already. A list of lists has no scalar form at all. Under
+    ``contains`` the one-item list has to carry the sought item itself, so the
+    scalar branch takes that on and the empty list is no longer allowed.
+    """
+    assert to_json_schema(Schema(validator)) == expected
+
+
+def test_a_leading_ensure_list_is_not_a_loss_when_it_renders() -> None:
+    """Its meaning is the extra branches, so strict has nothing to report.
+
+    Converting it as an ordinary part would call it unrepresentable and refuse
+    a document the codec can in fact produce.
+    """
+    schema = Schema(All(EnsureList(), [int]))
+
+    assert to_json_schema(schema, strict=True) == {
+        "anyOf": [
+            {"type": "integer"},
+            {"type": "null"},
+            {"type": "array", "items": {"type": "integer"}},
+        ],
+    }
+
+
+def test_a_custom_serializer_still_owns_a_leading_ensure_list() -> None:
+    """An override for that node is the caller's answer, and it is asked once."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
+
+    claimed = EnsureList()
+    seen: list[object] = []
+
+    def hook(node: object) -> object:
+        seen.append(node)
+        return {"type": "string"} if node is claimed else UNSUPPORTED
+
+    rendered = to_json_schema(Schema(All(claimed, [int])), custom_serializer=hook)
+
+    assert rendered == {
+        "allOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "integer"}},
+        ],
+    }
+    assert sum(1 for node in seen if node is claimed) == 1
+
+
+def test_an_unconstrained_ensure_list_loses_nothing() -> None:
+    """An open document already accepts everything the wrapping takes."""
+    assert to_json_schema(Schema(All(EnsureList())), strict=True) == {}
+
+
+def test_a_leading_ensure_list_under_a_whole_list_assertion_is_a_loss() -> None:
+    """An assertion about the list as a whole is not a rule a branch can carry.
+
+    ``Equal([1])`` pins the list itself, so a scalar branch read off the items
+    alone would accept a value the schema rejects.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(All(EnsureList(), [int], Equal([1])))
+
+    assert to_json_schema(schema) == {}
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True)
+
+
+def test_a_leading_ensure_list_over_a_counted_contains_is_a_loss() -> None:
+    """How many items must match is a sum over the list, not a per-branch rule."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    inner = [int]
+
+    def hook(node: object) -> object:
+        if node is not inner:
+            return UNSUPPORTED
+        return {
+            "type": "array",
+            "items": {"type": "integer"},
+            "contains": {"const": 9},
+            "minContains": 0,
+        }
+
+    schema = Schema(All(EnsureList(), inner))
+
+    assert to_json_schema(schema, custom_serializer=hook) == {}
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True, custom_serializer=hook)
+
+
+def test_a_leading_ensure_list_over_an_unreadable_items_is_a_loss() -> None:
+    """A hook may render items as something this cannot read, and that is a loss too."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    inner = [int]
+
+    def hook(node: object) -> object:
+        return {"type": "array", "items": "anything"} if node is inner else UNSUPPORTED
+
+    schema = Schema(All(EnsureList(), inner))
+
+    assert "anyOf" not in to_json_schema(schema, custom_serializer=hook)
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True, custom_serializer=hook)
+
+
+def test_a_leading_ensure_list_over_a_sequence_is_a_loss() -> None:
+    """Positional items are a shape the branches cannot be read off, so strict says so.
+
+    Bounds that leave no room are a different answer: the array then says
+    everything on its own and nothing is lost, so strict stays quiet.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    unreadable = Schema(All(EnsureList(), ExactSequence([int])))
+    assert "anyOf" not in to_json_schema(unreadable)
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(unreadable, strict=True)
+
+    exact = Schema(All(EnsureList(), [int], Length(min=2)))
+    assert to_json_schema(exact, strict=True) == {
+        "type": "array",
+        "items": {"type": "integer"},
+        "minItems": 2,
+    }
 
 
 def test_a_conditional_rule_names_each_key_once() -> None:

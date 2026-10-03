@@ -32,6 +32,8 @@ from probatio.codecs._shared import (
     constraint_names,
     contested_names,
     covers_every_property_name,
+    custom_field,
+    ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
     key_presence_constraint,
@@ -72,6 +74,7 @@ from probatio.validators import (
     Datetime,
     Duration,
     Email,
+    EnsureList,
     Equal,
     ExactSequence,
     FqdnUrl,
@@ -1034,8 +1037,23 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     all_of: list[dict[str, Any]] = []
     fallback = False
 
-    for validator in node.validators:
-        part = _oa_all_part(validator, custom, version)
+    validators = list(node.validators)
+    # A leading EnsureList says nothing on its own; what it means is the extra
+    # branches below, so it is read from there rather than converted and lost.
+    # The custom hook still gets first refusal: an override for that node is the
+    # caller's answer, not ours.
+    head = (
+        validators[0] if validators and isinstance(validators[0], EnsureList) else None
+    )
+    # One visit per node: ask the hook once and keep what it said, rather than
+    # asking again while converting the member it claimed.
+    claimed = custom_field(head, custom) if head is not None else None
+    leading = head is not None and claimed is None
+
+    rest = validators[1:] if head is not None else validators
+    for part in ([claimed] if claimed is not None else []) + [
+        _oa_all_part(validator, custom, version) for validator in rest
+    ]:
         if not part or part in all_of or part == _OPEN_OBJECT:
             continue
         if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
@@ -1045,7 +1063,7 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
             merged.update(part)
 
     if fallback:
-        return {"allOf": all_of}
+        return _widen_for_ensure_list({"allOf": all_of}, version, leading=leading)
     merged = _retarget_length(merged)
 
     # Length bounds no sized type owns after the retarget: the merge has no type
@@ -1058,9 +1076,51 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     }
     if bounds and merged.get("type") != "string":
         typed = _oa_length_branches(bounds)
-        return {"allOf": [_ensure_default(merged), typed]} if merged else typed
+        sized = {"allOf": [_ensure_default(merged), typed]} if merged else typed
+        return _widen_for_ensure_list(sized, version, leading=leading)
     merged.update(bounds)
-    return _ensure_default(merged)
+    return _ensure_default(_widen_for_ensure_list(merged, version, leading=leading))
+
+
+def _widen_for_ensure_list(
+    merged: dict[str, Any], version: str, *, leading: bool
+) -> dict[str, Any]:
+    """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
+
+    Only a leading one counts: a later ``EnsureList`` wraps a value the members
+    before it already judged unwrapped, which is a different schema and is
+    converted like any other part.
+    """
+    if not leading:
+        return merged
+
+    derived = ensure_list_branches(merged, null_is_a_type=version == _V3_1)
+    if derived is None:
+        # The wrapping accepts values this array alone would reject, so handing
+        # the array back would be narrower than the schema. Widening is the
+        # contract for what cannot be rendered, and strict mode says so. No
+        # branch at all is a different answer: the array already says
+        # everything, and nothing was lost.
+        return _open("a leading EnsureList over this list")
+
+    branches, accepts_null = derived
+    if accepts_null and version == _V3_1:
+        branches = [*branches, {"type": "null"}]
+
+    if not branches:
+        # Nothing stands beside the array, so a bare nullable flag says the rest.
+        return {**merged, "nullable": True} if accepts_null else merged
+
+    rendered: dict[str, Any] = {"anyOf": [*branches, merged]}
+    if accepts_null and version != _V3_1:
+        # 3.0 has no null type, so null rides on the schema as the flag it is,
+        # the way a nullable Any already renders there. Beside other branches
+        # that flag becomes a branch of its own, and the only shape 3.0 has for
+        # one is a nullable object, which lets every object through as well. The
+        # document is wider than the schema from there on, so strict says so.
+        _open("null beside other branches on OpenAPI 3.0, which has no null type")
+        rendered["nullable"] = True
+    return rendered
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an

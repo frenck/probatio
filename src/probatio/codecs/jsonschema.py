@@ -35,6 +35,8 @@ from probatio.codecs._shared import (
     conditional_required_constraint,
     contested_names,
     covers_every_property_name,
+    custom_field,
+    ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
     key_presence_constraint,
@@ -76,6 +78,7 @@ from probatio.validators import (
     DefaultTo,
     Duration,
     Email,
+    EnsureList,
     Equal,
     ExactSequence,
     FqdnUrl,
@@ -948,17 +951,59 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     JSON Schema consumer: ``const: 1`` and ``const: true`` are different values
     there, however Python compares them, so they keep their own branches.
     """
-    parts = [_child(validator) for validator in node.validators]
+    validators = list(node.validators)
+    # A leading EnsureList says nothing on its own; what it means is the extra
+    # branches below, so it is read from there rather than converted and lost.
+    # The custom hook still gets first refusal: an override for that node is the
+    # caller's answer, not ours.
+    head = (
+        validators[0] if validators and isinstance(validators[0], EnsureList) else None
+    )
+    # One visit per node: ask the hook once and keep what it said, rather than
+    # asking again while converting the member it claimed.
+    claimed = custom_field(head, _options().custom) if head is not None else None
+    leading = head is not None and claimed is None
+
+    members = validators[1:] if head is not None else validators
+    parts = [_child(validator) for validator in members]
+    if claimed is not None:
+        parts.insert(0, claimed)
     merged: dict[str, Any] = {}
     for part in parts:
         if any(
             not _json_equal(part[key], merged[key])
             for key in part.keys() & merged.keys()
         ):
-            return {"allOf": [part for part in parts if part]}
+            conflicted = {"allOf": [part for part in parts if part]}
+            return _widen_for_ensure_list(conflicted, leading=leading)
         merged.update(part)
 
-    return _retarget_length(merged)
+    return _widen_for_ensure_list(_retarget_length(merged), leading=leading)
+
+
+def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str, Any]:
+    """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
+
+    Only a leading one counts: a later ``EnsureList`` wraps a value the members
+    before it already judged unwrapped, which is a different schema and is
+    converted like any other part.
+    """
+    if not leading:
+        return merged
+
+    derived = ensure_list_branches(merged, null_is_a_type=True)
+    if derived is None:
+        # The wrapping accepts values this array alone would reject, so handing
+        # the array back would be narrower than the schema. Widening is the
+        # contract for what cannot be rendered, and strict mode says so. No
+        # branch at all is a different answer: the array already says
+        # everything, and nothing was lost.
+        return _open("a leading EnsureList over this list")
+
+    branches, accepts_null = derived
+    if accepts_null:
+        branches = [*branches, {"type": "null"}]
+    return {"anyOf": [*branches, merged]} if branches else merged
 
 
 # JSON Schema spells "length" three ways depending on the type: minLength for a
