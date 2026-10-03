@@ -294,6 +294,11 @@ def ensure_list_branches(
     if merged.get("type") != "array" or "prefixItems" in merged:
         return None
 
+    # A counted contains says how many items have to match, which is a sum over
+    # the list rather than a rule each branch can be judged against here.
+    if "minContains" in merged or "maxContains" in merged:
+        return None
+
     item = merged.get("items", True)
     if isinstance(item, bool):
         # ``items: false`` lets no value be an item, so no lone value survives.

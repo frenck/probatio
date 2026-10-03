@@ -1063,7 +1063,8 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     }
     if bounds and merged.get("type") != "string":
         typed = _oa_length_branches(bounds)
-        return {"allOf": [_ensure_default(merged), typed]} if merged else typed
+        sized = {"allOf": [_ensure_default(merged), typed]} if merged else typed
+        return _widen_for_ensure_list(sized, version, leading=leading)
     merged.update(bounds)
     return _ensure_default(_widen_for_ensure_list(merged, version, leading=leading))
 
@@ -1082,11 +1083,12 @@ def _widen_for_ensure_list(
 
     branches = ensure_list_branches(merged, null_schema=_oa_null(version))
     if branches is None:
-        # The wrapping leaves no trace, so the loss is the usual widening and
-        # strict mode says so. No branch at all is a different answer: the array
-        # already says everything, and nothing was lost.
-        _open("a leading EnsureList over this list")
-        return merged
+        # The wrapping accepts values this array alone would reject, so handing
+        # the array back would be narrower than the schema. Widening is the
+        # contract for what cannot be rendered, and strict mode says so. No
+        # branch at all is a different answer: the array already says
+        # everything, and nothing was lost.
+        return _open("a leading EnsureList over this list")
 
     return {"anyOf": [*branches, merged]} if branches else merged
 

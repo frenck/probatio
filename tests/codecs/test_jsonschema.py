@@ -1445,6 +1445,30 @@ def test_a_leading_ensure_list_is_not_a_loss_when_it_renders() -> None:
     }
 
 
+def test_a_leading_ensure_list_over_a_counted_contains_is_a_loss() -> None:
+    """How many items must match is a sum over the list, not a per-branch rule."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    inner = [int]
+
+    def hook(node: object) -> object:
+        if node is not inner:
+            return UNSUPPORTED
+        return {
+            "type": "array",
+            "items": {"type": "integer"},
+            "contains": {"const": 9},
+            "minContains": 0,
+        }
+
+    schema = Schema(All(EnsureList(), inner))
+
+    assert to_json_schema(schema, custom_serializer=hook) == {}
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True, custom_serializer=hook)
+
+
 def test_a_leading_ensure_list_over_an_unreadable_items_is_a_loss() -> None:
     """A hook may render items as something this cannot read, and that is a loss too."""
     from probatio import UNSUPPORTED  # noqa: PLC0415
