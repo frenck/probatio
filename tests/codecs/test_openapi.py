@@ -701,6 +701,19 @@ def test_exact_sequence_uses_prefix_items_only_on_3_1() -> None:
     }
 
 
+def test_an_empty_exact_sequence_loses_nothing_on_3_0() -> None:
+    """It pins the empty list, which the length keywords say in full."""
+    from probatio import ExactSequence  # noqa: PLC0415
+
+    schema = Schema(ExactSequence([]))
+
+    assert to_openapi(schema, strict=True, openapi_version="3.0") == {
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 0,
+    }
+
+
 @pytest.mark.parametrize(
     "validator",
     [

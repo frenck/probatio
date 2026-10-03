@@ -194,7 +194,9 @@ A version-specific drop is a loss like any other. OpenAPI 3.0 has neither
 `contains` nor `prefixItems` and misreads both, so a `Contains` renders as a
 plain array there and an `ExactSequence` keeps only the length it pins. The
 document accepts what the schema rejects either way, so `strict=True` reports it
-rather than handing back the looser array without a word.
+rather than handing back the looser array without a word. An empty
+`ExactSequence` is the exception: it has no position to lose, and the length
+keywords say all of it.
 
 ## Customizing the output
 

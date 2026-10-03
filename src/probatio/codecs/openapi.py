@@ -993,9 +993,11 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
             prefix = [_ensure_default(_oa(v, custom, version)) for v in node.validators]
             return {"type": "array", "prefixItems": prefix, "items": False}
         # The per-position types need prefixItems, but the length the sequence
-        # pins is plain minItems/maxItems, so that much survives.
-        _open("the per-position types of an ExactSequence on OpenAPI 3.0")
+        # pins is plain minItems/maxItems, so that much survives. An empty
+        # sequence has no position to lose: the length says all of it.
         count = len(node.validators)
+        if count:
+            _open("the per-position types of an ExactSequence on OpenAPI 3.0")
         return {"type": "array", "minItems": count, "maxItems": count}
     if isinstance(node, Duration | AsTimedelta):
         return {"type": "string", "format": "duration"}
