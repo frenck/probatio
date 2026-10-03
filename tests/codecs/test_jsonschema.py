@@ -1395,13 +1395,18 @@ def test_conditional_required_rules_reach_the_document(
             id="a_list_of_lists_has_no_scalar_form",
         ),
         pytest.param(
-            All(EnsureList(), [int], Contains(int)),
+            All(EnsureList(), [int], Contains(5)),
             {
-                "type": "array",
-                "items": {"type": "integer"},
-                "contains": {"type": "integer"},
+                "anyOf": [
+                    {"allOf": [{"type": "integer"}, {"const": 5}]},
+                    {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "contains": {"const": 5},
+                    },
+                ],
             },
-            id="contains_withdraws_both",
+            id="contains_constrains_the_scalar_and_drops_null",
         ),
     ],
 )
@@ -1416,8 +1421,9 @@ def test_a_leading_ensure_list_offers_what_it_wraps(
 
     A list is passed through rather than wrapped and None becomes the empty
     list, so the scalar branch rules both out, spelled only where the item does
-    not rule them out already. A list of lists has no scalar form at all, and
-    ``contains`` judges the items as a set, which withdraws both branches.
+    not rule them out already. A list of lists has no scalar form at all. Under
+    ``contains`` the one-item list has to carry the sought item itself, so the
+    scalar branch takes that on and the empty list is no longer allowed.
     """
     assert to_json_schema(Schema(validator)) == expected
 
@@ -1439,15 +1445,42 @@ def test_a_leading_ensure_list_is_not_a_loss_when_it_renders() -> None:
     }
 
 
-def test_a_leading_ensure_list_that_renders_nothing_is_a_loss() -> None:
-    """With no branch surviving, the wrapping is gone and strict says so."""
+def test_a_leading_ensure_list_over_an_unreadable_items_is_a_loss() -> None:
+    """A hook may render items as something this cannot read, and that is a loss too."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
     from probatio.error import SchemaError  # noqa: PLC0415
 
-    schema = Schema(All(EnsureList(), [int], Contains(int)))
+    inner = [int]
 
-    assert "anyOf" not in to_json_schema(schema)
+    def hook(node: object) -> object:
+        return {"type": "array", "items": "anything"} if node is inner else UNSUPPORTED
+
+    schema = Schema(All(EnsureList(), inner))
+
+    assert "anyOf" not in to_json_schema(schema, custom_serializer=hook)
     with pytest.raises(SchemaError, match="cannot represent"):
-        to_json_schema(schema, strict=True)
+        to_json_schema(schema, strict=True, custom_serializer=hook)
+
+
+def test_a_leading_ensure_list_over_a_sequence_is_a_loss() -> None:
+    """Positional items are a shape the branches cannot be read off, so strict says so.
+
+    Bounds that leave no room are a different answer: the array then says
+    everything on its own and nothing is lost, so strict stays quiet.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    unreadable = Schema(All(EnsureList(), ExactSequence([int])))
+    assert "anyOf" not in to_json_schema(unreadable)
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(unreadable, strict=True)
+
+    exact = Schema(All(EnsureList(), [int], Length(min=2)))
+    assert to_json_schema(exact, strict=True) == {
+        "type": "array",
+        "items": {"type": "integer"},
+        "minItems": 2,
+    }
 
 
 def test_a_conditional_rule_names_each_key_once() -> None:

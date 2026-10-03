@@ -1017,17 +1017,31 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
     }
 
 
-def test_a_leading_ensure_list_that_renders_nothing_is_a_loss() -> None:
-    """With no branch surviving, the wrapping is gone and strict says so."""
-    from probatio import Contains, EnsureList  # noqa: PLC0415
+def test_a_leading_ensure_list_over_a_sequence_is_a_loss() -> None:
+    """Positional items are a shape the branches cannot be read off, so strict says so."""
+    from probatio import EnsureList, ExactSequence  # noqa: PLC0415
     from probatio.error import SchemaError  # noqa: PLC0415
 
-    schema = Schema(probatio.All(EnsureList(), [int], Contains(int)))
+    schema = Schema(probatio.All(EnsureList(), ExactSequence([int])))
 
-    # 3.1 is the version that spells contains; 3.0 drops it well before this.
+    # 3.1 is the version that spells prefixItems; 3.0 drops it well before this.
     assert "anyOf" not in to_openapi(schema, openapi_version="3.1.0")
     with pytest.raises(SchemaError, match="cannot represent"):
         to_openapi(schema, strict=True, openapi_version="3.1.0")
+
+
+def test_a_custom_serializer_still_owns_a_leading_ensure_list() -> None:
+    """An override for that node is the caller's answer, not the built-in branches."""
+    from probatio import UNSUPPORTED, EnsureList  # noqa: PLC0415
+
+    claimed = EnsureList()
+
+    def hook(node: object) -> object:
+        return {"type": "string"} if node is claimed else UNSUPPORTED
+
+    rendered = to_openapi(Schema(probatio.All(claimed, [int])), custom_serializer=hook)
+
+    assert "anyOf" not in rendered
 
 
 def test_a_trailing_ensure_list_describes_the_unwrapped_value() -> None:

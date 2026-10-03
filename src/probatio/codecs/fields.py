@@ -20,7 +20,7 @@ import enum
 from collections.abc import Hashable, Iterator, Mapping
 from typing import Any, cast
 
-from probatio.codecs._shared import UNSUPPORTED
+from probatio.codecs._shared import UNSUPPORTED, custom_field
 from probatio.codecs.jsonschema import _JsonPattern
 from probatio.dataclass_schema import constructed_mapping
 from probatio.markers import (
@@ -368,24 +368,12 @@ def _all_members(
             yield member, None
             continue
 
-        rendered = _custom_field(member, custom)
+        rendered = custom_field(member, custom)
         if rendered is None:
             yield from _all_members(member, custom)
             continue
 
         yield member, rendered
-
-
-def _custom_field(node: Any, custom: Any) -> dict[str, Any] | None:
-    """Return what the custom hook renders for this node, or None if it defers."""
-    if custom is None:
-        return None
-
-    result = custom(node)
-    if result is UNSUPPORTED:
-        return None
-
-    return cast("dict[str, Any]", result)
 
 
 def _merge_field(

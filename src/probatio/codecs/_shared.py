@@ -7,10 +7,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 from probatio.markers import Alias, Extra, resolve_key
 from probatio.schema import Schema
@@ -256,40 +256,81 @@ def at_most_one(members: list[list[str]]) -> dict[str, Any]:
     )
 
 
+def custom_field(node: Any, custom: Any) -> dict[str, Any] | None:
+    """Return what the custom hook renders for this node, or None if it defers.
+
+    Shared so every codec asks the hook the same way, and asks it once.
+    """
+    if custom is None:
+        return None
+
+    result = custom(node)
+    if result is UNSUPPORTED:
+        return None
+
+    return cast("dict[str, Any]", result)
+
+
 def ensure_list_branches(
     merged: dict[str, Any], *, null_schema: dict[str, Any]
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | None:
     """Say which unwrapped forms a leading ``EnsureList`` also accepts.
 
     ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
     ``None`` and validates ``[]``, so a document offering only the array is
     narrower than the schema and rejects input it accepts.
 
-    Only what the wrapping actually reaches is offered, and only while the rest
-    of the array schema leaves room for what the wrapping produces:
+    Each branch stands on its own. The scalar form needs room for a list of
+    exactly one and an item a lone value can be: a list is passed through rather
+    than wrapped and ``None`` becomes the empty list, so both are ruled out,
+    spelled only where the item does not rule them out already. Under
+    ``contains`` the one-item list has to carry the sought item itself, so the
+    scalar form takes that on as well. The null form needs room for an empty
+    list, which ``contains`` never leaves.
 
-    - A list is passed through rather than wrapped, and ``None`` becomes the
-      empty list rather than a list holding it, so the scalar branch is the item
-      with both ruled out. The exclusion is spelled only when the item does not
-      already rule them out by its own type.
-    - The scalar form needs room for a list of exactly one, the null form room
-      for an empty one.
-    - ``contains`` asks something of the items as a set, which neither a lone
-      item nor an empty list can be judged against here, so it withdraws both.
-
-    Returns the branches to put beside ``merged``, empty when none survive.
+    Returns the branches to put beside ``merged``, empty when the array says it
+    all, or None when they cannot be derived and the wrapping is a real loss.
     """
-    if merged.get("type") != "array" or "contains" in merged:
-        return []
+    if merged.get("type") != "array" or "prefixItems" in merged:
+        return None
 
+    item = merged.get("items", True)
+    if isinstance(item, bool):
+        # ``items: false`` lets no value be an item, so no lone value survives.
+        item = {} if item else None
+    elif not isinstance(item, dict):
+        return None
+
+    contains = merged.get("contains")
     minimum = merged.get("minItems", 0)
-    item = merged.get("items", {})
     branches = []
-    if minimum <= 1 <= merged.get("maxItems", 1) and not _only_list_or_null(item):
-        branches.append(_scalar_branch(item))
-    if minimum == 0:
+
+    fits_one = minimum <= 1 <= merged.get("maxItems", 1)
+    if fits_one and item is not None and not _only_list_or_null(item):
+        branches.append(_scalar_branch(item, contains))
+    if minimum == 0 and contains is None:
         branches.append(null_schema)
     return branches
+
+
+def _scalar_branch(
+    item: dict[str, Any], contains: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Match a lone value ``EnsureList`` would wrap into a one-item list."""
+    parts: list[dict[str, Any]] = []
+    if not _excludes_list_and_null(item):
+        parts += [{"not": {"type": "array"}}, {"not": {"type": "null"}}]
+    if contains is not None:
+        parts.append(contains)
+
+    if not parts:
+        return item
+    return {"allOf": [item, *parts]} if item else {"allOf": parts}
+
+
+def _excludes_list_and_null(item: dict[str, Any]) -> bool:
+    """Say whether this item shape can only be a value worth wrapping."""
+    return _every_branch(item, lambda kind: kind not in {"array", "null"})
 
 
 def _only_list_or_null(item: dict[str, Any]) -> bool:
@@ -299,40 +340,19 @@ def _only_list_or_null(item: dict[str, Any]) -> bool:
     branch could never match and is left out rather than written down as a
     contradiction.
     """
+    return _every_branch(item, lambda kind: kind in {"array", "null"})
+
+
+def _every_branch(item: dict[str, Any], holds: Callable[[str], bool]) -> bool:
+    """Say whether a named type holds for this shape, through any union."""
     kind = item.get("type")
     if isinstance(kind, str):
-        return kind in {"array", "null"}
+        return holds(kind)
 
     for keyword in ("anyOf", "oneOf"):
         branches = item.get(keyword)
         if branches:
-            return all(_only_list_or_null(branch) for branch in branches)
-
-    return False
-
-
-def _scalar_branch(item: dict[str, Any]) -> dict[str, Any]:
-    """Match a lone value ``EnsureList`` would wrap into a one-item list."""
-    if _excludes_list_and_null(item):
-        return item
-
-    ruled_out: list[dict[str, Any]] = [
-        {"not": {"type": "array"}},
-        {"not": {"type": "null"}},
-    ]
-    return {"allOf": [item, *ruled_out]} if item else {"allOf": ruled_out}
-
-
-def _excludes_list_and_null(item: dict[str, Any]) -> bool:
-    """Say whether this item shape can only be a value worth wrapping."""
-    kind = item.get("type")
-    if isinstance(kind, str):
-        return kind not in {"array", "null"}
-
-    for keyword in ("anyOf", "oneOf"):
-        branches = item.get(keyword)
-        if branches:
-            return all(_excludes_list_and_null(branch) for branch in branches)
+            return all(_every_branch(branch, holds) for branch in branches)
 
     return False
 

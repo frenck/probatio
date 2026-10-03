@@ -953,7 +953,13 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     validators = list(node.validators)
     # A leading EnsureList says nothing on its own; what it means is the extra
     # branches below, so it is read from there rather than converted and lost.
-    leading = bool(validators) and isinstance(validators[0], EnsureList)
+    # The custom hook still gets first refusal: an override for that node is the
+    # caller's answer, not ours.
+    leading = (
+        bool(validators)
+        and isinstance(validators[0], EnsureList)
+        and not _claimed_by_custom(validators[0])
+    )
     members = validators[1:] if leading else validators
 
     parts = [_child(validator) for validator in members]
@@ -970,6 +976,12 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     return _widen_for_ensure_list(_retarget_length(merged), leading=leading)
 
 
+def _claimed_by_custom(node: Any) -> bool:
+    """Say whether the custom hook renders this node itself."""
+    custom = _options().custom
+    return custom is not None and custom(node) is not UNSUPPORTED
+
+
 def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str, Any]:
     """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
 
@@ -981,13 +993,14 @@ def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str
         return merged
 
     branches = ensure_list_branches(merged, null_schema={"type": "null"})
-    if not branches:
-        # Nothing of the wrapping survives into the document, so the loss is
-        # the usual widening and strict mode says so.
+    if branches is None:
+        # The wrapping leaves no trace, so the loss is the usual widening and
+        # strict mode says so. No branch at all is a different answer: the array
+        # already says everything, and nothing was lost.
         _open("a leading EnsureList over this list")
         return merged
 
-    return {"anyOf": [*branches, merged]}
+    return {"anyOf": [*branches, merged]} if branches else merged
 
 
 # JSON Schema spells "length" three ways depending on the type: minLength for a

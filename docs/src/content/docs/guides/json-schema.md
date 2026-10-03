@@ -159,7 +159,7 @@ so they do not round-trip:
 | `All` / `And`              | one merged object, or `allOf` when two validators disagree on a keyword                                                                                                |
 | `Maybe`                    | `anyOf` with `{"type": "null"}`                                                                                                                                        |
 | `SomeOf`                   | `oneOf` (exactly one), `anyOf` (at least one), or `allOf` (all)                                                                                                        |
-| A leading `EnsureList`     | `anyOf` of the scalar form, `null`, and the list, since it wraps any of them; the scalar form rules out a list and null, which are not wrapped, and both branches drop when the length bounds or a `contains` leave no room |
+| A leading `EnsureList`     | `anyOf` of whichever unwrapped forms it reaches, beside the list. The scalar branch needs room for one item and an item a lone value can be, and takes on a `contains` as well; the `null` branch needs room for an empty list, which `contains` never leaves |
 | `Msg`                      | the wrapped validator's shape (the message has no JSON Schema equivalent)                                                                                              |
 | An `enum.Enum` class       | `enum` of the member values                                                                                                                                            |
 | `Self`                     | `{"$ref": "#"}` (a recursive reference to the document root)                                                                                                           |

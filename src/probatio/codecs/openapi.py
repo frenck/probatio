@@ -32,6 +32,7 @@ from probatio.codecs._shared import (
     constraint_names,
     contested_names,
     covers_every_property_name,
+    custom_field,
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
@@ -1030,7 +1031,13 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     validators = list(node.validators)
     # A leading EnsureList says nothing on its own; what it means is the extra
     # branches below, so it is read from there rather than converted and lost.
-    leading = bool(validators) and isinstance(validators[0], EnsureList)
+    # The custom hook still gets first refusal: an override for that node is the
+    # caller's answer, not ours.
+    leading = (
+        bool(validators)
+        and isinstance(validators[0], EnsureList)
+        and custom_field(validators[0], custom) is None
+    )
 
     for validator in validators[1:] if leading else validators:
         part = _oa_all_part(validator, custom, version)
@@ -1074,13 +1081,14 @@ def _widen_for_ensure_list(
         return merged
 
     branches = ensure_list_branches(merged, null_schema=_oa_null(version))
-    if not branches:
-        # Nothing of the wrapping survives into the document, so the loss is
-        # the usual widening and strict mode says so.
+    if branches is None:
+        # The wrapping leaves no trace, so the loss is the usual widening and
+        # strict mode says so. No branch at all is a different answer: the array
+        # already says everything, and nothing was lost.
         _open("a leading EnsureList over this list")
         return merged
 
-    return {"anyOf": [*branches, merged]}
+    return {"anyOf": [*branches, merged]} if branches else merged
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an
