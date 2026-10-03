@@ -1008,28 +1008,72 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
             {"type": "array", "items": {"type": "integer"}},
         ],
     }
+    # 3.0 has no null type, so null rides along as the flag it is there.
     assert to_openapi(schema, openapi_version="3.0") == {
         "anyOf": [
             {"type": "integer"},
-            {"type": "object", "nullable": True, "description": "Must be null"},
             {"type": "array", "items": {"type": "integer"}},
+            {"type": "object", "nullable": True, "description": "Must be null"},
         ],
     }
 
 
-def test_a_scalar_branch_needing_not_null_is_withdrawn_on_3_0() -> None:
-    """OpenAPI 3.0 cannot say "not null", so the branch cannot be written there.
+def test_a_nullable_item_without_a_type_withdraws_the_scalar_on_3_0() -> None:
+    """With no named type the null half cannot be dropped, and 3.0 cannot rule it out.
 
-    Its ``nullable`` modifies a named type rather than being one. Leaving the
-    branch out would make the document narrower than the schema, so the whole
-    rendering widens instead, which strict reports.
+    Leaving the branch out would make the document narrower than the schema, so
+    the rendering widens instead, which strict reports.
+    """
+    from probatio import UNSUPPORTED, EnsureList  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    inner = [int]
+
+    def hook(node: object) -> object:
+        if node is not inner:
+            return UNSUPPORTED
+        return {"type": "array", "items": {"nullable": True}}
+
+    schema = Schema(probatio.All(EnsureList(), inner))
+
+    assert to_openapi(schema, openapi_version="3.0", custom_serializer=hook) == {}
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_openapi(schema, strict=True, openapi_version="3.0", custom_serializer=hook)
+
+
+def test_a_list_with_no_scalar_form_carries_null_on_the_array() -> None:
+    """Nothing stands beside the array, so a bare nullable flag says the rest."""
+    from probatio import EnsureList  # noqa: PLC0415
+
+    schema = Schema(probatio.All(EnsureList(), [[int]]))
+
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "type": "array",
+        "items": {"type": "array", "items": {"type": "integer"}},
+        "nullable": True,
+    }
+
+
+def test_a_nullable_item_gives_its_non_null_half_as_the_scalar() -> None:
+    """OpenAPI 3.0 writes null as a flag on a named type, so dropping it says the rest.
+
+    The lone value is never the null half, since None becomes the empty list
+    rather than a list holding it.
     """
     from probatio import EnsureList, Length, Maybe  # noqa: PLC0415
 
     schema = Schema(probatio.All(EnsureList(), [Maybe(int)], Length(min=1)))
 
-    assert to_openapi(schema, openapi_version="3.0") == {}
-    assert "anyOf" in to_openapi(schema, openapi_version="3.1.0")
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "anyOf": [
+            {"type": "integer"},
+            {
+                "type": "array",
+                "items": {"type": "integer", "nullable": True},
+                "minItems": 1,
+            },
+        ],
+    }
 
 
 def test_a_leading_ensure_list_over_a_sequence_is_a_loss() -> None:

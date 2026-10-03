@@ -1445,6 +1445,28 @@ def test_a_leading_ensure_list_is_not_a_loss_when_it_renders() -> None:
     }
 
 
+def test_a_custom_serializer_still_owns_a_leading_ensure_list() -> None:
+    """An override for that node is the caller's answer, and it is asked once."""
+    from probatio import UNSUPPORTED  # noqa: PLC0415
+
+    claimed = EnsureList()
+    seen: list[object] = []
+
+    def hook(node: object) -> object:
+        seen.append(node)
+        return {"type": "string"} if node is claimed else UNSUPPORTED
+
+    rendered = to_json_schema(Schema(All(claimed, [int])), custom_serializer=hook)
+
+    assert rendered == {
+        "allOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "integer"}},
+        ],
+    }
+    assert sum(1 for node in seen if node is claimed) == 1
+
+
 def test_an_unconstrained_ensure_list_loses_nothing() -> None:
     """An open document already accepts everything the wrapping takes."""
     assert to_json_schema(Schema(All(EnsureList())), strict=True) == {}

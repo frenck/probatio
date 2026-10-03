@@ -298,8 +298,8 @@ _ENSURE_LIST_READABLE = frozenset(
 
 
 def ensure_list_branches(
-    merged: dict[str, Any], *, null_schema: dict[str, Any], null_is_a_type: bool
-) -> list[dict[str, Any]] | None:
+    merged: dict[str, Any], *, null_is_a_type: bool
+) -> tuple[list[dict[str, Any]], bool] | None:
     """Say which unwrapped forms a leading ``EnsureList`` also accepts.
 
     ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
@@ -319,13 +319,14 @@ def ensure_list_branches(
     scalar branch needing that exclusion is withdrawn whole on such a target,
     since leaving it out would make the document narrower than the schema.
 
-    Returns the branches to put beside ``merged``, empty when the array says it
-    all, or None when they cannot be read off it and the wrapping is a real
-    loss.
+    Returns ``(branches, accepts_null)``: the branches to put beside ``merged``,
+    and whether ``None`` is accepted, which each codec spells its own way. The
+    branches are empty when the array says it all. Returns None when they cannot
+    be read off it and the wrapping is a real loss.
     """
     if not merged:
         # An open document already accepts everything the wrapping takes.
-        return []
+        return [], False
 
     if merged.get("type") != "array" or merged.keys() - _ENSURE_LIST_READABLE:
         return None
@@ -343,27 +344,45 @@ def ensure_list_branches(
 
     fits_one = minimum <= 1 <= merged.get("maxItems", 1)
     if fits_one and item is not None and not _only_list_or_null(item):
-        if not (_excludes_list_and_null(item) or null_is_a_type):
+        scalar = _scalar_branch(item, contains, null_is_a_type=null_is_a_type)
+        if scalar is None:
             return None
-        branches.append(_scalar_branch(item, contains))
-    if minimum == 0 and contains is None:
-        branches.append(null_schema)
-    return branches
+        branches.append(scalar)
+
+    return branches, minimum == 0 and contains is None
 
 
 def _scalar_branch(
-    item: dict[str, Any], contains: dict[str, Any] | None
-) -> dict[str, Any]:
-    """Match a lone value ``EnsureList`` would wrap into a one-item list."""
+    item: dict[str, Any], contains: dict[str, Any] | None, *, null_is_a_type: bool
+) -> dict[str, Any] | None:
+    """Match a lone value ``EnsureList`` would wrap into a one-item list.
+
+    Returns None when ruling out null is needed and the target cannot spell it.
+    """
+    without_null = _drop_nullable(item)
     parts: list[dict[str, Any]] = []
-    if not _excludes_list_and_null(item):
+
+    if not _excludes_list_and_null(without_null):
+        if not null_is_a_type:
+            return None
         parts += [{"not": {"type": "array"}}, {"not": {"type": "null"}}]
     if contains is not None:
         parts.append(contains)
 
     if not parts:
+        return without_null
+    return {"allOf": [without_null, *parts]} if without_null else {"allOf": parts}
+
+
+def _drop_nullable(item: dict[str, Any]) -> dict[str, Any]:
+    """Return the item as the non-null half of itself, where that is written.
+
+    OpenAPI 3.0 adds null to a named type with ``nullable``, and the lone value
+    is never the null half, so dropping the flag says the rest exactly.
+    """
+    if not item.get("nullable") or not isinstance(item.get("type"), str):
         return item
-    return {"allOf": [item, *parts]} if item else {"allOf": parts}
+    return {key: value for key, value in item.items() if key != "nullable"}
 
 
 def _excludes_list_and_null(item: dict[str, Any]) -> bool:

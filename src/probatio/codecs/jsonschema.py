@@ -35,6 +35,7 @@ from probatio.codecs._shared import (
     conditional_required_constraint,
     contested_names,
     covers_every_property_name,
+    custom_field,
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
@@ -955,14 +956,18 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     # branches below, so it is read from there rather than converted and lost.
     # The custom hook still gets first refusal: an override for that node is the
     # caller's answer, not ours.
-    leading = (
-        bool(validators)
-        and isinstance(validators[0], EnsureList)
-        and not _claimed_by_custom(validators[0])
+    head = (
+        validators[0] if validators and isinstance(validators[0], EnsureList) else None
     )
-    members = validators[1:] if leading else validators
+    # One visit per node: ask the hook once and keep what it said, rather than
+    # asking again while converting the member it claimed.
+    claimed = custom_field(head, _options().custom) if head is not None else None
+    leading = head is not None and claimed is None
 
+    members = validators[1:] if head is not None else validators
     parts = [_child(validator) for validator in members]
+    if claimed is not None:
+        parts.insert(0, claimed)
     merged: dict[str, Any] = {}
     for part in parts:
         if any(
@@ -976,12 +981,6 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     return _widen_for_ensure_list(_retarget_length(merged), leading=leading)
 
 
-def _claimed_by_custom(node: Any) -> bool:
-    """Say whether the custom hook renders this node itself."""
-    custom = _options().custom
-    return custom is not None and custom(node) is not UNSUPPORTED
-
-
 def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str, Any]:
     """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
 
@@ -992,10 +991,8 @@ def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str
     if not leading:
         return merged
 
-    branches = ensure_list_branches(
-        merged, null_schema={"type": "null"}, null_is_a_type=True
-    )
-    if branches is None:
+    derived = ensure_list_branches(merged, null_is_a_type=True)
+    if derived is None:
         # The wrapping accepts values this array alone would reject, so handing
         # the array back would be narrower than the schema. Widening is the
         # contract for what cannot be rendered, and strict mode says so. No
@@ -1003,6 +1000,9 @@ def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str
         # everything, and nothing was lost.
         return _open("a leading EnsureList over this list")
 
+    branches, accepts_null = derived
+    if accepts_null:
+        branches = [*branches, {"type": "null"}]
     return {"anyOf": [*branches, merged]} if branches else merged
 
 

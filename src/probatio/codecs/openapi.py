@@ -1033,14 +1033,18 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     # branches below, so it is read from there rather than converted and lost.
     # The custom hook still gets first refusal: an override for that node is the
     # caller's answer, not ours.
-    leading = (
-        bool(validators)
-        and isinstance(validators[0], EnsureList)
-        and custom_field(validators[0], custom) is None
+    head = (
+        validators[0] if validators and isinstance(validators[0], EnsureList) else None
     )
+    # One visit per node: ask the hook once and keep what it said, rather than
+    # asking again while converting the member it claimed.
+    claimed = custom_field(head, custom) if head is not None else None
+    leading = head is not None and claimed is None
 
-    for validator in validators[1:] if leading else validators:
-        part = _oa_all_part(validator, custom, version)
+    rest = validators[1:] if head is not None else validators
+    for part in ([claimed] if claimed is not None else []) + [
+        _oa_all_part(validator, custom, version) for validator in rest
+    ]:
         if not part or part in all_of or part == _OPEN_OBJECT:
             continue
         if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
@@ -1081,10 +1085,8 @@ def _widen_for_ensure_list(
     if not leading:
         return merged
 
-    branches = ensure_list_branches(
-        merged, null_schema=_oa_null(version), null_is_a_type=version == _V3_1
-    )
-    if branches is None:
+    derived = ensure_list_branches(merged, null_is_a_type=version == _V3_1)
+    if derived is None:
         # The wrapping accepts values this array alone would reject, so handing
         # the array back would be narrower than the schema. Widening is the
         # contract for what cannot be rendered, and strict mode says so. No
@@ -1092,7 +1094,20 @@ def _widen_for_ensure_list(
         # everything, and nothing was lost.
         return _open("a leading EnsureList over this list")
 
-    return {"anyOf": [*branches, merged]} if branches else merged
+    branches, accepts_null = derived
+    if accepts_null and version == _V3_1:
+        branches = [*branches, {"type": "null"}]
+
+    if not branches:
+        # Nothing stands beside the array, so a bare nullable flag says the rest.
+        return {**merged, "nullable": True} if accepts_null else merged
+
+    rendered: dict[str, Any] = {"anyOf": [*branches, merged]}
+    if accepts_null and version != _V3_1:
+        # 3.0 has no null type, so null rides on the schema as the flag it is,
+        # the way a nullable Any already renders there.
+        rendered["nullable"] = True
+    return rendered
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an
