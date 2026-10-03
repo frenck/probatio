@@ -188,9 +188,13 @@ to_openapi(Schema(In([b"raw"])), strict=True)
 ```
 
 A faithfully open construct is not a loss, so it passes `strict=True`: `object` is
-the empty schema, and a bare `dict` is an open object. Strict catches the
-constructs that widen to an open schema, not a version-specific partial drop (an
-OpenAPI 3.0 `Contains` still renders as a plain array).
+the empty schema, and a bare `dict` is an open object.
+
+A version-specific drop is a loss like any other. OpenAPI 3.0 has neither
+`contains` nor `prefixItems` and misreads both, so a `Contains` renders as a
+plain array there and an `ExactSequence` keeps only the length it pins. The
+document accepts what the schema rejects either way, so `strict=True` reports it
+rather than handing back the looser array without a word.
 
 ## Customizing the output
 

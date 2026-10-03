@@ -30,7 +30,9 @@ from probatio import (
     AsDatetime,
     AsTime,
     Base64,
+    Contains,
     Date,
+    ExactSequence,
     Fqdn,
     FromEpoch,
     Hostname,
@@ -683,7 +685,7 @@ def test_contains_uses_the_keyword_only_on_3_1() -> None:
 
 
 def test_exact_sequence_uses_prefix_items_only_on_3_1() -> None:
-    """ExactSequence renders 3.1 prefixItems; 3.0 lacks it, so it drops to an array."""
+    """ExactSequence renders 3.1 prefixItems; on 3.0 only the length it pins survives."""
     from probatio import ExactSequence  # noqa: PLC0415
 
     schema = Schema(ExactSequence([int, str]))
@@ -692,7 +694,34 @@ def test_exact_sequence_uses_prefix_items_only_on_3_1() -> None:
         "prefixItems": [{"type": "integer"}, {"type": "string"}],
         "items": False,
     }
-    assert to_openapi(schema, openapi_version="3.0") == {"type": "array"}
+    assert to_openapi(schema, openapi_version="3.0") == {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    "validator",
+    [
+        pytest.param(Contains(int), id="contains"),
+        pytest.param(ExactSequence([int, str]), id="exact_sequence"),
+    ],
+)
+def test_a_keyword_3_0_lacks_is_reported_as_a_loss(validator: object) -> None:
+    """Dropping a constraint widens the document, so strict has to say so.
+
+    OpenAPI 3.0 has neither contains nor prefixItems, and misreads them, so they
+    cannot be emitted. Handing back the looser array without a word would hide
+    that the document now accepts what the schema rejects.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(validator)
+
+    assert to_openapi(schema, openapi_version="3.0")["type"] == "array"
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_openapi(schema, strict=True, openapi_version="3.0")
 
 
 def test_duration_renders_a_duration_string() -> None:
