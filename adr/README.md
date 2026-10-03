@@ -20,3 +20,4 @@ Each record captures what was chosen, the alternatives considered, and why.
 | [ADR-015](015-structured-errors-and-localization.md)        | Structured errors, human-first messages, and localization      |
 | [ADR-016](016-remove-serde-loaders-and-dumpers.md)          | Remove the serde loaders and dumpers                           |
 | [ADR-017](017-numeric-tower-for-float.md)                   | Honor the numeric tower for a bare `float`                     |
+| [ADR-018](018-an-annotation-model-for-validated-values.md)  | An annotation model for validated values                       |
