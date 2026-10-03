@@ -1445,6 +1445,26 @@ def test_a_leading_ensure_list_is_not_a_loss_when_it_renders() -> None:
     }
 
 
+def test_an_unconstrained_ensure_list_loses_nothing() -> None:
+    """An open document already accepts everything the wrapping takes."""
+    assert to_json_schema(Schema(All(EnsureList())), strict=True) == {}
+
+
+def test_a_leading_ensure_list_under_a_whole_list_assertion_is_a_loss() -> None:
+    """An assertion about the list as a whole is not a rule a branch can carry.
+
+    ``Equal([1])`` pins the list itself, so a scalar branch read off the items
+    alone would accept a value the schema rejects.
+    """
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema(All(EnsureList(), [int], Equal([1])))
+
+    assert to_json_schema(schema) == {}
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_json_schema(schema, strict=True)
+
+
 def test_a_leading_ensure_list_over_a_counted_contains_is_a_loss() -> None:
     """How many items must match is a sum over the list, not a per-branch rule."""
     from probatio import UNSUPPORTED  # noqa: PLC0415

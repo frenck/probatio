@@ -271,8 +271,34 @@ def custom_field(node: Any, custom: Any) -> dict[str, Any] | None:
     return cast("dict[str, Any]", result)
 
 
+# What an array schema may say that a one-item or empty list can be judged
+# against here: the shape of an item, how many there are, and what has to be
+# among them. Everything else either asserts something about the list as a
+# whole (``const``, ``enum``, ``not``, a counted ``contains``) or describes a
+# shape these branches cannot be read off, so it withdraws them rather than
+# being ignored. The annotations say nothing about a value at all.
+_ENSURE_LIST_READABLE = frozenset(
+    {
+        "type",
+        "items",
+        "minItems",
+        "maxItems",
+        "contains",
+        # A list of nought or one items is unique either way.
+        "uniqueItems",
+        "default",
+        "deprecated",
+        "description",
+        "examples",
+        "readOnly",
+        "title",
+        "writeOnly",
+    }
+)
+
+
 def ensure_list_branches(
-    merged: dict[str, Any], *, null_schema: dict[str, Any]
+    merged: dict[str, Any], *, null_schema: dict[str, Any], null_is_a_type: bool
 ) -> list[dict[str, Any]] | None:
     """Say which unwrapped forms a leading ``EnsureList`` also accepts.
 
@@ -288,15 +314,20 @@ def ensure_list_branches(
     scalar form takes that on as well. The null form needs room for an empty
     list, which ``contains`` never leaves.
 
-    Returns the branches to put beside ``merged``, empty when the array says it
-    all, or None when they cannot be derived and the wrapping is a real loss.
-    """
-    if merged.get("type") != "array" or "prefixItems" in merged:
-        return None
+    ``null_is_a_type`` says whether the target can spell "not null". OpenAPI 3.0
+    cannot: ``nullable`` there modifies a named type rather than being one. A
+    scalar branch needing that exclusion is withdrawn whole on such a target,
+    since leaving it out would make the document narrower than the schema.
 
-    # A counted contains says how many items have to match, which is a sum over
-    # the list rather than a rule each branch can be judged against here.
-    if "minContains" in merged or "maxContains" in merged:
+    Returns the branches to put beside ``merged``, empty when the array says it
+    all, or None when they cannot be read off it and the wrapping is a real
+    loss.
+    """
+    if not merged:
+        # An open document already accepts everything the wrapping takes.
+        return []
+
+    if merged.get("type") != "array" or merged.keys() - _ENSURE_LIST_READABLE:
         return None
 
     item = merged.get("items", True)
@@ -312,6 +343,8 @@ def ensure_list_branches(
 
     fits_one = minimum <= 1 <= merged.get("maxItems", 1)
     if fits_one and item is not None and not _only_list_or_null(item):
+        if not (_excludes_list_and_null(item) or null_is_a_type):
+            return None
         branches.append(_scalar_branch(item, contains))
     if minimum == 0 and contains is None:
         branches.append(null_schema)
@@ -334,7 +367,13 @@ def _scalar_branch(
 
 
 def _excludes_list_and_null(item: dict[str, Any]) -> bool:
-    """Say whether this item shape can only be a value worth wrapping."""
+    """Say whether this item shape can only be a value worth wrapping.
+
+    OpenAPI 3.0 adds null to a named type with ``nullable``, so a type alone
+    does not settle it there.
+    """
+    if item.get("nullable"):
+        return False
     return _every_branch(item, lambda kind: kind not in {"array", "null"})
 
 

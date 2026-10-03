@@ -1081,7 +1081,9 @@ def _widen_for_ensure_list(
     if not leading:
         return merged
 
-    branches = ensure_list_branches(merged, null_schema=_oa_null(version))
+    branches = ensure_list_branches(
+        merged, null_schema=_oa_null(version), null_is_a_type=version == _V3_1
+    )
     if branches is None:
         # The wrapping accepts values this array alone would reject, so handing
         # the array back would be narrower than the schema. Widening is the

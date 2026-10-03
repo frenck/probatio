@@ -1017,6 +1017,21 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
     }
 
 
+def test_a_scalar_branch_needing_not_null_is_withdrawn_on_3_0() -> None:
+    """OpenAPI 3.0 cannot say "not null", so the branch cannot be written there.
+
+    Its ``nullable`` modifies a named type rather than being one. Leaving the
+    branch out would make the document narrower than the schema, so the whole
+    rendering widens instead, which strict reports.
+    """
+    from probatio import EnsureList, Length, Maybe  # noqa: PLC0415
+
+    schema = Schema(probatio.All(EnsureList(), [Maybe(int)], Length(min=1)))
+
+    assert to_openapi(schema, openapi_version="3.0") == {}
+    assert "anyOf" in to_openapi(schema, openapi_version="3.1.0")
+
+
 def test_a_leading_ensure_list_over_a_sequence_is_a_loss() -> None:
     """Positional items are a shape the branches cannot be read off, so strict says so."""
     from probatio import EnsureList, ExactSequence  # noqa: PLC0415

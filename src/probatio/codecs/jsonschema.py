@@ -992,7 +992,9 @@ def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str
     if not leading:
         return merged
 
-    branches = ensure_list_branches(merged, null_schema={"type": "null"})
+    branches = ensure_list_branches(
+        merged, null_schema={"type": "null"}, null_is_a_type=True
+    )
     if branches is None:
         # The wrapping accepts values this array alone would reject, so handing
         # the array back would be narrower than the schema. Widening is the
