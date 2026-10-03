@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing
 from typing import TYPE_CHECKING
 
+from probatio._engine import _carry_subclass_state
 from probatio.error import (
     ExactSequenceInvalid,
     Invalid,
@@ -100,12 +101,20 @@ class ExactSequence(_SafeValidator):
         # ``__init__``/``__new__``) cannot be rebuilt that way, so fall back to the
         # plain base type rather than leak the TypeError its constructor raises.
         out_type = type(value)
+        rebuilt: typing.Any
         try:
             if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-                return out_type(*result)
-            return out_type(result)
+                rebuilt = out_type(*result)
+            else:
+                rebuilt = out_type(result)
         except TypeError:
+            # The fallback degrades to the plain base type, which holds no state
+            # of its own, so there is nothing to carry onto it.
             return list(result) if issubclass(out_type, list) else tuple(result)
+        # A rebuilt subclass is a fresh instance; give it the original's state,
+        # so a source annotation (a YAML file and line) survives the round trip.
+        _carry_subclass_state(value, rebuilt)
+        return rebuilt
 
 
 class Unique(_SafeValidator):
