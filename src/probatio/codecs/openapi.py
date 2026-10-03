@@ -1104,7 +1104,12 @@ def _widen_for_ensure_list(
         # everything, and nothing was lost.
         return _open("a leading EnsureList over this list")
 
-    branches, accepts_null = derived
+    branches, accepts_null, exact = derived
+    if not exact:
+        # A branch that takes one value too many is wider than the schema, which
+        # is the direction the contract allows, but it is still not the whole
+        # truth and strict says so.
+        _open("every unwrapped form of a leading EnsureList")
     if accepts_null and version == _V3_1:
         branches = [*branches, {"type": "null"}]
 

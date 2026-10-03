@@ -96,8 +96,11 @@ The split reaches further than the keyword. A leading `EnsureList` offers the
 forms it wraps beside the list, and its null form follows the version: a branch
 on 3.1, the flag on 3.0. Where the scalar form would have to say "not null",
 which 3.0 has no way to spell, the whole rendering widens rather than writing a
-branch that admits one. A nullable item with a named type needs neither: the
-lone value is never the null half, so dropping the flag says the rest exactly.
+branch that admits one value too many, which is the direction the contract
+allows, where leaving it out would reject input the schema accepts. `strict=True`
+reports that the branch is not the whole truth. A nullable item with a named type
+needs neither: the lone value is never the null half, so dropping the flag says
+the rest exactly.
 
 Beside other branches on 3.0 the flag becomes a branch of its own, and the only
 shape 3.0 has for one is a nullable object, which lets every object through as

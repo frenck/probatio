@@ -1001,7 +1001,10 @@ def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str
         # everything, and nothing was lost.
         return _open("a leading EnsureList over this list")
 
-    branches, accepts_null = derived
+    # The third element says whether every form could be said precisely, which
+    # here it always can: JSON Schema spells "not null", so only OpenAPI 3.0
+    # ever has to settle for a branch taking one value too many.
+    branches, accepts_null, _exact = derived
     if accepts_null:
         branches = [*branches, {"type": "null"}]
     return {"anyOf": [*branches, merged]} if branches else merged

@@ -1089,11 +1089,13 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
         to_openapi(schema, strict=True, openapi_version="3.0")
 
 
-def test_a_nullable_item_without_a_type_withdraws_the_scalar_on_3_0() -> None:
-    """With no named type the null half cannot be dropped, and 3.0 cannot rule it out.
+def test_a_scalar_branch_3_0_cannot_narrow_is_offered_anyway() -> None:
+    """Taking one value too many beats saying nothing at all.
 
-    Leaving the branch out would make the document narrower than the schema, so
-    the rendering widens instead, which strict reports.
+    With no named type the null half cannot be dropped, and 3.0 cannot rule null
+    out. The branch still goes in: wider than the schema is the direction the
+    contract allows, where leaving it out would reject input the schema accepts.
+    Strict reports that it is not the whole truth.
     """
     from probatio import UNSUPPORTED, EnsureList  # noqa: PLC0415
     from probatio.error import SchemaError  # noqa: PLC0415
@@ -1107,7 +1109,8 @@ def test_a_nullable_item_without_a_type_withdraws_the_scalar_on_3_0() -> None:
 
     schema = Schema(probatio.All(EnsureList(), inner))
 
-    assert to_openapi(schema, openapi_version="3.0", custom_serializer=hook) == {}
+    rendered = to_openapi(schema, openapi_version="3.0", custom_serializer=hook)
+    assert rendered["anyOf"][0] == {"nullable": True}
     with pytest.raises(SchemaError, match="cannot represent"):
         to_openapi(schema, strict=True, openapi_version="3.0", custom_serializer=hook)
 

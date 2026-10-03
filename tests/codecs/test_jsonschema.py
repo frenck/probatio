@@ -13,6 +13,7 @@ from probatio import (
     ALLOW_EXTRA,
     ASCII,
     REMOVE_EXTRA,
+    UNSUPPORTED,
     UUID,
     Alias,
     All,
@@ -1490,6 +1491,32 @@ def test_an_unhashable_node_is_simply_not_one_of_the_known_ones() -> None:
     rendered = to_json_schema(Schema({Required("a"): _Unhashable()}))
 
     assert rendered["properties"]["a"] == {}
+
+
+def test_a_scalar_branch_json_schema_can_narrow_is_exact() -> None:
+    """JSON Schema spells "not null", so the branch is exact and strict is quiet.
+
+    The same shape on OpenAPI 3.0 has to take one value too many; here it does
+    not, and the difference is worth pinning.
+    """
+    inner = [int]
+
+    def hook(node: object) -> object:
+        if node is not inner:
+            return UNSUPPORTED
+        return {"type": "array", "items": {"nullable": True}}
+
+    rendered = to_json_schema(
+        Schema(All(EnsureList(), inner)), strict=True, custom_serializer=hook
+    )
+
+    assert rendered["anyOf"][0] == {
+        "allOf": [
+            {"nullable": True},
+            {"not": {"type": "array"}},
+            {"not": {"type": "null"}},
+        ],
+    }
 
 
 def test_an_unconstrained_ensure_list_loses_nothing() -> None:
