@@ -1037,6 +1037,30 @@ def test_key_presence_rules_reach_the_document() -> None:
     assert at_most["not"] == {"anyOf": [{"required": ["a", "b"]}]}
 
 
+class _Unhashable:
+    """A validator-shaped object with equality and no hash, as a selector is."""
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __call__(self, value: object) -> object:
+        return value
+
+
+def test_an_unhashable_node_is_simply_not_one_of_the_known_ones() -> None:
+    """Asking whether a node is a known one must not hash what cannot be hashed.
+
+    Home Assistant's selectors all define equality without a hash, and a third
+    of its config flow schemas hold one, so this is the difference between a
+    document and a TypeError.
+    """
+    rendered = to_openapi(Schema({probatio.Required("a"): _Unhashable()}))
+
+    assert rendered["properties"]["a"] == {}
+
+
 def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
     """EnsureList takes a scalar or None, and each version spells null its own way."""
     from probatio import EnsureList  # noqa: PLC0415

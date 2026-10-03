@@ -1467,6 +1467,31 @@ def test_a_custom_serializer_still_owns_a_leading_ensure_list() -> None:
     assert sum(1 for node in seen if node is claimed) == 1
 
 
+class _Unhashable:
+    """A validator-shaped object with equality and no hash, as a selector is."""
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __call__(self, value: Any) -> Any:
+        return value
+
+
+def test_an_unhashable_node_is_simply_not_one_of_the_known_ones() -> None:
+    """Asking whether a node is a known one must not hash what cannot be hashed.
+
+    A schema holds whatever its author put there, and an object with ``__eq__``
+    and no ``__hash__`` is ordinary; Home Assistant's selectors are all like
+    that. Such a value is not one of the known nodes, and saying so is the
+    answer rather than a TypeError.
+    """
+    rendered = to_json_schema(Schema({Required("a"): _Unhashable()}))
+
+    assert rendered["properties"]["a"] == {}
+
+
 def test_an_unconstrained_ensure_list_loses_nothing() -> None:
     """An open document already accepts everything the wrapping takes."""
     assert to_json_schema(Schema(All(EnsureList())), strict=True) == {}
