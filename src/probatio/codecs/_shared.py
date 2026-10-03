@@ -384,8 +384,13 @@ def _scalar_branch(
     exact = True
 
     if not _excludes_list_and_null(without_null):
+        # A list slipping into this branch would skip the array's own rules, and
+        # every target can say "not an array". Only null needs a type to be
+        # ruled out, which OpenAPI 3.0 has not, so there the branch takes that
+        # one value too many and the caller is told.
+        parts.append({"not": {"type": "array"}})
         if null_is_a_type:
-            parts += [{"not": {"type": "array"}}, {"not": {"type": "null"}}]
+            parts.append({"not": {"type": "null"}})
         else:
             exact = False
     if contains is not None:

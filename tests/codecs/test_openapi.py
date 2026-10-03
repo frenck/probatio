@@ -1093,9 +1093,13 @@ def test_a_scalar_branch_3_0_cannot_narrow_is_offered_anyway() -> None:
     """Taking one value too many beats saying nothing at all.
 
     With no named type the null half cannot be dropped, and 3.0 cannot rule null
-    out. The branch still goes in: wider than the schema is the direction the
-    contract allows, where leaving it out would reject input the schema accepts.
-    Strict reports that it is not the whole truth.
+    out. The branch still goes in, keeping the array exclusion 3.0 can spell:
+    wider than the schema is the direction the contract allows, where leaving it
+    out would reject input the schema accepts. Strict refuses the imprecision.
+
+    The length bound is what makes this test about that imprecision. Without it
+    the empty list is allowed, the null form rides along, and its own report
+    would satisfy the strict assertion whatever the scalar branch did.
     """
     from probatio import UNSUPPORTED, EnsureList  # noqa: PLC0415
     from probatio.error import SchemaError  # noqa: PLC0415
@@ -1105,13 +1109,15 @@ def test_a_scalar_branch_3_0_cannot_narrow_is_offered_anyway() -> None:
     def hook(node: object) -> object:
         if node is not inner:
             return UNSUPPORTED
-        return {"type": "array", "items": {"nullable": True}}
+        return {"type": "array", "items": {"nullable": True}, "minItems": 1}
 
     schema = Schema(probatio.All(EnsureList(), inner))
 
     rendered = to_openapi(schema, openapi_version="3.0", custom_serializer=hook)
-    assert rendered["anyOf"][0] == {"nullable": True}
-    with pytest.raises(SchemaError, match="cannot represent"):
+    assert rendered["anyOf"][0] == {
+        "allOf": [{"nullable": True}, {"not": {"type": "array"}}],
+    }
+    with pytest.raises(SchemaError, match="wider than the schema"):
         to_openapi(schema, strict=True, openapi_version="3.0", custom_serializer=hook)
 
 
