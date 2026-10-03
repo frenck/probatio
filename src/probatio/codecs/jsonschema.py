@@ -39,6 +39,7 @@ from probatio.codecs._shared import (
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
+    is_one_of,
     key_presence_constraint,
     literal_any_names,
 )
@@ -1225,7 +1226,7 @@ def _convert_named(node: Any) -> dict[str, Any] | None:
     if node in (Url, FqdnUrl):
         return {"type": "string", "format": "uri"}
 
-    if node in _STRING_FUNCS:
+    if is_one_of(node, _STRING_FUNCS):
         return {"type": "string"}
 
     return None

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import datetime
 from collections import Counter
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Container, Iterable
 
 from probatio.markers import Alias, Extra, resolve_key
 from probatio.schema import Schema
@@ -254,6 +255,18 @@ def at_most_one(members: list[list[str]]) -> dict[str, Any]:
         if pairs
         else {}
     )
+
+
+def is_one_of(node: Any, known: Container[Any]) -> bool:
+    """Say whether this node is one of the known ones, without hashing what cannot be.
+
+    A membership test against a hash-based container raises on an unhashable
+    value rather than answering no, and a schema holds whatever its author put
+    there. An object defining ``__eq__`` without ``__hash__`` is the common one,
+    Home Assistant's selectors among them, and such a value is simply not one of
+    these.
+    """
+    return isinstance(node, Hashable) and node in known
 
 
 def custom_field(node: Any, custom: Any) -> dict[str, Any] | None:

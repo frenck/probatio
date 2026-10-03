@@ -36,6 +36,7 @@ from probatio.codecs._shared import (
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
+    is_one_of,
     key_presence_constraint,
     literal_any_names,
     member_present,
@@ -932,7 +933,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, NotIn):
         enum = _oa_enum(list(node.container))
         return {"not": enum} if enum else {}
-    if node in _OPENAPI_FORMATS:
+    if is_one_of(node, _OPENAPI_FORMATS):
         return {"format": _OPENAPI_FORMATS[node]}
 
     if isinstance(node, Msg):
@@ -1420,7 +1421,7 @@ def _enum_twin(
 
 def _oa_type(node: Any, version: str) -> dict[str, Any] | None:
     """Render a Python type as an OpenAPI Schema object, or None if it is not one."""
-    if node in _OPENAPI_TYPES:
+    if is_one_of(node, _OPENAPI_TYPES):
         return {"type": _OPENAPI_TYPES[node]}
 
     if isinstance(node, type):
