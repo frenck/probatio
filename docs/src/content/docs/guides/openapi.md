@@ -99,6 +99,12 @@ which 3.0 has no way to spell, the whole rendering widens rather than writing a
 branch that admits one. A nullable item with a named type needs neither: the
 lone value is never the null half, so dropping the flag says the rest exactly.
 
+Beside other branches on 3.0 the flag becomes a branch of its own, and the only
+shape 3.0 has for one is a nullable object, which lets every object through as
+well. The document is wider than the schema from there on, so `strict=True`
+reports it. Alone on the array the flag is exact, an array or null and nothing
+else, and strict has nothing to say.
+
 ## Group constraints across versions
 
 The `Inclusive` (all-or-none) and `Exclusive` (at most one, or exactly one when

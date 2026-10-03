@@ -998,6 +998,7 @@ def test_key_presence_rules_reach_the_document() -> None:
 def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
     """EnsureList takes a scalar or None, and each version spells null its own way."""
     from probatio import EnsureList  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
 
     schema = Schema(probatio.All(EnsureList(), [int]))
 
@@ -1008,7 +1009,9 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
             {"type": "array", "items": {"type": "integer"}},
         ],
     }
-    # 3.0 has no null type, so null rides along as the flag it is there.
+    # 3.0 has no null type, so null rides along as the flag it is there. Beside
+    # other branches that flag becomes a nullable object, which lets every
+    # object through as well, so the document is wider than the schema.
     assert to_openapi(schema, openapi_version="3.0") == {
         "anyOf": [
             {"type": "integer"},
@@ -1016,6 +1019,8 @@ def test_a_leading_ensure_list_offers_what_it_wraps_per_version() -> None:
             {"type": "object", "nullable": True, "description": "Must be null"},
         ],
     }
+    with pytest.raises(SchemaError, match="cannot represent"):
+        to_openapi(schema, strict=True, openapi_version="3.0")
 
 
 def test_a_nullable_item_without_a_type_withdraws_the_scalar_on_3_0() -> None:
@@ -1047,7 +1052,9 @@ def test_a_list_with_no_scalar_form_carries_null_on_the_array() -> None:
 
     schema = Schema(probatio.All(EnsureList(), [[int]]))
 
-    assert to_openapi(schema, openapi_version="3.0") == {
+    # Alone on the array the flag is exact, an array or null and nothing else,
+    # so strict has nothing to report.
+    assert to_openapi(schema, strict=True, openapi_version="3.0") == {
         "type": "array",
         "items": {"type": "array", "items": {"type": "integer"}},
         "nullable": True,

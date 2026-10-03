@@ -1105,7 +1105,11 @@ def _widen_for_ensure_list(
     rendered: dict[str, Any] = {"anyOf": [*branches, merged]}
     if accepts_null and version != _V3_1:
         # 3.0 has no null type, so null rides on the schema as the flag it is,
-        # the way a nullable Any already renders there.
+        # the way a nullable Any already renders there. Beside other branches
+        # that flag becomes a branch of its own, and the only shape 3.0 has for
+        # one is a nullable object, which lets every object through as well. The
+        # document is wider than the schema from there on, so strict says so.
+        _open("null beside other branches on OpenAPI 3.0, which has no null type")
         rendered["nullable"] = True
     return rendered
 
