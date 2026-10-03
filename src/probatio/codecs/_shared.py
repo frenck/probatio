@@ -263,26 +263,78 @@ def ensure_list_branches(
 
     ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
     ``None`` and validates ``[]``, so a document offering only the array is
-    narrower than the schema and rejects input it accepts. The scalar form is
-    whatever one item has to be, on offer while the length bounds leave room for
-    a list of exactly one; the null form while they leave room for an empty one.
+    narrower than the schema and rejects input it accepts.
 
-    Returns the extra branches to put beside ``merged``, empty when no unwrapped
-    value could survive it, or when the list says nothing about its items: the
-    scalar branch would then accept anything and swallow the whole document, so
-    a list of no particular thing keeps the array it already rendered.
+    Only what the wrapping actually reaches is offered, and only while the rest
+    of the array schema leaves room for what the wrapping produces:
+
+    - A list is passed through rather than wrapped, and ``None`` becomes the
+      empty list rather than a list holding it, so the scalar branch is the item
+      with both ruled out. The exclusion is spelled only when the item does not
+      already rule them out by its own type.
+    - The scalar form needs room for a list of exactly one, the null form room
+      for an empty one.
+    - ``contains`` asks something of the items as a set, which neither a lone
+      item nor an empty list can be judged against here, so it withdraws both.
+
+    Returns the branches to put beside ``merged``, empty when none survive.
     """
-    item = merged.get("items")
-    if merged.get("type") != "array" or item is None:
+    if merged.get("type") != "array" or "contains" in merged:
         return []
 
     minimum = merged.get("minItems", 0)
+    item = merged.get("items", {})
     branches = []
-    if minimum <= 1 <= merged.get("maxItems", 1):
-        branches.append(item)
+    if minimum <= 1 <= merged.get("maxItems", 1) and not _only_list_or_null(item):
+        branches.append(_scalar_branch(item))
     if minimum == 0:
         branches.append(null_schema)
     return branches
+
+
+def _only_list_or_null(item: dict[str, Any]) -> bool:
+    """Say whether an item can be nothing a wrap would ever produce.
+
+    A list of lists is reached only by passing a list through, so its scalar
+    branch could never match and is left out rather than written down as a
+    contradiction.
+    """
+    kind = item.get("type")
+    if isinstance(kind, str):
+        return kind in {"array", "null"}
+
+    for keyword in ("anyOf", "oneOf"):
+        branches = item.get(keyword)
+        if branches:
+            return all(_only_list_or_null(branch) for branch in branches)
+
+    return False
+
+
+def _scalar_branch(item: dict[str, Any]) -> dict[str, Any]:
+    """Match a lone value ``EnsureList`` would wrap into a one-item list."""
+    if _excludes_list_and_null(item):
+        return item
+
+    ruled_out: list[dict[str, Any]] = [
+        {"not": {"type": "array"}},
+        {"not": {"type": "null"}},
+    ]
+    return {"allOf": [item, *ruled_out]} if item else {"allOf": ruled_out}
+
+
+def _excludes_list_and_null(item: dict[str, Any]) -> bool:
+    """Say whether this item shape can only be a value worth wrapping."""
+    kind = item.get("type")
+    if isinstance(kind, str):
+        return kind not in {"array", "null"}
+
+    for keyword in ("anyOf", "oneOf"):
+        branches = item.get(keyword)
+        if branches:
+            return all(_excludes_list_and_null(branch) for branch in branches)
+
+    return False
 
 
 def key_presence_constraint(

@@ -950,31 +950,44 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     JSON Schema consumer: ``const: 1`` and ``const: true`` are different values
     there, however Python compares them, so they keep their own branches.
     """
-    parts = [_child(validator) for validator in node.validators]
+    validators = list(node.validators)
+    # A leading EnsureList says nothing on its own; what it means is the extra
+    # branches below, so it is read from there rather than converted and lost.
+    leading = bool(validators) and isinstance(validators[0], EnsureList)
+    members = validators[1:] if leading else validators
+
+    parts = [_child(validator) for validator in members]
     merged: dict[str, Any] = {}
     for part in parts:
         if any(
             not _json_equal(part[key], merged[key])
             for key in part.keys() & merged.keys()
         ):
-            return {"allOf": [part for part in parts if part]}
+            conflicted = {"allOf": [part for part in parts if part]}
+            return _widen_for_ensure_list(conflicted, leading=leading)
         merged.update(part)
 
-    return _widen_for_ensure_list(node, _retarget_length(merged))
+    return _widen_for_ensure_list(_retarget_length(merged), leading=leading)
 
 
-def _widen_for_ensure_list(node: All[Any], merged: dict[str, Any]) -> dict[str, Any]:
+def _widen_for_ensure_list(merged: dict[str, Any], *, leading: bool) -> dict[str, Any]:
     """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
 
-    Only a leading ``EnsureList`` counts: a later one wraps a value the members
-    before it already judged unwrapped, which is a different schema.
+    Only a leading one counts: a later ``EnsureList`` wraps a value the members
+    before it already judged unwrapped, which is a different schema and is
+    converted like any other part.
     """
-    validators = node.validators
-    if not validators or not isinstance(validators[0], EnsureList):
+    if not leading:
         return merged
 
     branches = ensure_list_branches(merged, null_schema={"type": "null"})
-    return {"anyOf": [*branches, merged]} if branches else merged
+    if not branches:
+        # Nothing of the wrapping survives into the document, so the loss is
+        # the usual widening and strict mode says so.
+        _open("a leading EnsureList over this list")
+        return merged
+
+    return {"anyOf": [*branches, merged]}
 
 
 # JSON Schema spells "length" three ways depending on the type: minLength for a

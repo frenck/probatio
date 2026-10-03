@@ -1027,7 +1027,12 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     all_of: list[dict[str, Any]] = []
     fallback = False
 
-    for validator in node.validators:
+    validators = list(node.validators)
+    # A leading EnsureList says nothing on its own; what it means is the extra
+    # branches below, so it is read from there rather than converted and lost.
+    leading = bool(validators) and isinstance(validators[0], EnsureList)
+
+    for validator in validators[1:] if leading else validators:
         part = _oa_all_part(validator, custom, version)
         if not part or part in all_of or part == _OPEN_OBJECT:
             continue
@@ -1038,7 +1043,7 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
             merged.update(part)
 
     if fallback:
-        return {"allOf": all_of}
+        return _widen_for_ensure_list({"allOf": all_of}, version, leading=leading)
     merged = _retarget_length(merged)
 
     # Length bounds no sized type owns after the retarget: the merge has no type
@@ -1053,23 +1058,29 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
         typed = _oa_length_branches(bounds)
         return {"allOf": [_ensure_default(merged), typed]} if merged else typed
     merged.update(bounds)
-    return _ensure_default(_widen_for_ensure_list(node, merged, version))
+    return _ensure_default(_widen_for_ensure_list(merged, version, leading=leading))
 
 
 def _widen_for_ensure_list(
-    node: All[Any], merged: dict[str, Any], version: str
+    merged: dict[str, Any], version: str, *, leading: bool
 ) -> dict[str, Any]:
     """Offer the forms a leading ``EnsureList`` wraps, beside the list itself.
 
-    Only a leading ``EnsureList`` counts: a later one wraps a value the members
-    before it already judged unwrapped, which is a different schema.
+    Only a leading one counts: a later ``EnsureList`` wraps a value the members
+    before it already judged unwrapped, which is a different schema and is
+    converted like any other part.
     """
-    validators = node.validators
-    if not validators or not isinstance(validators[0], EnsureList):
+    if not leading:
         return merged
 
     branches = ensure_list_branches(merged, null_schema=_oa_null(version))
-    return {"anyOf": [*branches, merged]} if branches else merged
+    if not branches:
+        # Nothing of the wrapping survives into the document, so the loss is
+        # the usual widening and strict mode says so.
+        _open("a leading EnsureList over this list")
+        return merged
+
+    return {"anyOf": [*branches, merged]}
 
 
 # A ``Length`` always renders the string-length keys, so an All that pins an
