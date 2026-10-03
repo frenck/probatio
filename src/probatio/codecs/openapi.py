@@ -974,7 +974,9 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
 
     ``contains`` and ``prefixItems`` are JSON Schema keywords OpenAPI 3.1 shares
     but 3.0 lacks (and misreads), so on 3.0 the positional/contains constraint is
-    dropped to a plain array rather than emitted in a form a 3.0 consumer breaks on.
+    dropped rather than emitted in a form a 3.0 consumer breaks on. Dropping it
+    widens the document, so it goes through the usual report and ``strict=True``
+    says so instead of quietly handing back a looser array.
     """
     if isinstance(node, Unique):
         return {"type": "array", "uniqueItems": True}
@@ -984,12 +986,19 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
                 "type": "array",
                 "contains": _ensure_default(_oa(node.item, custom, version)),
             }
+        _open("a Contains on OpenAPI 3.0, which has no contains keyword")
         return {"type": "array"}
     if isinstance(node, ExactSequence):
         if version == _V3_1:
             prefix = [_ensure_default(_oa(v, custom, version)) for v in node.validators]
             return {"type": "array", "prefixItems": prefix, "items": False}
-        return {"type": "array"}
+        # The per-position types need prefixItems, but the length the sequence
+        # pins is plain minItems/maxItems, so that much survives. An empty
+        # sequence has no position to lose: the length says all of it.
+        count = len(node.validators)
+        if count:
+            _open("the per-position types of an ExactSequence on OpenAPI 3.0")
+        return {"type": "array", "minItems": count, "maxItems": count}
     if isinstance(node, Duration | AsTimedelta):
         return {"type": "string", "format": "duration"}
     return None
