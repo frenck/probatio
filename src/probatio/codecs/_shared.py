@@ -312,7 +312,7 @@ _ENSURE_LIST_READABLE = frozenset(
 
 def ensure_list_branches(
     merged: dict[str, Any], *, null_is_a_type: bool
-) -> tuple[list[dict[str, Any]], bool] | None:
+) -> tuple[list[dict[str, Any]], bool, bool] | None:
     """Say which unwrapped forms a leading ``EnsureList`` also accepts.
 
     ``All(EnsureList(), [int])`` takes ``5`` and validates ``[5]``, and takes
@@ -328,18 +328,21 @@ def ensure_list_branches(
     list, which ``contains`` never leaves.
 
     ``null_is_a_type`` says whether the target can spell "not null". OpenAPI 3.0
-    cannot: ``nullable`` there modifies a named type rather than being one. A
-    scalar branch needing that exclusion is withdrawn whole on such a target,
-    since leaving it out would make the document narrower than the schema.
+    cannot: ``nullable`` there modifies a named type rather than being one. The
+    branch is still offered there, without the exclusion, since a branch taking
+    one value too many is wider than the schema and widening is the contract,
+    while leaving it out would be narrower and reject input the schema accepts.
+    The caller is told so it can report the imprecision.
 
-    Returns ``(branches, accepts_null)``: the branches to put beside ``merged``,
-    and whether ``None`` is accepted, which each codec spells its own way. The
-    branches are empty when the array says it all. Returns None when they cannot
-    be read off it and the wrapping is a real loss.
+    Returns ``(branches, accepts_null, exact)``: the branches to put beside
+    ``merged``, whether ``None`` is accepted, which each codec spells its own
+    way, and whether all of it could be said precisely. The branches are empty
+    when the array says it all. Returns None when they cannot be read off it at
+    all and the wrapping is a real loss.
     """
     if not merged:
         # An open document already accepts everything the wrapping takes.
-        return [], False
+        return [], False, True
 
     if merged.get("type") != "array" or merged.keys() - _ENSURE_LIST_READABLE:
         return None
@@ -355,36 +358,48 @@ def ensure_list_branches(
     minimum = merged.get("minItems", 0)
     branches = []
 
+    exact = True
     fits_one = minimum <= 1 <= merged.get("maxItems", 1)
     if fits_one and item is not None and not _only_list_or_null(item):
-        scalar = _scalar_branch(item, contains, null_is_a_type=null_is_a_type)
-        if scalar is None:
-            return None
+        scalar, said_it_all = _scalar_branch(
+            item, contains, null_is_a_type=null_is_a_type
+        )
+        exact = said_it_all
         branches.append(scalar)
 
-    return branches, minimum == 0 and contains is None
+    return branches, minimum == 0 and contains is None, exact
 
 
 def _scalar_branch(
     item: dict[str, Any], contains: dict[str, Any] | None, *, null_is_a_type: bool
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any], bool]:
     """Match a lone value ``EnsureList`` would wrap into a one-item list.
 
-    Returns None when ruling out null is needed and the target cannot spell it.
+    Returns the branch and whether it says the whole truth: a target that cannot
+    spell "not null" gets a branch taking that one value too many, which is
+    wider than the schema rather than narrower, and the caller reports it.
     """
     without_null = _drop_nullable(item)
     parts: list[dict[str, Any]] = []
+    exact = True
 
     if not _excludes_list_and_null(without_null):
-        if not null_is_a_type:
-            return None
-        parts += [{"not": {"type": "array"}}, {"not": {"type": "null"}}]
+        # A list slipping into this branch would skip the array's own rules, and
+        # every target can say "not an array". Only null needs a type to be
+        # ruled out, which OpenAPI 3.0 has not, so there the branch takes that
+        # one value too many and the caller is told.
+        parts.append({"not": {"type": "array"}})
+        if null_is_a_type:
+            parts.append({"not": {"type": "null"}})
+        else:
+            exact = False
     if contains is not None:
         parts.append(contains)
 
     if not parts:
-        return without_null
-    return {"allOf": [without_null, *parts]} if without_null else {"allOf": parts}
+        return without_null, exact
+    branch = {"allOf": [without_null, *parts]} if without_null else {"allOf": parts}
+    return branch, exact
 
 
 def _drop_nullable(item: dict[str, Any]) -> dict[str, Any]:

@@ -162,6 +162,24 @@ def _open(reason: str) -> dict[str, Any]:
     return {}
 
 
+def _imprecise(reason: str) -> None:
+    """Report a rendering that is kept but says a little more than the schema.
+
+    Unlike ``_open`` nothing is dropped and no widening to an open schema
+    happens; the document stands, one shade looser than what it describes.
+    Strict mode refuses it all the same, since a caller asking for strict wants
+    the document to be exact.
+    """
+    if not _STRICT.get():
+        return
+
+    message = (
+        f"to_openapi cannot represent {reason} exactly; the rendering is wider "
+        "than the schema (pass strict=False to allow it)"
+    )
+    raise SchemaError(message)
+
+
 def to_openapi(
     schema: Any,
     *,
@@ -1104,7 +1122,12 @@ def _widen_for_ensure_list(
         # everything, and nothing was lost.
         return _open("a leading EnsureList over this list")
 
-    branches, accepts_null = derived
+    branches, accepts_null, exact = derived
+    if not exact:
+        # The branch stands, taking the one value 3.0 gives no way to rule out.
+        # Wider than the schema is the direction the contract allows, but it is
+        # not the whole truth and strict says so.
+        _imprecise("the scalar form a leading EnsureList wraps")
     if accepts_null and version == _V3_1:
         branches = [*branches, {"type": "null"}]
 
