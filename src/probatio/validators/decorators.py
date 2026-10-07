@@ -212,7 +212,7 @@ def raises(
     exc: type[BaseException],
     msg: str | None = None,
     regex: str | re.Pattern[str] | None = None,
-) -> typing.Iterator[None]:
+) -> typing.Generator[None, None, None]:
     """Assert that the block raises ``exc``, optionally matching ``msg``/``regex``.
 
     A testing helper kept for drop-in compatibility with voluptuous.
