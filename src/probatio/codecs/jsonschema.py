@@ -15,7 +15,7 @@ validator instead of looping.
 from __future__ import annotations
 
 import contextvars
-import datetime
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1402,7 +1402,7 @@ class _JsonDateTime:
         ok = isinstance(value, str) and len(value) > 10 and value[10] in "Tt"
         if ok:
             try:
-                datetime.datetime.fromisoformat(_iso_parsable(value))
+                dt.datetime.fromisoformat(_iso_parsable(value))
             except ValueError:
                 ok = False
         if not ok:
@@ -1431,7 +1431,7 @@ class _JsonTime:
         ok = isinstance(value, str) and len(value) >= 8
         if ok:
             try:
-                datetime.time.fromisoformat(_iso_parsable(value))
+                dt.time.fromisoformat(_iso_parsable(value))
             except ValueError:
                 ok = False
         if not ok:

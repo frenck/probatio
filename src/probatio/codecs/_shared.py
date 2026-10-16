@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 from collections import Counter
 from collections.abc import Hashable
 from dataclasses import dataclass, field
@@ -738,7 +738,7 @@ def json_safe(value: Any) -> Any:  # noqa: PLR0911
         return json_safe(value.value)
     if isinstance(value, Decimal):
         return float(value)
-    if isinstance(value, datetime.datetime | datetime.date | datetime.time):
+    if isinstance(value, dt.datetime | dt.date | dt.time):
         return value.isoformat()
     if isinstance(value, list | tuple | set | frozenset):
         converted = [json_safe(item) for item in ordered_values(value)]

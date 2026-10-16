@@ -7,7 +7,7 @@ additional constraints, instance construction, and the error paths.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import enum
 import typing
 from collections.abc import (  # noqa: TC003 - resolved at runtime by get_type_hints
@@ -451,11 +451,11 @@ def test_annotated_metadata_coerces_before_a_plain_type_check() -> None:
         """Fields whose declared type is the result, reached through a coercer."""
 
         n: Annotated[int, Coerce(int)]
-        when: Annotated[datetime.datetime, AsDatetime()]
+        when: Annotated[dt.datetime, AsDatetime()]
 
     result = DataclassSchema(Coerced)({"n": "5", "when": "2020-01-01T12:00"})
     assert result.n == 5
-    assert result.when == datetime.datetime(2020, 1, 1, 12, 0)
+    assert result.when == dt.datetime(2020, 1, 1, 12, 0)
 
 
 def test_annotated_plain_type_is_enforced_on_the_result() -> None:
@@ -1725,7 +1725,7 @@ class _UCInt:
 class _UCDatetime:
     """A nullable datetime field coerced from a Unix timestamp."""
 
-    ts: Annotated[datetime.datetime | None, Coerce(FromEpoch())] = None
+    ts: Annotated[dt.datetime | None, Coerce(FromEpoch())] = None
 
 
 @dataclass
@@ -1749,7 +1749,7 @@ def test_coerce_runs_before_a_nullable_int_base(
 def test_coerce_from_epoch_into_a_nullable_datetime() -> None:
     """A raw timestamp coerces into datetime | None instead of being rejected first."""
     result = DataclassSchema(_UCDatetime)({"ts": 1719571800}).ts
-    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+    assert result == dt.datetime(2024, 6, 28, 10, 50, tzinfo=dt.UTC)
 
 
 def test_coerce_into_a_nullable_base_under_compilation() -> None:
@@ -1769,10 +1769,10 @@ def test_non_union_coerce_is_unchanged() -> None:
 
     @dataclass
     class Plain:
-        ts: Annotated[datetime.datetime, FromEpoch()] = None  # type: ignore[assignment]
+        ts: Annotated[dt.datetime, FromEpoch()] = None  # type: ignore[assignment]
 
     result = DataclassSchema(Plain)({"ts": 1719571800}).ts
-    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+    assert result == dt.datetime(2024, 6, 28, 10, 50, tzinfo=dt.UTC)
 
 
 def test_codec_of_a_coerced_nullable_field_renders() -> None:

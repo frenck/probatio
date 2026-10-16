@@ -14,7 +14,7 @@ zone the object is ``Coerce(zoneinfo.ZoneInfo)`` (the constructor takes the name
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import re
 import typing
 import zoneinfo
@@ -111,7 +111,7 @@ class Datetime(_SafeValidator):
         # Handed on unnarrowed: T is the caller's type, strptime does the checking.
         text: typing.Any = value
         try:
-            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
+            dt.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise DatetimeInvalid(
                 self.msg,
@@ -133,7 +133,7 @@ class Date(Datetime):
         """Return the value if it parses, else raise DateInvalid."""
         text: typing.Any = value
         try:
-            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
+            dt.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise DateInvalid(
                 self.msg,
@@ -157,7 +157,7 @@ class Time(Datetime):
         """Return the value if it parses, else raise TimeInvalid."""
         text: typing.Any = value
         try:
-            datetime.datetime.strptime(text, self.format)  # noqa: DTZ007
+            dt.datetime.strptime(text, self.format)  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             raise TimeInvalid(
                 self.msg,
@@ -202,20 +202,20 @@ class AsDatetime(_SafeValidator):
             f"require_timezone={self.require_timezone!r})"
         )
 
-    def __call__(self, value: typing.Any) -> datetime.datetime:
+    def __call__(self, value: typing.Any) -> dt.datetime:
         """Return the parsed datetime, passing an existing datetime through.
 
         A ``datetime`` already (a YAML/TOML loader produces one natively) is returned
         as-is; a string is parsed. The timezone requirement still applies to both.
         """
-        if isinstance(value, datetime.datetime):
+        if isinstance(value, dt.datetime):
             parsed = value
         else:
             try:
                 if self.format is None:
-                    parsed = datetime.datetime.fromisoformat(value)
+                    parsed = dt.datetime.fromisoformat(value)
                 else:
-                    parsed = datetime.datetime.strptime(value, self.format)  # noqa: DTZ007
+                    parsed = dt.datetime.strptime(value, self.format)  # noqa: DTZ007
             except (TypeError, ValueError) as exc:
                 key, placeholders = _format_key("expected_iso_datetime", self.format)
                 raise DatetimeInvalid(
@@ -251,20 +251,18 @@ class AsDate(_SafeValidator):
         """Render as a constructor call, matching the temporal validators."""
         return f"{type(self).__name__}(format={self.format})"
 
-    def __call__(self, value: typing.Any) -> datetime.date:
+    def __call__(self, value: typing.Any) -> dt.date:
         """Return the parsed date, passing an existing date through.
 
         A pure ``date`` is returned as-is; a ``datetime`` is not a date here (it
         carries a time, so a date field rejects it), and a string is parsed.
         """
-        if isinstance(value, datetime.date) and not isinstance(
-            value, datetime.datetime
-        ):
+        if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
             return value
         try:
             if self.format is None:
-                return datetime.date.fromisoformat(value)
-            return datetime.datetime.strptime(value, self.format).date()  # noqa: DTZ007
+                return dt.date.fromisoformat(value)
+            return dt.datetime.strptime(value, self.format).date()  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             key, placeholders = _format_key("expected_iso_date", self.format)
             raise DateInvalid(
@@ -292,17 +290,17 @@ class AsTime(_SafeValidator):
         """Render as a constructor call, matching the temporal validators."""
         return f"{type(self).__name__}(format={self.format})"
 
-    def __call__(self, value: typing.Any) -> datetime.time:
+    def __call__(self, value: typing.Any) -> dt.time:
         """Return the parsed time, passing an existing time through.
 
         A ``time`` already is returned as-is; a string is parsed.
         """
-        if isinstance(value, datetime.time):
+        if isinstance(value, dt.time):
             return value
         try:
             if self.format is None:
-                return datetime.time.fromisoformat(value)
-            return datetime.datetime.strptime(value, self.format).time()  # noqa: DTZ007
+                return dt.time.fromisoformat(value)
+            return dt.datetime.strptime(value, self.format).time()  # noqa: DTZ007
         except (TypeError, ValueError) as exc:
             key, placeholders = _format_key("expected_iso_time", self.format)
             raise TimeInvalid(
@@ -329,9 +327,9 @@ class AsTimedelta(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> datetime.timedelta:
+    def __call__(self, value: typing.Any) -> dt.timedelta:
         """Return the value as a timedelta, else raise DurationInvalid."""
-        if isinstance(value, datetime.timedelta):
+        if isinstance(value, dt.timedelta):
             return value
 
         if isinstance(value, bool):
@@ -340,7 +338,7 @@ class AsTimedelta(_SafeValidator):
 
         if isinstance(value, int | float):
             try:
-                return datetime.timedelta(seconds=value)
+                return dt.timedelta(seconds=value)
             except (OverflowError, ValueError) as exc:
                 # A huge value overflows; ``float('nan')`` raises ValueError.
                 raise DurationInvalid(
@@ -352,7 +350,7 @@ class AsTimedelta(_SafeValidator):
 
         if isinstance(value, dict):
             try:
-                return datetime.timedelta(**value)
+                return dt.timedelta(**value)
             except (TypeError, ValueError, OverflowError) as exc:
                 raise DurationInvalid(
                     self.msg, translation_key="expected_duration"
@@ -360,7 +358,7 @@ class AsTimedelta(_SafeValidator):
 
         raise DurationInvalid(self.msg, translation_key="expected_duration")
 
-    def _parse_string(self, value: str) -> datetime.timedelta:
+    def _parse_string(self, value: str) -> dt.timedelta:
         """Parse an ISO 8601, ``H:MM`` / ``H:MM:SS`` colon, or seconds string.
 
         An ISO 8601 duration (``"P1DT2H"``, ``"PT30M"``, ``"-P3D"``) is coerced to a
@@ -409,7 +407,7 @@ class AsTimedelta(_SafeValidator):
             )
 
         try:
-            return sign * datetime.timedelta(
+            return sign * dt.timedelta(
                 hours=hours,
                 minutes=minutes,
                 seconds=seconds,
@@ -419,10 +417,10 @@ class AsTimedelta(_SafeValidator):
                 self.msg, translation_key="expected_duration_detailed"
             ) from exc
 
-    def _seconds(self, text: str) -> datetime.timedelta:
+    def _seconds(self, text: str) -> dt.timedelta:
         """Read a bare number of seconds (``"90"``, ``"90.5"``) as a timedelta."""
         try:
-            return datetime.timedelta(seconds=float(text))
+            return dt.timedelta(seconds=float(text))
         except (ValueError, OverflowError) as exc:
             # ``float("abc")`` and an empty string raise ValueError; ``"inf"`` or a
             # huge value overflows timedelta; ``"nan"`` raises ValueError there.
@@ -430,7 +428,7 @@ class AsTimedelta(_SafeValidator):
                 self.msg, translation_key="expected_duration_detailed"
             ) from exc
 
-    def _parse_iso8601(self, body: str) -> datetime.timedelta:
+    def _parse_iso8601(self, body: str) -> dt.timedelta:
         """Coerce an ISO 8601 duration body (``"P..."``) to a ``timedelta``.
 
         Only the timedelta-representable fields are accepted (weeks, days, hours,
@@ -452,7 +450,7 @@ class AsTimedelta(_SafeValidator):
             )
 
         try:
-            return datetime.timedelta(
+            return dt.timedelta(
                 weeks=_iso_field(fields["weeks"]),
                 days=_iso_field(fields["days"]),
                 hours=_iso_field(fields["hours"]),
@@ -527,9 +525,9 @@ class AsTimezone(_SafeValidator):
         """Store an optional custom message."""
         self.msg = msg
 
-    def __call__(self, value: typing.Any) -> datetime.timezone:
+    def __call__(self, value: typing.Any) -> dt.timezone:
         """Return the parsed fixed-offset timezone, else raise TimeZoneInvalid."""
-        if isinstance(value, datetime.timezone):
+        if isinstance(value, dt.timezone):
             return value
         if not isinstance(value, str):
             raise TimeZoneInvalid(self.msg, translation_key="expected_utc_offset")
@@ -538,18 +536,18 @@ class AsTimezone(_SafeValidator):
         # ``HH:MM``/``HHMM`` offset. Parsed by hand, not ``strptime("%z")``, whose
         # accepted set drifts between Python versions (3.15 accepts ``""``).
         if value.upper() in ("Z", "UTC"):
-            return datetime.UTC
+            return dt.UTC
         if not _UTC_OFFSET.fullmatch(value):
             raise TimeZoneInvalid(self.msg, translation_key="expected_utc_offset")
 
         sign = -1 if value[0] == "-" else 1
         digits = value[1:].replace(":", "")
-        offset = datetime.timedelta(
+        offset = dt.timedelta(
             hours=sign * int(digits[:2]),
             minutes=sign * int(digits[2:]),
         )
         try:
-            return datetime.timezone(offset)
+            return dt.timezone(offset)
         except ValueError as exc:
             # An offset of 24 hours or more is out of range for ``datetime.timezone``.
             raise TimeZoneInvalid(
@@ -605,15 +603,15 @@ class FromEpoch(_SafeValidator):
         """Render as a constructor call, matching the temporal validators."""
         return f"FromEpoch(unit={self.unit})"
 
-    def __call__(self, value: typing.Any) -> datetime.datetime:
+    def __call__(self, value: typing.Any) -> dt.datetime:
         """Return the timestamp as an aware UTC datetime, else raise EpochInvalid."""
-        if isinstance(value, datetime.datetime):
+        if isinstance(value, dt.datetime):
             # Pass through only a value this validator could have produced: an aware
             # UTC datetime. A naive or non-UTC one would break the always-UTC
             # guarantee and reintroduce host-timezone dependence, so reject it like
             # any other bad value. A zero UTC offset is the UTC test; it is ``None``
             # for a naive datetime, which never equals the zero timedelta.
-            if value.utcoffset() == datetime.timedelta(0):
+            if value.utcoffset() == dt.timedelta(0):
                 return value
             raise EpochInvalid(self.msg, translation_key="expected_unix_timestamp")
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -621,7 +619,7 @@ class FromEpoch(_SafeValidator):
 
         try:
             seconds = value / _EPOCH_DIVISORS[self.unit]
-            return datetime.datetime.fromtimestamp(seconds, tz=datetime.UTC)
+            return dt.datetime.fromtimestamp(seconds, tz=dt.UTC)
         except (OverflowError, OSError, ValueError) as exc:
             # A huge value overflows (OverflowError/OSError); ``float('nan')`` and
             # ``float('inf')`` raise ValueError/OverflowError out of fromtimestamp.

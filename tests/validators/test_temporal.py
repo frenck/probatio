@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import zoneinfo
 
 import pytest
@@ -85,15 +85,15 @@ def test_time_rejects_a_bad_value() -> None:
 def test_asdatetime_parses_iso_8601_by_default() -> None:
     """AsDatetime parses ISO 8601 out of the box, offset and all, no format needed."""
     result = Schema(AsDatetime())("2026-06-28T12:30:00+02:00")
-    assert result == datetime.datetime(
-        2026, 6, 28, 12, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+    assert result == dt.datetime(
+        2026, 6, 28, 12, 30, tzinfo=dt.timezone(dt.timedelta(hours=2))
     )
 
 
 def test_asdatetime_honors_a_custom_format() -> None:
     """A strptime format overrides the ISO default."""
     result = Schema(AsDatetime(format="%Y-%m-%d %H:%M"))("2026-06-28 12:30")
-    assert result == datetime.datetime(2026, 6, 28, 12, 30)
+    assert result == dt.datetime(2026, 6, 28, 12, 30)
 
 
 def test_asdatetime_rejects_a_bad_value() -> None:
@@ -118,12 +118,12 @@ def test_asdatetime_require_timezone_rejects_naive() -> None:
 
 def test_asdate_returns_a_date_object() -> None:
     """AsDate parses ISO 8601 and returns a date, not the string."""
-    assert Schema(AsDate())("2026-06-28") == datetime.date(2026, 6, 28)
+    assert Schema(AsDate())("2026-06-28") == dt.date(2026, 6, 28)
 
 
 def test_asdate_honors_a_custom_format() -> None:
     """AsDate honors a strptime format and rejects a value that does not match it."""
-    assert Schema(AsDate(format="%d/%m/%Y"))("28/06/2026") == datetime.date(2026, 6, 28)
+    assert Schema(AsDate(format="%d/%m/%Y"))("28/06/2026") == dt.date(2026, 6, 28)
 
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AsDate(format="%d/%m/%Y"))("2026-06-28")
@@ -139,12 +139,12 @@ def test_asdate_rejects_a_bad_value() -> None:
 
 def test_astime_returns_a_time_object() -> None:
     """AsTime parses ISO 8601 and returns a time, not the string."""
-    assert Schema(AsTime())("14:30:00") == datetime.time(14, 30)
+    assert Schema(AsTime())("14:30:00") == dt.time(14, 30)
 
 
 def test_astime_honors_a_custom_format() -> None:
     """A strptime format overrides the ISO default for AsTime."""
-    assert Schema(AsTime(format="%H.%M"))("14.30") == datetime.time(14, 30)
+    assert Schema(AsTime(format="%H.%M"))("14.30") == dt.time(14, 30)
 
 
 def test_astime_rejects_a_bad_value() -> None:
@@ -156,11 +156,11 @@ def test_astime_rejects_a_bad_value() -> None:
 
 def test_as_validators_pass_a_native_object_through() -> None:
     """A native datetime/date/time is returned as-is (a YAML/TOML loader produces one)."""
-    dt = datetime.datetime(2020, 1, 2, 3, 4)
-    day = datetime.date(2020, 1, 2)
-    clock = datetime.time(3, 4)
+    native_datetime = dt.datetime(2020, 1, 2, 3, 4)
+    day = dt.date(2020, 1, 2)
+    clock = dt.time(3, 4)
 
-    assert Schema(AsDatetime())(dt) is dt
+    assert Schema(AsDatetime())(native_datetime) is native_datetime
     assert Schema(AsDate())(day) is day
     assert Schema(AsTime())(clock) is clock
 
@@ -168,44 +168,44 @@ def test_as_validators_pass_a_native_object_through() -> None:
 def test_asdate_rejects_a_datetime() -> None:
     """A datetime carries a time, so a date field rejects it rather than truncating."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(AsDate())(datetime.datetime(2020, 1, 2, 3, 4))
+        Schema(AsDate())(dt.datetime(2020, 1, 2, 3, 4))
     assert isinstance(caught.value.errors[0], DateInvalid)
 
 
 def test_asdatetime_require_timezone_applies_to_a_native_object() -> None:
     """require_timezone still holds on the pass-through path: aware passes, naive rejects."""
-    aware = datetime.datetime(2020, 1, 2, 3, 4, tzinfo=datetime.UTC)
+    aware = dt.datetime(2020, 1, 2, 3, 4, tzinfo=dt.UTC)
     assert Schema(AsDatetime(require_timezone=True))(aware) is aware
 
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(AsDatetime(require_timezone=True))(datetime.datetime(2020, 1, 2, 3, 4))
+        Schema(AsDatetime(require_timezone=True))(dt.datetime(2020, 1, 2, 3, 4))
     assert isinstance(caught.value.errors[0], DatetimeInvalid)
 
 
 def test_astimedelta_passes_through_a_timedelta() -> None:
     """An existing timedelta is returned unchanged."""
-    delta = datetime.timedelta(minutes=5)
+    delta = dt.timedelta(minutes=5)
     assert Schema(AsTimedelta())(delta) == delta
 
 
 def test_astimedelta_from_seconds() -> None:
     """A number is read as a count of seconds."""
-    assert Schema(AsTimedelta())(90) == datetime.timedelta(seconds=90)
+    assert Schema(AsTimedelta())(90) == dt.timedelta(seconds=90)
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("1:30:00", datetime.timedelta(hours=1, minutes=30)),
-        ("0:45", datetime.timedelta(minutes=45)),
-        ("-0:30", -datetime.timedelta(minutes=30)),
+        ("1:30:00", dt.timedelta(hours=1, minutes=30)),
+        ("0:45", dt.timedelta(minutes=45)),
+        ("-0:30", -dt.timedelta(minutes=30)),
         # The hour field is a duration, not a clock, so it runs past 24.
-        ("100:30", datetime.timedelta(hours=100, minutes=30)),
+        ("100:30", dt.timedelta(hours=100, minutes=30)),
     ],
 )
 def test_astimedelta_from_colon_string(
     value: str,
-    expected: datetime.timedelta,
+    expected: dt.timedelta,
 ) -> None:
     """A colon string parses into the right timedelta, sign included."""
     assert Schema(AsTimedelta())(value) == expected
@@ -213,7 +213,7 @@ def test_astimedelta_from_colon_string(
 
 def test_astimedelta_from_mapping() -> None:
     """A mapping of timedelta kwargs builds the duration."""
-    assert Schema(AsTimedelta())({"hours": 1, "minutes": 30}) == datetime.timedelta(
+    assert Schema(AsTimedelta())({"hours": 1, "minutes": 30}) == dt.timedelta(
         hours=1,
         minutes=30,
     )
@@ -222,15 +222,15 @@ def test_astimedelta_from_mapping() -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("90", datetime.timedelta(seconds=90)),
-        ("90.5", datetime.timedelta(seconds=90.5)),
-        ("-30", -datetime.timedelta(seconds=30)),
-        (" 90 ", datetime.timedelta(seconds=90)),
+        ("90", dt.timedelta(seconds=90)),
+        ("90.5", dt.timedelta(seconds=90.5)),
+        ("-30", -dt.timedelta(seconds=30)),
+        (" 90 ", dt.timedelta(seconds=90)),
     ],
 )
 def test_astimedelta_from_numeric_string(
     value: str,
-    expected: datetime.timedelta,
+    expected: dt.timedelta,
 ) -> None:
     """A bare numeric string is read as seconds, like an int or float."""
     assert Schema(AsTimedelta())(value) == expected
@@ -244,23 +244,23 @@ def test_astimedelta_numeric_string_matches_int() -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("P1DT2H30M", datetime.timedelta(days=1, hours=2, minutes=30)),
-        ("PT30M", datetime.timedelta(minutes=30)),
-        ("PT45S", datetime.timedelta(seconds=45)),
-        ("P3D", datetime.timedelta(days=3)),
-        ("P1W", datetime.timedelta(weeks=1)),
-        ("P2W3DT4H", datetime.timedelta(weeks=2, days=3, hours=4)),
-        ("PT1H30M45S", datetime.timedelta(hours=1, minutes=30, seconds=45)),
-        ("PT0S", datetime.timedelta(0)),
-        ("-P3D", -datetime.timedelta(days=3)),
-        ("+PT1H", datetime.timedelta(hours=1)),
+        ("P1DT2H30M", dt.timedelta(days=1, hours=2, minutes=30)),
+        ("PT30M", dt.timedelta(minutes=30)),
+        ("PT45S", dt.timedelta(seconds=45)),
+        ("P3D", dt.timedelta(days=3)),
+        ("P1W", dt.timedelta(weeks=1)),
+        ("P2W3DT4H", dt.timedelta(weeks=2, days=3, hours=4)),
+        ("PT1H30M45S", dt.timedelta(hours=1, minutes=30, seconds=45)),
+        ("PT0S", dt.timedelta(0)),
+        ("-P3D", -dt.timedelta(days=3)),
+        ("+PT1H", dt.timedelta(hours=1)),
         # A fractional field, with either decimal separator ISO 8601 allows.
-        ("PT0.5S", datetime.timedelta(seconds=0.5)),
-        ("PT1,5S", datetime.timedelta(seconds=1.5)),
-        (" P1D ", datetime.timedelta(days=1)),
+        ("PT0.5S", dt.timedelta(seconds=0.5)),
+        ("PT1,5S", dt.timedelta(seconds=1.5)),
+        (" P1D ", dt.timedelta(days=1)),
     ],
 )
-def test_astimedelta_from_iso8601(value: str, expected: datetime.timedelta) -> None:
+def test_astimedelta_from_iso8601(value: str, expected: dt.timedelta) -> None:
     """An ISO 8601 duration parses into the right timedelta, sign included."""
     assert Schema(AsTimedelta())(value) == expected
 
@@ -316,7 +316,7 @@ def test_astimedelta_rejects_overflow(value: object) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["1:30:00", "0:45", "90", "P1DT2H", datetime.timedelta(minutes=5)],
+    ["1:30:00", "0:45", "90", "P1DT2H", dt.timedelta(minutes=5)],
 )
 def test_duration_validates_and_returns_unchanged(value: object) -> None:
     """Duration validates a duration and returns the value as given (AsTimedelta parses)."""
@@ -325,7 +325,7 @@ def test_duration_validates_and_returns_unchanged(value: object) -> None:
 
 def test_duration_object_via_astimedelta() -> None:
     """The parsed timedelta is opt-in through AsTimedelta, not the Duration validator."""
-    assert Schema(AsTimedelta())("1:30:00") == datetime.timedelta(hours=1, minutes=30)
+    assert Schema(AsTimedelta())("1:30:00") == dt.timedelta(hours=1, minutes=30)
 
 
 @pytest.mark.parametrize("value", [*_INVALID_DURATIONS, *_OVERFLOW_DURATIONS])
@@ -368,13 +368,13 @@ def test_timezoneinfo_rejects_invalid(value: object) -> None:
 def test_astimezone_parses_a_fixed_offset(value: str, offset_hours: float) -> None:
     """AsTimezone returns a datetime.timezone for a fixed UTC offset, Z, or UTC."""
     result = Schema(AsTimezone())(value)
-    assert isinstance(result, datetime.timezone)
-    assert result.utcoffset(None) == datetime.timedelta(hours=offset_hours)
+    assert isinstance(result, dt.timezone)
+    assert result.utcoffset(None) == dt.timedelta(hours=offset_hours)
 
 
 def test_astimezone_passes_through_a_native_timezone() -> None:
     """An existing datetime.timezone passes through unchanged."""
-    tz = datetime.timezone(datetime.timedelta(hours=2))
+    tz = dt.timezone(dt.timedelta(hours=2))
     assert Schema(AsTimezone())(tz) is tz
 
 
@@ -401,7 +401,7 @@ def test_astimezone_rejects_a_non_offset(value: object) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["+01:00", "-0530", "Z", "UTC", datetime.timezone(datetime.timedelta(hours=2))],
+    ["+01:00", "-0530", "Z", "UTC", dt.timezone(dt.timedelta(hours=2))],
 )
 def test_timezone_validates_and_returns_unchanged(value: object) -> None:
     """TimeZone validates an offset and returns it unchanged (AsTimezone for object)."""
@@ -419,14 +419,14 @@ def test_timezone_rejects_a_non_offset(value: object) -> None:
 def test_epoch_seconds_returns_aware_utc_datetime() -> None:
     """FromEpoch reads a seconds count into a timezone-aware UTC datetime."""
     result = Schema(FromEpoch())(1719571800)
-    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
-    assert result.tzinfo is datetime.UTC
+    assert result == dt.datetime(2024, 6, 28, 10, 50, tzinfo=dt.UTC)
+    assert result.tzinfo is dt.UTC
 
 
 def test_epoch_milliseconds_unit() -> None:
     """With unit=milliseconds, the count is read as milliseconds since the epoch."""
     result = Schema(FromEpoch(unit="milliseconds"))(1719571800000)
-    assert result == datetime.datetime(2024, 6, 28, 10, 50, tzinfo=datetime.UTC)
+    assert result == dt.datetime(2024, 6, 28, 10, 50, tzinfo=dt.UTC)
 
 
 def test_epoch_accepts_a_float() -> None:
@@ -445,13 +445,13 @@ def test_epoch_passes_an_aware_utc_datetime_through_unchanged() -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        datetime.datetime(2024, 6, 28, 10, 50),  # naive
-        datetime.datetime(
-            2024, 6, 28, 10, 50, tzinfo=datetime.timezone(datetime.timedelta(hours=2))
+        dt.datetime(2024, 6, 28, 10, 50),  # naive
+        dt.datetime(
+            2024, 6, 28, 10, 50, tzinfo=dt.timezone(dt.timedelta(hours=2))
         ),  # aware, non-UTC
     ],
 )
-def test_epoch_rejects_a_naive_or_non_utc_datetime(value: datetime.datetime) -> None:
+def test_epoch_rejects_a_naive_or_non_utc_datetime(value: dt.datetime) -> None:
     """A naive or non-UTC datetime is rejected, keeping the always-aware-UTC guarantee."""
     with pytest.raises(MultipleInvalid) as caught:
         Schema(FromEpoch())(value)
