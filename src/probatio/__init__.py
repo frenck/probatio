@@ -25,6 +25,14 @@ from probatio._compile_policy import (
     get_compile_policy,
     set_compile_policy,
 )
+from probatio.annotations import (
+    ANNOTATIONS_ATTR,
+    Annotations,
+    annotate,
+    annotations_of,
+    carry_annotations,
+    supports_annotations,
+)
 from probatio.dataclass_schema import (
     DataclassSchema,
     TypedDictSchema,
@@ -324,6 +332,7 @@ def __getattr__(name: str) -> object:
 
 __all__ = [
     "ALLOW_EXTRA",
+    "ANNOTATIONS_ATTR",
     "ASCII",
     "E164",
     "IBAN",
@@ -342,6 +351,7 @@ __all__ = [
     "Alpha",
     "Alphanumeric",
     "And",
+    "Annotations",
     "Any",
     "AnyInvalid",
     "AsDate",
@@ -543,6 +553,9 @@ __all__ = [
     "Without",
     "WriteOnce",
     "__version__",
+    "annotate",
+    "annotations_of",
+    "carry_annotations",
     "create_dataclass_schema",
     "create_typeddict_schema",
     "current_context",
@@ -558,6 +571,7 @@ __all__ = [
     "raises",
     "set_build_policy",
     "set_compile_policy",
+    "supports_annotations",
     "to_field_list",
     "to_json_schema",
     "to_openapi",

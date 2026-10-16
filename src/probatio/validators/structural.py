@@ -5,6 +5,7 @@ from __future__ import annotations
 import typing
 from typing import TYPE_CHECKING
 
+from probatio.annotations import carry_annotations
 from probatio.error import (
     ExactSequenceInvalid,
     Invalid,
@@ -100,12 +101,27 @@ class ExactSequence(_SafeValidator):
         # ``__init__``/``__new__``) cannot be rebuilt that way, so fall back to the
         # plain base type rather than leak the TypeError its constructor raises.
         out_type = type(value)
+        if out_type is list:
+            # A plain list is the common case, and ``result`` is already a fresh list
+            # of the validated items: return it rather than copy it into another one.
+            # It also holds no annotations and can be given none, so it skips the
+            # carry entirely, the same as the sequence engine.
+            return result
+        # Annotated because the two branches below build different types (a
+        # namedtuple and a plain sequence subclass), which is the point.
+        rebuilt: typing.Any
         try:
             if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-                return out_type(*result)
-            return out_type(result)
+                rebuilt = out_type(*result)
+            else:
+                rebuilt = out_type(result)
         except TypeError:
+            # The fallback degrades to the plain base type, which can hold no
+            # attribute, so there is nothing to carry annotations onto.
             return list(result) if issubclass(out_type, list) else tuple(result)
+        # A rebuilt subclass is a fresh instance; move the original's annotations
+        # onto it, the same way the sequence engine does.
+        return carry_annotations(value, rebuilt)
 
 
 class Unique(_SafeValidator):
