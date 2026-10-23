@@ -32,7 +32,7 @@ jobs:
       - name: Install the project
         run: uv sync --locked --group codspeed
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
         with:
           # v4 makes `mode` required; on a standard runner this is the
           # instrumented measurement v3 ran by default, now named "simulation".
