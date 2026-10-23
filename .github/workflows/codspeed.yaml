@@ -16,7 +16,9 @@ concurrency:
 jobs:
   benchmarks:
     name: Benchmarks
-    runs-on: ubuntu-latest
+    # Pinned on purpose: CodSpeed compares against the baseline from main, and
+    # when ubuntu-latest moves to a new image, every PR "regresses".
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       id-token: write # OIDC token CodSpeed mints (no CODSPEED_TOKEN secret)
