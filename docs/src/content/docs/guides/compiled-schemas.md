@@ -63,7 +63,10 @@ schema = Schema({Required("name"): str, Optional("age"): int}).compile()
 
 `DataclassSchema` and `TypedDictSchema` take the same flag, and they are the
 clearest win: compiling fuses field validation and object construction into one
-function with no intermediate dict.
+function with no intermediate dict. A nested dataclass field compiles along with
+the dataclass that holds it, so a tree of dataclasses (an API response, say)
+generates all the way down, and the flag covers the whole tree: `compile=False`
+on the outer dataclass keeps every nested one interpreted too.
 
 ```python
 from dataclasses import dataclass
@@ -123,8 +126,9 @@ inlines the validators that show up most: `Coerce` to `int`/`float`, numeric
 (`Any("on", "off")`, validated as a membership test), `Maybe(X)` (an optional
 validated value), and `All`/`Any` chains of those.
 
-Anything it does not handle is simply left interpreted. A recursive schema (`Self`
-or a recursive JSON Schema `$ref`), an exclusive or inclusive group, a multi-element
+Anything it does not handle is simply left interpreted. A recursive schema (`Self`,
+a recursive JSON Schema `$ref`, or a dataclass or TypedDict on a recursion cycle:
+one that holds itself, or two that hold each other), an exclusive or inclusive group, a multi-element
 list (an "each item matches one of these" union), a list whose element does not
 inline, an exotic key: the schema works exactly as before, just without the speedup.
 You never lose correctness by compiling; at worst you do not gain speed.
