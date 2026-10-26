@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from math import inf
 from types import MappingProxyType
 from typing import TypedDict
 
@@ -677,6 +678,8 @@ def test_policy_turned_off_after_arming_stays_interpreted() -> None:
             [["1", "2"], [-1], [], "no", [1.5], ["x"]],
         ),
         ([Any(int, str)], [[1, "a"], [1.5], []]),
+        ([Range(min=-inf)], [[1]]),
+        ([Range(max=inf)], [[1]]),
     ],
 )
 def test_compiled_sequence_matches_interpreted(

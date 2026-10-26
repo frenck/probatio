@@ -730,7 +730,7 @@ def compile_sequence(
     inlines; ``fallback`` is the interpreted validator, used on any bail and for a
     non-list input (a tuple, a list subclass), which it rebuilds as its own type.
     """
-    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback}
+    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback, "inf": inf}
     inline = (
         _inline_sequence(schema, namespace, "0") if isinstance(schema, list) else None
     )
