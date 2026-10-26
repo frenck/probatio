@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
+from math import inf
 from typing import TYPE_CHECKING, Any
 
 from probatio._engine import (
@@ -641,6 +642,7 @@ def compile_mapping(
         "_UNDEFINED_CLS": Undefined,
         "_interpreted": validator if fallback is None else fallback,
         "_Type": construct,
+        "inf": inf,
     }
     allowed = frozenset(candidate.key_schema for candidate in candidates)
     if construct is None:

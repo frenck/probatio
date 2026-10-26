@@ -124,6 +124,10 @@ _BUILDERS = {
     "coerce_str": lambda **k: Schema({"x": Coerce(str)}, **k),
     "range_min_only": lambda **k: Schema({"x": All(int, Range(min=0))}, **k),
     "range_max_only": lambda **k: Schema({"x": All(int, Range(max=100))}, **k),
+    # `inf` is the string representation of positive infinity but it isn't a symbol that
+    # is in scope without being imported from `math`
+    "range_neg_inf": lambda **k: Schema({"x": Range(min=float("-inf"))}, **k),
+    "range_inf": lambda **k: Schema({"x": Range(max=float("inf"))}, **k),
     # Any inlining: all-types with None (allow_none), and a mixed Any with a
     # non-type branch that falls back to the closure.
     "any_maybe": lambda **k: Schema({"x": Any(int, None)}, **k),
