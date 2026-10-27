@@ -1834,6 +1834,7 @@
         'required KEYWORD_ONLY False',
         'extra KEYWORD_ONLY 0',
         '_self_refs KEYWORD_ONLY None',
+        '_compile KEYWORD_ONLY None',
       ]),
     }),
     'create_typeddict_schema': dict({
@@ -1843,6 +1844,7 @@
         'additional_constraints POSITIONAL_OR_KEYWORD None',
         'extra KEYWORD_ONLY 0',
         '_self_refs KEYWORD_ONLY None',
+        '_compile KEYWORD_ONLY None',
       ]),
     }),
     'current_context': dict({
