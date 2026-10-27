@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+from typing import TYPE_CHECKING
+
 import pytest
 
 from probatio import (
@@ -14,6 +17,9 @@ from probatio import (
     Schema,
 )
 from probatio.error import ExclusiveInvalid, InclusiveInvalid, RequiredFieldInvalid
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def test_exclusive_allows_at_most_one() -> None:
@@ -240,3 +246,37 @@ def test_an_any_key_is_one_exclusive_member_that_excludes_the_others() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         schema({"hours": 1, "name": "tea"})
     assert isinstance(caught.value.errors[0], ExclusiveInvalid)
+
+
+class _Field(StrEnum):
+    """Keys as a ``StrEnum``, like an integration's action fields."""
+
+    A = "a"
+    B = "b"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda a, b: {Required(Any(a, b)): int}, id="required_any"),
+        pytest.param(
+            lambda a, b: {
+                Exclusive(a, "g", required=True): int,
+                Exclusive(b, "g", required=True): int,
+            },
+            id="exclusive_required",
+        ),
+    ],
+)
+def test_group_message_shows_str_enum_keys_by_value(
+    build: Callable[[str, str], dict[object, object]],
+) -> None:
+    """StrEnum keys render in the message and placeholders like plain string keys."""
+    with pytest.raises(MultipleInvalid) as plain:
+        Schema(build("a", "b"))({})
+    with pytest.raises(MultipleInvalid) as enum:
+        Schema(build(_Field.A, _Field.B))({})
+
+    error = enum.value.errors[0]
+    assert error.error_message == plain.value.errors[0].error_message
+    assert all(type(key) is str for key in error.placeholders["keys"])
