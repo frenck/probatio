@@ -78,7 +78,7 @@ include = [
 # directly with `uv sync --group <name>` rather than re-listing versions in the
 # workflows, so this file is the single source of truth.
 test = [
-  "pytest==9.1.1",
+  "pytest==9.2.0",
   "pytest-cov==7.1.0",
   "syrupy==6.1.1",
   "covdefaults==2.3.0",
