@@ -112,7 +112,7 @@ typing = ["mypy==2.4.1", "ty==0.0.93"]
 lint = ["ruff==0.17.3", "codespell==2.4.3", "zizmor==1.31.1"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
-codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
+codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.4"]
 # Cross-library comparison for the "rest of the world" benchmark (bench_world.py).
 # Benchmark-only, installed on demand (just bench-world syncs this group); none is a
 # runtime or test dependency, and none is a correctness oracle. pydantic v1 is read
