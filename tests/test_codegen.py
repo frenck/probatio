@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from math import inf
 from types import MappingProxyType
 from typing import TypedDict
 
@@ -124,6 +125,10 @@ _BUILDERS = {
     "coerce_str": lambda **k: Schema({"x": Coerce(str)}, **k),
     "range_min_only": lambda **k: Schema({"x": All(int, Range(min=0))}, **k),
     "range_max_only": lambda **k: Schema({"x": All(int, Range(max=100))}, **k),
+    # `inf` is the string representation of positive infinity but it isn't a symbol that
+    # is in scope without being imported from `math`
+    "range_neg_inf": lambda **k: Schema({"x": Range(min=float("-inf"))}, **k),
+    "range_inf": lambda **k: Schema({"x": Range(max=float("inf"))}, **k),
     # Any inlining: all-types with None (allow_none), and a mixed Any with a
     # non-type branch that falls back to the closure.
     "any_maybe": lambda **k: Schema({"x": Any(int, None)}, **k),
@@ -673,6 +678,8 @@ def test_policy_turned_off_after_arming_stays_interpreted() -> None:
             [["1", "2"], [-1], [], "no", [1.5], ["x"]],
         ),
         ([Any(int, str)], [[1, "a"], [1.5], []]),
+        ([Range(min=-inf)], [[1]]),
+        ([Range(max=inf)], [[1]]),
     ],
 )
 def test_compiled_sequence_matches_interpreted(
