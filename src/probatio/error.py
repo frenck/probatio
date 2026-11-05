@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from difflib import get_close_matches
 from typing import Any, cast
 
-from probatio._messages import render
+from probatio._messages import plain_strings, render
 
 # A single rendered path segment is capped at this length, so an error string
 # cannot be blown up by a huge attacker-controlled mapping key. Far longer than
@@ -390,10 +390,8 @@ class _SuggestionInvalid(Invalid):
                 if self._suggest_exclude is not _NO_SUGGESTION:
                     exclude = self._suggest_exclude
                     pool = [name for name in pool if name != exclude]
-                self._candidates = get_close_matches(
-                    value,
-                    pool,
-                    cutoff=_SUGGESTION_CUTOFF,
+                self._candidates = plain_strings(
+                    get_close_matches(value, pool, cutoff=_SUGGESTION_CUTOFF)
                 )
             else:
                 self._candidates = []

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import pytest
 
 import probatio
-from probatio import _messages
+from probatio import In, Required, Schema, _messages
 from probatio.error import (
     Error,
     Invalid,
@@ -347,3 +349,28 @@ def test_invalid_without_message_or_key_is_empty() -> None:
     err = Invalid()
     assert err.msg == ""
     assert str(err) == ""
+
+
+class _Field(StrEnum):
+    """Keys and members as a ``StrEnum``, like an integration's action fields."""
+
+    GREEN = "green"
+    ORANGE = "orange"
+
+
+def test_unknown_key_suggests_a_str_enum_key_by_value() -> None:
+    """A near-miss of a StrEnum key suggests it by value, not by repr."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema({Required(_Field.GREEN): str})({"gren": "x"})
+    error = caught.value.errors[0]
+    assert error.error_message == "not a valid option, did you mean 'green'?"
+    assert all(type(candidate) is str for candidate in error.candidates)
+
+
+def test_in_suggests_a_str_enum_member_by_value() -> None:
+    """A near-miss of a StrEnum member in In suggests it by value, not by repr."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In([_Field.GREEN, _Field.ORANGE]))("gren")
+    error = caught.value.errors[0]
+    assert error.error_message.endswith(", did you mean 'green'?")
+    assert all(type(candidate) is str for candidate in error.candidates)
