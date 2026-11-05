@@ -21,6 +21,7 @@ from __future__ import annotations
 import typing
 from collections.abc import Mapping
 
+from probatio._messages import plain_strings
 from probatio.error import (
     DictInvalid,
     ExclusiveInvalid,
@@ -301,6 +302,13 @@ class _KeyGroup(_SafeValidator):
         self.msg = msg
         self.require_mapping = require_mapping
 
+    def _key_names(self) -> list[typing.Any]:
+        """Return the keys for an error placeholder, with ``str`` subclasses as ``str``.
+
+        A ``StrEnum`` key then reads as its value in the message, not its repr.
+        """
+        return plain_strings(self.keys)
+
     def _mapping(self, value: typing.Any) -> Mapping[typing.Any, typing.Any] | None:
         """Return the value as a mapping, or None to pass a non-mapping through.
 
@@ -330,7 +338,7 @@ class AtLeastOne(_KeyGroup):
             raise RequiredFieldInvalid(
                 self.msg,
                 translation_key="required_any_of",
-                placeholders={"keys": list(self.keys)},
+                placeholders={"keys": self._key_names()},
             )
         return value
 
@@ -351,7 +359,7 @@ class AtMostOne(_KeyGroup):
         if mapping is not None:
             present = _present(mapping, self.keys)
             if len(present) > 1:
-                placeholders = {"keys": list(self.keys)}
+                placeholders = {"keys": self._key_names()}
                 raise MultipleInvalid(
                     [
                         ExclusiveInvalid(
@@ -385,10 +393,10 @@ class ExactlyOne(_KeyGroup):
                 raise RequiredFieldInvalid(
                     self.msg,
                     translation_key="required_one_of",
-                    placeholders={"keys": list(self.keys)},
+                    placeholders={"keys": self._key_names()},
                 )
             if len(present) > 1:
-                placeholders = {"keys": list(self.keys)}
+                placeholders = {"keys": self._key_names()}
                 raise MultipleInvalid(
                     [
                         ExclusiveInvalid(
@@ -420,7 +428,7 @@ class AllOrNone(_KeyGroup):
             present = _present(mapping, self.keys)
             if present and len(present) != len(self.keys):
                 missing = [key for key in self.keys if key not in mapping]
-                placeholders = {"keys": list(self.keys)}
+                placeholders = {"keys": self._key_names()}
                 raise MultipleInvalid(
                     [
                         InclusiveInvalid(
