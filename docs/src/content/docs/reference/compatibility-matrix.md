@@ -293,6 +293,15 @@ Probatio does.
   have rejected is affected, and a `float` matcher now matches an `int` too (so
   `Remove(float)` in a list drops ints, and a `{float: ...}` type key matches an int
   key).
+- **A parameterized generic as a schema (`Schema(dict[str, str])`, ADR-018).**
+  voluptuous calls the generic as a constructor and ignores its type arguments, so
+  `dict[str, str]` accepts `{"a": 1}` and `list[int]` turns `"abc"` into
+  `["a", "b", "c"]`. Probatio translates the generic into the structural schema it
+  spells, the same way a dataclass field annotation is read: `dict[str, str]`
+  validates like `{str: str}`, `list[int]` like `[int]`, `int | None` like
+  `Maybe(int)`, and `Literal["a", "b"]` like `In(["a", "b"])`. A value that does not
+  match the type arguments is now rejected, which is what the schema always claimed
+  to do.
 - **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
   is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
   any key schema, including an `Any` of names
