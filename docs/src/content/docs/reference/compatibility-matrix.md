@@ -374,6 +374,13 @@ Probatio does.
   any integer (`Schema(Perm)(3)` is `Perm.R | Perm.W`), the same as `Coerce` of
   that enum. Use an explicit `In([...])` when you need to accept only the exact
   listed members.
+- **`StrEnum` members in an `In` or `NotIn` message (`In([Field.A, Field.B])`).**
+  voluptuous formats the members with their repr:
+  `value must be one of [<Field.A: 'a'>, <Field.B: 'b'>]`. Probatio shows a `str`
+  subclass by its value, so the message reads `value must be one of ['a', 'b']`,
+  the same as with plain string members. The structured placeholders hold the same
+  plain `str` values, so a translation renders them the same way. Only the sentence
+  changes: validation results, error classes, and paths are unaffected.
 - **`Coerce(T)` on a value already of type `T` whose constructor rejects it
   (`Coerce(uuid.UUID)(a_uuid)`).** `uuid.UUID(a_uuid)` raises, so voluptuous reports a
   `CoerceInvalid`. Probatio returns the value unchanged, making `Coerce` idempotent, so
