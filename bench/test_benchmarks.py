@@ -367,12 +367,58 @@ def test_validate_dataclass_compiled(benchmark: Any) -> None:
     assert result.port == 443
 
 
+@dataclass
+class _Reading:
+    """A unit/value pair, the nested leaf of a dataclass tree."""
+
+    unit: str
+    value: float
+
+
+@dataclass
+class _Device:
+    """A dataclass holding nested dataclasses: the shape an API response has.
+
+    Compiling the outer dataclass compiles the nested schemas with it, so this is
+    where a regression in that recursion shows up; the flat ``_Service`` above
+    cannot see one.
+    """
+
+    name: str
+    power: _Reading
+    voltage: _Reading
+    current: _Reading | None = None
+
+
+DEVICE = probatio.DataclassSchema(_Device, compile=False)
+DEVICE_COMPILED = probatio.DataclassSchema(_Device).compile()
+DEVICE_PAYLOAD = {
+    "name": "inverter",
+    "power": {"unit": "W", "value": 300.0},
+    "voltage": {"unit": "V", "value": 230.1},
+    "current": {"unit": "A", "value": 1.3},
+}
+
+
+def test_validate_dataclass_tree(benchmark: Any) -> None:
+    """Validate and construct a dataclass with nested dataclasses (interpreted)."""
+    result = benchmark(DEVICE, DEVICE_PAYLOAD)
+    assert result.power.value == 300.0
+
+
+def test_validate_dataclass_tree_compiled(benchmark: Any) -> None:
+    """Validate and construct a dataclass tree, every level through generated code."""
+    result = benchmark(DEVICE_COMPILED, DEVICE_PAYLOAD)
+    assert result.power.value == 300.0
+
+
 def test_compiled_benchmarks_use_the_generated_validator() -> None:
     """Guard: every ``*_compiled`` benchmark really measures generated code."""
     assert _is_compiled(CONFIG_COMPILED)
     assert _is_compiled(LEAF_HEAVY_COMPILED)
     assert _is_compiled(NESTED_COMPILED)
     assert _is_compiled(SERVICE_COMPILED)
+    assert _is_compiled(DEVICE_COMPILED)
     assert _is_compiled(LIST_COMPILED)
 
 
