@@ -62,6 +62,7 @@ from typing import Any as TypingAny
 from typing import Required as RequiredHint
 from typing import Union as TypingUnion
 
+from probatio import _compile as _compile_module
 from probatio._codegen import compile_mapping
 from probatio._compile import recursion_guard
 from probatio._engine import _MappingValidator
@@ -1392,3 +1393,11 @@ class TypedDictSchema[TypedDictT](Schema):
         """
         trusted: TypedDictT = data
         return trusted
+
+
+# Register the annotation translator with the compile walk, which needs it to turn a
+# parameterized generic used as a schema (``list[int]``) into its structural schema.
+# Set here, after the function exists, so ``_compile`` never imports this module and
+# the two stay free of an import cycle. Ready before any schema is built, since the
+# package imports this module.
+_compile_module._ANNOTATION_TO_SCHEMA = _annotation_to_schema  # noqa: SLF001
