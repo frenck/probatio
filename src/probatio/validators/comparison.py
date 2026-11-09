@@ -6,6 +6,7 @@ import math
 import re
 import typing
 
+from probatio._messages import plain_strings
 from probatio.error import (
     ContainsInvalid,
     InInvalid,
@@ -969,7 +970,9 @@ class In(_SafeValidator):
             raise InInvalid(
                 self.msg,
                 translation_key="value_one_of",
-                placeholders={"values": _sorted_for_message(self.container)},
+                placeholders={
+                    "values": plain_strings(_sorted_for_message(self.container))
+                },
                 suggest_value=value,
                 suggest_pool=self._string_members(),
                 suffix=self.msg is None,
@@ -1000,6 +1003,8 @@ class NotIn(_SafeValidator):
             raise NotInInvalid(
                 self.msg,
                 translation_key="value_not_one_of",
-                placeholders={"values": _sorted_for_message(self.container)},
+                placeholders={
+                    "values": plain_strings(_sorted_for_message(self.container))
+                },
             )
         return value
