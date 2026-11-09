@@ -16,7 +16,10 @@ plus placeholders is the contract a consumer localizes against.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 # One entry per distinct sentence. Where several validators share a sentence
 # (like "expected a mapping" from the dict engine and the key groups), they
@@ -163,6 +166,14 @@ def _display(value: Any) -> Any:
         shown = ", ".join(repr(item) for item in value[:_MAX_LISTED_VALUES])
         return f"[{shown}, ...] ({len(value) - _MAX_LISTED_VALUES} more not shown)"
     return value
+
+
+def plain_strings(values: Iterable[Any]) -> list[Any]:
+    """Return the values for a placeholder, with ``str`` subclasses as ``str``.
+
+    A ``StrEnum`` member then reads as its value in a message, not its repr.
+    """
+    return [str(value) if isinstance(value, str) else value for value in values]
 
 
 def render(key: str, placeholders: dict[str, Any] | None) -> str:
