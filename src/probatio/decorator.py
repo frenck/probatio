@@ -148,7 +148,9 @@ def _parameter_schema(
         if parameter.kind not in _VALIDATED_KINDS:
             continue
         if name in hints:
-            inferred = _annotation_to_schema(hints[name], {}, PREVENT_EXTRA)
+            inferred = _annotation_to_schema(
+                hints[name], {}, PREVENT_EXTRA, compiled=None
+            )
             _reject_validator_annotation(
                 func, f"parameter {name!r}", hints[name], inferred
             )
@@ -182,7 +184,9 @@ def _return_schema(
                 f"probatio: returns=True needs a return annotation on {_name(func)!r}"
             )
             raise SchemaError(message)
-        inferred = _annotation_to_schema(hints[_RETURN], {}, PREVENT_EXTRA)
+        inferred = _annotation_to_schema(
+            hints[_RETURN], {}, PREVENT_EXTRA, compiled=None
+        )
         _reject_validator_annotation(func, "the return", hints[_RETURN], inferred)
         return Schema(inferred)
     return Schema(returns)
