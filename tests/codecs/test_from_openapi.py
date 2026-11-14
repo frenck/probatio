@@ -236,3 +236,27 @@ def test_round_trip_through_to_openapi() -> None:
 def test_from_openapi_returns_schema() -> None:
     """from_openapi returns a Schema instance."""
     assert isinstance(from_openapi({"type": "string"}), Schema)
+
+
+def test_numeric_types_survive_openapi_round_trip() -> None:
+    """Decoded number/integer types re-emit their type keyword in to_openapi."""
+    source = from_openapi(
+        {
+            "type": "object",
+            "properties": {
+                "latitude": {"type": "number"},
+                "days": {"type": "integer"},
+            },
+            "required": ["latitude", "days"],
+        },
+    )
+
+    rendered = to_openapi(source, openapi_version="3.1.0")
+
+    assert rendered["properties"]["latitude"] == {"type": "number"}
+    assert rendered["properties"]["days"] == {"type": "integer"}
+    rebuilt = from_openapi(rendered)
+    assert rebuilt({"latitude": -37.8136, "days": 2}) == {
+        "latitude": -37.8136,
+        "days": 2,
+    }
