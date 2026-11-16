@@ -80,7 +80,7 @@ include = [
 test = [
   "pytest==9.2.0",
   "pytest-cov==7.1.0",
-  "syrupy==6.1.1",
+  "syrupy==7.0.0",
   "covdefaults==2.3.0",
   # voluptuous is a dev-only oracle for the conformance tests: probatio and
   # voluptuous run the same schemas and inputs and their results are compared.
@@ -108,8 +108,8 @@ test = [
   # and the codecs are hammered with generated schemas and data). Dev-only.
   "hypothesis==6.170.0",
 ]
-typing = ["mypy==2.4.1", "ty==0.0.97"]
-lint = ["ruff==0.17.3", "codespell==2.4.3", "zizmor==1.32.0"]
+typing = ["mypy==2.4.1", "ty==0.0.101"]
+lint = ["ruff==0.17.4", "codespell==2.4.3", "zizmor==1.32.0"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
 codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.4"]
