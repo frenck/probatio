@@ -271,6 +271,19 @@ carries forward an upstream request.
   raw value of itself, used in place of the bare `isinstance` check when that type
   is a schema. `EnumInvalid` is the error its built-in consumer (an enum class)
   raises. voluptuous has no such hook.
+- `Annotations`, `ANNOTATIONS_ATTR`, `annotate`, `annotations_of`,
+  `carry_annotations`, `supports_annotations`: metadata a value carries beside its
+  contents (the file and line a YAML loader recorded, for example), kept across
+  every rebuild that produces the value's own type, which is every mapping and
+  sequence rebuild, `ExactSequence`, and `Object`. A rebuild that does not keep the
+  type cannot keep the annotations, so a `Mapping` that is not a `dict` subclass
+  validates to a plain `dict` and loses them. A
+  type opts in by making room for one attribute,
+  `__probatio_annotations__`; a type that does not is untouched, and a plain `dict`
+  or `list` never reaches the carry. Validators read with `annotations_of`, add with
+  `annotate`, and move them onto a value they built themselves with
+  `carry_annotations`. voluptuous has no equivalent, and a schema that does not use
+  the feature behaves exactly as before. See [Annotations](/guides/annotations/).
 - `current_context` with `schema(data, context=...)`: an optional call argument
   that hands per-call state to validators that read `current_context()`, so one
   compiled schema validates against state known only at call time. Additive (a
@@ -353,9 +366,10 @@ Probatio does.
   mapping).** voluptuous rejects it with "expected a dictionary". Probatio
   validates any object implementing the `Mapping` protocol and returns a plain
   `dict`. A genuine `dict` subclass, on the other hand, is preserved as its own
-  class, the same as voluptuous, so a `NodeDictClass` and similar metadata-carrying
-  subclasses survive validation. A strict superset, so existing dict code is
-  unaffected.
+  class, the same as voluptuous, so a `NodeDictClass` and similar subclasses keep
+  their type through validation. Whatever such a class carries beside its items is
+  a separate question, answered by [Annotations](/guides/annotations/). A strict
+  superset, so existing dict code is unaffected.
 - **A callable validator raising `ValueError("reason")`.** voluptuous reports a
   bare "not a valid value", dropping the reason. Probatio appends it: "not a valid
   value: reason". A `ValueError` with no message stays bare.
