@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 import pytest
 
 from probatio import (
@@ -370,3 +372,34 @@ def test_key_group_custom_message() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(AtLeastOne("a", "b", msg="need a or b"))({})
     assert caught.value.errors[0].error_message == "need a or b"
+
+
+class _Field(StrEnum):
+    """Keys as a ``StrEnum``, like an integration's action fields."""
+
+    A = "a"
+    B = "b"
+
+
+@pytest.mark.parametrize(
+    ("validator", "value"),
+    [
+        (AtLeastOne, {}),
+        (AtMostOne, {"a": 1, "b": 2}),
+        (ExactlyOne, {}),
+        (ExactlyOne, {"a": 1, "b": 2}),
+        (AllOrNone, {"a": 1}),
+    ],
+)
+def test_key_group_message_shows_str_enum_keys_by_value(
+    validator: type, value: dict[str, int]
+) -> None:
+    """StrEnum keys render in the message and placeholders like plain string keys."""
+    with pytest.raises(MultipleInvalid) as plain:
+        Schema(validator("a", "b"))(value)
+    with pytest.raises(MultipleInvalid) as enum:
+        Schema(validator(_Field.A, _Field.B))(value)
+
+    error = enum.value.errors[0]
+    assert error.error_message == plain.value.errors[0].error_message
+    assert all(type(key) is str for key in error.placeholders["keys"])

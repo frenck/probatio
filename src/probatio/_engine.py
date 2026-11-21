@@ -12,6 +12,7 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple
 
+from probatio._messages import plain_strings
 from probatio.error import (
     DictInvalid,
     ExclusiveInvalid,
@@ -546,7 +547,7 @@ class _MappingValidator:
                         candidate.msg,
                         path=[candidate.key_schema],
                         translation_key="required_any_of",
-                        placeholders={"keys": candidate.complex_keys},
+                        placeholders={"keys": plain_strings(candidate.complex_keys)},
                     ),
                 )
             else:
@@ -596,7 +597,7 @@ class _MappingValidator:
                 RequiredFieldInvalid(
                     path=[VirtualPathComponent(group)],
                     translation_key="required_one_of",
-                    placeholders={"keys": keys},
+                    placeholders={"keys": plain_strings(keys)},
                 ),
             )
 
