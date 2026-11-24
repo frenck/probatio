@@ -339,11 +339,11 @@ wheels = [
 
 [[package]]
 name = "dacite"
-version = "1.9.2"
+version = "1.9.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/55/a0/7ca79796e799a3e782045d29bf052b5cde7439a2bbb17f15ff44f7aacc63/dacite-1.9.2.tar.gz", hash = "sha256:6ccc3b299727c7aa17582f0021f6ae14d5de47c7227932c47fec4cdfefd26f09", size = 22420, upload-time = "2025-02-05T09:27:29.757Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/b5/d6ffee20bd4de195d49c9d0587e79bea07e995246e9fc4bd3369f9c491de/dacite-1.9.3.tar.gz", hash = "sha256:0941c63c6c87eb148cea1560ef65db883a1515bd1440275ad1b9330806ba4be8", size = 22777, upload-time = "2026-11-24T08:44:08.065Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/35/386550fd60316d1e37eccdda609b074113298f23cef5bddb2049823fe666/dacite-1.9.2-py3-none-any.whl", hash = "sha256:053f7c3f5128ca2e9aceb66892b1a3c8936d02c686e707bee96e19deef4bc4a0", size = 16600, upload-time = "2025-02-05T09:27:24.345Z" },
+    { url = "https://files.pythonhosted.org/packages/07/37/b65fe29f4dd0edb6c550916439bda4b351f1bda385740ebe29a4fcc1fead/dacite-1.9.3-py3-none-any.whl", hash = "sha256:709a5ce19b3e888ddc488aa07c3cb6c9829197645e5ecd4e517a7cc1d9f40529", size = 16973, upload-time = "2026-11-24T08:44:07.035Z" },
 ]
 
 [[package]]
@@ -1197,7 +1197,7 @@ typing = [
 bench-world = [
     { name = "cattrs", specifier = "==26.2.1" },
     { name = "covdefaults", specifier = "==2.3.0" },
-    { name = "dacite", specifier = "==1.9.2" },
+    { name = "dacite", specifier = "==1.9.3" },
     { name = "dataclasses-json", specifier = "==0.6.7" },
     { name = "hypothesis", specifier = "==6.170.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
