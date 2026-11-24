@@ -92,6 +92,12 @@ class Metadata(Mapping[str, Any]):
     The immutability is enforced, not a convention: the keys and values are copied
     into a dict no one else holds, and that dict is reached only through a
     ``MappingProxyType``, so there is no route back to a mutable view of it.
+
+    The immutability is that of the mapping: which keys it holds and the value
+    each is bound to. The values are stored as given, not copied, so a mutable
+    value such as a list can still be changed in place, and every value sharing
+    the ``Metadata`` sees the change. Metadata that must stay as it was should
+    use immutable values.
     """
 
     __slots__ = ("_data",)
@@ -296,8 +302,8 @@ def add_metadata[T](
 
     This is how a validator adds to what a value carries::
 
-        def normalize_port(value):
-            return add_metadata(int(value), normalized=True)
+        def mark_checked(value):
+            return add_metadata(value, checked=True)
 
     Existing keys are kept; the incoming values win on a shared key. Adding
     nothing (no mapping and no keywords, or an empty mapping) changes nothing, so a

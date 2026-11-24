@@ -104,7 +104,12 @@ Three ways to close it were considered.
   either reference, so the guarantee is enforced rather than left to convention:
   the contents are copied into a dict no one else holds and reached only through a
   `MappingProxyType`. The one cost is that the proxy cannot be pickled, so
-  `Metadata` reduces through its own constructor.
+  `Metadata` reduces through its own constructor. The guarantee is shallow on
+  purpose: the keys and the value each is bound to cannot change, but the values
+  are stored as given, so a mutable value can still be changed in place and is
+  seen through every reference. Copying values deeply would cost on every
+  construction and could not be made complete, so the docs recommend immutable
+  values instead.
 
 **Consequences**: Six additive public names (`METADATA_ATTR`, `Metadata`,
 `add_metadata`, `metadata_of`, `carry_metadata`, `supports_metadata`) and no

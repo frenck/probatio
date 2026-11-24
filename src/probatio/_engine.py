@@ -670,7 +670,12 @@ def _iterate_object(obj: Any) -> Any:
     for key, value in attributes.items():
         if key != METADATA_ATTR:
             yield (key, value)
-    for key in getattr(obj, "__slots__", ()):
+    slots = getattr(obj, "__slots__", ())
+    # A single slot may be declared as a plain string, which names one slot, not
+    # one per character.
+    if isinstance(slots, str):
+        slots = (slots,)
+    for key in slots:
         if key not in ("__dict__", METADATA_ATTR):
             yield (key, getattr(obj, key))
 

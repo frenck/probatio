@@ -89,6 +89,12 @@ cheap. That is only safe because nothing can change it afterwards through either
 reference, so the guarantee is enforced rather than advised: the keys and values
 are copied into a mapping no one else holds, reachable only read-only.
 
+What cannot change is the mapping: which keys it holds, and the value each one
+is bound to. The values themselves are stored as given, not copied, so a
+mutable value such as a list is still that same list, and changing it in place
+changes what every value sharing the `Metadata` reports. Use immutable values
+(a tuple rather than a list, for example) for metadata that must stay as it was.
+
 A value carries its metadata in one attribute, `__probatio_metadata__`,
 also exported as `METADATA_ATTR`. That attribute is the whole protocol: no
 registration, no base class, no method to implement.
@@ -444,8 +450,9 @@ metadata_of(validated)["origin"]  # 'configuration.yaml'
 ```
 
 **Metadata is shared, not copied.** The rebuilt value gets the same
-`Metadata` object as the original, which is safe precisely because a
-`Metadata` cannot change:
+`Metadata` object as the original, which is safe because a `Metadata` cannot be
+changed to hold other keys or other values. A mutable value inside it is shared
+the same way, as [the model](#the-model) explains:
 
 ```python
 from probatio import Schema, add_metadata, metadata_of

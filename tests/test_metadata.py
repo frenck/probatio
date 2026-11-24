@@ -249,6 +249,15 @@ def test_metadata_copy_the_source_mapping() -> None:
     assert metadata == {"file": "app.yaml"}
 
 
+def test_metadata_values_are_stored_as_given() -> None:
+    """Immutability is shallow: a mutable value is the caller's own object."""
+    findings: list[str] = []
+    metadata = Metadata(findings=findings)
+    findings.append("deprecated")
+    assert metadata["findings"] is findings
+    assert metadata["findings"] == ["deprecated"]
+
+
 def test_metadata_cannot_be_mutated_through_their_storage() -> None:
     """The backing mapping is read-only, so the immutability is enforced not advised."""
     metadata = Metadata(SOURCE)
@@ -1133,6 +1142,17 @@ def test_object_does_not_offer_the_metadata_attribute_as_a_field(
     value = add_metadata(carrier(1, 2), SOURCE)
     schema = Schema(Object({"x": int, "y": int}), extra=PREVENT_EXTRA)
     assert schema(value) == carrier(1, 2)
+
+
+def test_object_skips_a_metadata_slot_declared_as_a_string() -> None:
+    """A carrier whose __slots__ is the metadata name as one string validates."""
+
+    class Carrier:
+        __slots__ = "__probatio_metadata__"  # noqa: PLC0205 - the form under test
+
+    carrier = add_metadata(Carrier(), SOURCE)
+    result = Schema(Object({}))(carrier)
+    assert metadata_of(result) == SOURCE
 
 
 def test_object_ignores_an_unset_metadata_slot() -> None:
