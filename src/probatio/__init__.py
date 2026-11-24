@@ -110,6 +110,14 @@ from probatio.markers import (
     default_factory,
     extra,
 )
+from probatio.metadata import (
+    METADATA_ATTR,
+    Metadata,
+    add_metadata,
+    carry_metadata,
+    metadata_of,
+    supports_metadata,
+)
 from probatio.model import SchemaMixin
 from probatio.schema import (
     ALLOW_EXTRA,
@@ -327,6 +335,7 @@ __all__ = [
     "ASCII",
     "E164",
     "IBAN",
+    "METADATA_ATTR",
     "PASSTHROUGH",
     "PREVENT_EXTRA",
     "REMOVE_EXTRA",
@@ -453,6 +462,7 @@ __all__ = [
     "Match",
     "MatchInvalid",
     "Maybe",
+    "Metadata",
     "Modulo",
     "Msg",
     "MultipleInvalid",
@@ -543,6 +553,8 @@ __all__ = [
     "Without",
     "WriteOnce",
     "__version__",
+    "add_metadata",
+    "carry_metadata",
     "create_dataclass_schema",
     "create_typeddict_schema",
     "current_context",
@@ -554,10 +566,12 @@ __all__ = [
     "get_compile_policy",
     "is_dataclass",
     "message",
+    "metadata_of",
     "probatio",
     "raises",
     "set_build_policy",
     "set_compile_policy",
+    "supports_metadata",
     "to_field_list",
     "to_json_schema",
     "to_openapi",

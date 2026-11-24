@@ -986,6 +986,9 @@
         'value POSITIONAL_OR_KEYWORD required',
       ]),
     }),
+    'METADATA_ATTR': dict({
+      'kind': 'value',
+    }),
     'MacAddress': dict({
       'kind': 'class',
       'signature': list([
@@ -1046,6 +1049,13 @@
       'signature': list([
         'validator POSITIONAL_OR_KEYWORD required',
         'msg POSITIONAL_OR_KEYWORD None',
+      ]),
+    }),
+    'Metadata': dict({
+      'kind': 'class',
+      'signature': list([
+        'metadata POSITIONAL_ONLY None',
+        'extra VAR_KEYWORD required',
       ]),
     }),
     'Modulo': dict({
@@ -1826,6 +1836,21 @@
     '__version__': dict({
       'kind': 'value',
     }),
+    'add_metadata': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_ONLY required',
+        'metadata POSITIONAL_ONLY None',
+        'extra VAR_KEYWORD required',
+      ]),
+    }),
+    'carry_metadata': dict({
+      'kind': 'function',
+      'signature': list([
+        'source POSITIONAL_OR_KEYWORD required',
+        'target POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
     'create_dataclass_schema': dict({
       'kind': 'function',
       'signature': list([
@@ -1898,6 +1923,12 @@
         'translation_key KEYWORD_ONLY None',
       ]),
     }),
+    'metadata_of': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
     'probatio': dict({
       'kind': 'function',
       'signature': list([
@@ -1924,6 +1955,12 @@
       'kind': 'function',
       'signature': list([
         'policy POSITIONAL_OR_KEYWORD required',
+      ]),
+    }),
+    'supports_metadata': dict({
+      'kind': 'function',
+      'signature': list([
+        'value POSITIONAL_OR_KEYWORD required',
       ]),
     }),
     'to_field_list': dict({
