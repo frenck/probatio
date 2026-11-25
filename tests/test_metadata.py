@@ -249,13 +249,6 @@ def test_metadata_copy_the_source_mapping() -> None:
     assert metadata == {"file": "app.yaml"}
 
 
-def test_metadata_cannot_be_reinitialized() -> None:
-    """Calling __init__ again on a built Metadata leaves its contents alone."""
-    metadata = Metadata(SOURCE)
-    metadata.__init__(line=99)  # type: ignore[misc]
-    assert metadata == SOURCE
-
-
 def test_metadata_values_are_stored_as_given() -> None:
     """Immutability is shallow: a mutable value is the caller's own object."""
     findings: list[str] = []
@@ -526,10 +519,68 @@ def test_add_metadata_is_silent_on_a_value_that_cannot_carry(value: Any) -> None
 
 
 def test_add_metadata_is_silent_on_a_read_only_property() -> None:
-    """A carrier whose property cannot be written keeps what it had, without raising."""
+    """A read-only property is not a carrier: nothing is written, and nothing raises."""
     value = ReadOnlyCarrier()
     assert add_metadata(value, SOURCE) is value
-    assert metadata_of(value) == {"fixed": True}
+    assert value.__probatio_metadata__ == {"fixed": True}
+
+
+def test_metadata_of_does_not_read_through_a_property() -> None:
+    """A property is not a carrier, so its getter never runs and nothing is reported."""
+    assert metadata_of(ReadOnlyCarrier()) is None
+
+
+class AutoVivifyingDict(dict):
+    """A dict subclass whose missing attributes create a key, as some config types do."""
+
+    def __getattr__(self, name: str) -> Any:
+        """Create and return a nested mapping under the missing name."""
+        return self.setdefault(name, type(self)())
+
+
+class AttrDict(dict):
+    """The common attribute-access dict: a missing attribute raises KeyError."""
+
+    __getattr__ = dict.__getitem__
+
+
+class GetattrSlotCarrier(dict):
+    """A slot carrier whose __getattr__ must not be reached for an unset slot."""
+
+    __slots__ = ("__probatio_metadata__",)
+
+    def __getattr__(self, name: str) -> Any:
+        """Fail loudly if the fallback is ever reached."""
+        raise AssertionError(name)
+
+
+@pytest.mark.usefixtures("_compile_policy")
+def test_the_engine_does_not_run_getattr_of_a_dict_subclass() -> None:
+    """Rebuilding a dict subclass never reaches its __getattr__ or changes the input."""
+    data = AutoVivifyingDict({"a": 1})
+    result = Schema({"a": int}, extra=PREVENT_EXTRA)(data)
+    assert dict(result) == {"a": 1}
+    assert dict(data) == {"a": 1}
+    assert metadata_of(result) is None
+
+
+def test_the_helpers_do_not_run_getattr_of_a_dict_subclass() -> None:
+    """metadata_of and add_metadata read the instance dict, not the __getattr__ fallback."""
+    data = AttrDict({"a": 1})
+    assert metadata_of(data) is None
+    assert metadata_of(add_metadata(data, SOURCE)) == SOURCE
+    assert dict(data) == {"a": 1}
+    created = AutoVivifyingDict()
+    assert metadata_of(created) is None
+    assert dict(created) == {}
+
+
+def test_an_unset_slot_does_not_reach_getattr() -> None:
+    """An unset metadata slot reads as no metadata without the class's fallback."""
+    target = GetattrSlotCarrier()
+    assert metadata_of(GetattrSlotCarrier()) is None
+    assert carry_metadata(GetattrSlotCarrier(), target) is target
+    assert metadata_of(target) is None
 
 
 def test_add_metadata_rejects_a_broken_carrier() -> None:
@@ -737,12 +788,12 @@ def test_a_class_that_turns_hostile_after_caching_degrades_to_a_no_op() -> None:
 
 def test_the_carrier_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     """The per-type answer cache clears when it fills, so it cannot grow forever."""
-    monkeypatch.setattr(metadata_module, "_PLAIN_ATTRIBUTE_LIMIT", 4)
-    monkeypatch.setattr(metadata_module, "_PLAIN_ATTRIBUTE", {})
+    monkeypatch.setattr(metadata_module, "_STORAGE_LIMIT", 4)
+    monkeypatch.setattr(metadata_module, "_STORAGE", {})
     for index in range(10):
         carrier = type(f"Carrier{index}", (dict,), {"__slots__": (METADATA_ATTR,)})
         assert supports_metadata(carrier()) is True
-    assert len(metadata_module._PLAIN_ATTRIBUTE) <= 4
+    assert len(metadata_module._STORAGE) <= 4
 
 
 def test_a_plain_class_default_still_uses_the_instance_dict() -> None:

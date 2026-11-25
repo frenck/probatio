@@ -173,6 +173,25 @@ change to any existing signature. Points to fix in the design and the docs:
   `__getattribute__`, then a metaclass). The boundary is stated here so it does not
   have to be rediscovered one review at a time.
 
+  The rule for what probatio does guard against has two parts:
+
+  - **A type that never opted in sees no change.** A `dict` subclass with an
+    instance `__dict__` counts as a carrier without declaring anything, so the
+    engine reads the attribute from every one it rebuilds. That read runs no code
+    the class wrote: a class defining `__getattr__` or `__getattribute__` is read
+    past those hooks, straight from the slot or the instance dict, so a class whose
+    `__getattr__` adds a key on a miss cannot have its input changed or its
+    validation fail.
+  - **Every standard way of opting in works.** `__slots__` as a tuple or as a
+    single string, and an ordinary instance `__dict__`.
+
+  Anything else is outside the contract and is documented rather than guarded: a
+  carrier that defines a fake `__dict__`, code that calls dunder methods out of
+  order (calling `__init__` again on a built `Metadata`, say), or a write through
+  `object.__setattr__` past the immutability guard. None of these happen by
+  accident, and a guard for each would make the common path pay for code that is
+  working against its own validation.
+
   It earns its keep immediately. The per-type cache is keyed by the class, so a
   metaclass defining `__eq__` and `__hash__` can make two classes collide and hand a
   property carrier the answer computed for a slot carrier, and a metaclass that defines

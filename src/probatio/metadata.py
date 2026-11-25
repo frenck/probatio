@@ -58,7 +58,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType, MemberDescriptorType
-from typing import Any, Self
+from typing import Any
 
 # The one attribute a value carries its metadata in. The name is namespaced to
 # probatio and has two trailing underscores, so Python's private-name mangling
@@ -102,36 +102,29 @@ class Metadata(Mapping[str, Any]):
 
     __slots__ = ("_data",)
 
-    # Annotated, not assigned: the slot is filled once in ``__new__`` through
+    # Annotated, not assigned: the slot is filled once in ``__init__`` through
     # ``object.__setattr__``, since this class refuses ordinary attribute writes.
     _data: Mapping[str, Any]
 
-    def __new__(
-        cls,
+    def __init__(
+        self,
         metadata: Mapping[str, Any] | None = None,
         /,
         **extra: Any,
-    ) -> Self:
+    ) -> None:
         """Build metadata from a mapping, keyword arguments, or both.
 
         A keyword argument wins over the same key in ``metadata``. The mapping is
         copied, so a later change to it does not reach into the built object.
-
-        Built in ``__new__`` rather than ``__init__``, because ``__new__`` only ever
-        runs on a fresh object. Calling ``__init__`` again on an existing one reaches
-        ``object.__init__``, which does nothing, so there is no way to rebind the
-        storage of a ``Metadata`` that values already share.
         """
         data: dict[str, Any] = dict(metadata) if metadata is not None else {}
         if extra:
             data.update(extra)
-        self = object.__new__(cls)
         # The proxy wraps a dict that leaves this frame unreferenced, so the only
         # way to the contents is read-only, through the proxy. Set through
         # ``object.__setattr__`` because this class refuses attribute writes; this is
         # the one write, and it happens before anything else can see the object.
         object.__setattr__(self, "_data", MappingProxyType(data))
-        return self
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Refuse every attribute write: a ``Metadata`` is built once.
@@ -197,22 +190,31 @@ class Metadata(Mapping[str, Any]):
         return Metadata(merged)
 
 
-# Whether the metadata attribute on a given class is a plain data attribute, cached
-# per type because the answer depends only on the class and this sits on the carry
-# path. Bounded, and cleared wholesale when it fills, so a program minting classes
-# cannot grow it without limit or pin them alive forever.
-_PLAIN_ATTRIBUTE: dict[Any, bool] = {}
-_PLAIN_ATTRIBUTE_LIMIT = 512
+# How probatio reads and writes the metadata attribute on a given class, cached per
+# type because the answer depends only on the class and this sits on the carry path:
+# ``_CARRIER``, ``_HOOKED_CARRIER`` for a carrier whose class hooks attribute access,
+# or ``False`` when the class is not a carrier. Bounded, and cleared wholesale when it
+# fills, so a program minting classes cannot grow it without limit or pin them alive
+# forever.
+_CARRIER: Any = object()
+_HOOKED_CARRIER: Any = object()
+_STORAGE: dict[Any, Any] = {}
+_STORAGE_LIMIT = 512
+
+# Attribute lookup that never falls back to a class's ``__getattr__`` and never runs
+# an overridden ``__getattribute__``: it finds the slot or the instance dict entry,
+# or raises ``AttributeError``.
+_read_past_hooks = object.__getattribute__
 
 
-def _writes_a_plain_attribute(cls: Any) -> bool:
-    """Report whether the metadata attribute on ``cls`` is a plain data attribute.
+def _storage(cls: Any) -> Any:
+    """Return how ``cls`` holds the metadata attribute, or False for a non-carrier.
 
-    True for a name in ``__slots__`` and for an ordinary instance ``__dict__``: the
-    attribute is somewhere an instance simply holds it. False for a property or any
-    other data descriptor the class defines, which would take the write as a call
-    rather than a write, and for a class overriding ``__setattr__``, which means to
-    intercept its own writes (a frozen dataclass, say).
+    A carrier keeps it in a name in ``__slots__`` or in an ordinary instance
+    ``__dict__``: somewhere an instance simply holds it. A property or any other data
+    descriptor the class defines would take the write as a call rather than a write,
+    and a class overriding ``__setattr__`` means to intercept its own writes (a frozen
+    dataclass, say); neither is a carrier.
 
     This is the protocol, not a defence. A carrier class is first-party code, trusted
     exactly as much as the validator callables probatio already runs; see ADR-018 on
@@ -225,33 +227,65 @@ def _writes_a_plain_attribute(cls: Any) -> bool:
     ``getattr`` on it, which would run a descriptor's ``__get__`` and report on
     whatever that returned instead of on the descriptor itself.
     """
-    cached = _PLAIN_ATTRIBUTE.get(cls)
+    cached = _STORAGE.get(cls)
     if cached is not None:
         return cached
-    if len(_PLAIN_ATTRIBUTE) >= _PLAIN_ATTRIBUTE_LIMIT:
-        _PLAIN_ATTRIBUTE.clear()
-    answer = _compute_plain_attribute(cls)
-    _PLAIN_ATTRIBUTE[cls] = answer
+    if len(_STORAGE) >= _STORAGE_LIMIT:
+        _STORAGE.clear()
+    answer = _compute_storage(cls)
+    _STORAGE[cls] = answer
     return answer
 
 
-def _compute_plain_attribute(cls: Any) -> bool:
-    """Work out the uncached answer for ``_writes_a_plain_attribute``."""
-    if any("__setattr__" in vars(base) for base in cls.__mro__[:-1]):
+def _writes_a_plain_attribute(cls: Any) -> bool:
+    """Report whether ``cls`` keeps the metadata attribute where probatio writes it."""
+    return _storage(cls) is not False
+
+
+def _compute_storage(cls: Any) -> Any:
+    """Work out the uncached answer for ``_storage``."""
+    bases = cls.__mro__[:-1]
+    if any("__setattr__" in vars(base) for base in bases):
         return False
     for base in cls.__mro__:
         namespace = vars(base)
         if METADATA_ATTR in namespace:
             found = namespace[METADATA_ATTR]
             if isinstance(found, MemberDescriptorType):
-                return True
+                break
             if hasattr(type(found), "__set__") or hasattr(type(found), "__delete__"):
                 # A data descriptor the class wrote; it also shadows an instance entry.
                 return False
             # An ordinary class attribute, a default of some kind. An instance entry
             # simply shadows it, so the instance dictionary is still the place.
+            if not any("__dict__" in vars(base) for base in bases):
+                return False
             break
-    return any("__dict__" in vars(base) for base in cls.__mro__[:-1])
+    else:
+        if not any("__dict__" in vars(base) for base in bases):
+            return False
+    # A ``dict`` subclass with an instance ``__dict__`` counts as a carrier without
+    # declaring anything, so probatio reads from every one it rebuilds, including ones
+    # that never heard of metadata. A plain ``getattr`` falls back to the class's own
+    # ``__getattr__`` on a miss, and that code may do anything, such as add a key to
+    # the very mapping being validated. Such a class is read past its hooks instead.
+    hooks = ("__getattr__", "__getattribute__")
+    if any(hook in vars(base) for base in bases for hook in hooks):
+        return _HOOKED_CARRIER
+    return _CARRIER
+
+
+def _read_hooked(value: Any) -> Any:
+    """Read the metadata attribute of a carrier whose class hooks attribute access.
+
+    It is read past the hooks, straight from the slot or the instance dict, so no code
+    the class wrote runs. None when it was never set.
+    """
+    try:
+        return _read_past_hooks(value, METADATA_ATTR)
+    except AttributeError:
+        # Never set on this value.
+        return None
 
 
 def supports_metadata(value: Any) -> bool:
@@ -284,8 +318,21 @@ def metadata_of(value: Any) -> Metadata | None:
     mapping in the attribute, so a caller gets one shape to work with. A value
     holding something that is not a mapping is a broken carrier, and raises
     ``TypeError`` rather than being silently read as empty.
+
+    Only a carrier is read, and only from where it keeps the attribute (its slot
+    or its instance ``__dict__``), so a value whose type is not a carrier reports
+    None, and no ``__getattr__`` its class defines ever runs.
     """
-    raw = getattr(value, METADATA_ATTR, None)
+    cls = type(value)
+    storage = _STORAGE.get(cls)
+    if storage is None:
+        storage = _storage(cls)
+    if storage is _CARRIER:
+        raw = getattr(value, METADATA_ATTR, None)
+    elif storage is False:
+        return None
+    else:
+        raw = _read_hooked(value)
     if raw is None:
         return None
     if type(raw) is Metadata:
@@ -323,7 +370,7 @@ def add_metadata[T](
 
     Reading is not swallowed the way ``carry_metadata`` swallows it. A value
     already carrying something that is not a mapping raises ``TypeError`` the same
-    way ``metadata_of`` does, and a carrier whose getter raises surfaces that.
+    way ``metadata_of`` does.
     This is an explicit call by the code that wants the metadata, so a broken
     carrier is worth hearing about, and proceeding would mean silently discarding
     whatever the value already had. The engine's own carry has neither luxury: it
@@ -377,26 +424,41 @@ def carry_metadata[T](source: Any, target: T) -> T:
     is worth. A source carrying something that is not a mapping therefore spreads it
     rather than being reported, until something reads it through ``metadata_of``.
 
-    It never raises for a carrier's own reasons. Both ends are ordinary attribute
-    access, so both can run code the carrier wrote: a property getter on ``source``,
-    a property setter or a ``__setattr__`` on ``target``. Whatever that code raises
-    is swallowed and the carry is abandoned. This is not politeness, it is the
+    It never raises for a carrier's own reasons. The read runs no code the source's
+    class wrote, and the write lands only in a slot or an instance dict, but working
+    out how a class holds the attribute reads its namespaces, which a hostile
+    metaclass can still interfere with. Whatever is raised is swallowed and the
+    carry is abandoned. This is not politeness, it is the
     safe-validator contract (see ``validators/_base.py``): ``ExactSequence`` and the
     mapping and sequence engines all call this, and a built-in validator that leaked
     a carrier's ``RuntimeError`` would escape the ``MultipleInvalid`` a caller
     catches. Failing to move metadata is not a statement about the data, so it is
     never a validation failure. ``BaseException`` still propagates.
     """
-    # The whole read-and-write is guarded, not just the write: a property getter on
-    # ``source`` can raise too. A ``try`` that does not raise is free, so this costs
+    # The whole read-and-write is guarded, not just the write: an unset attribute
+    # read past a class's hooks raises too. A ``try`` that does not raise is free, so this costs
     # the hot path nothing; ``contextlib.suppress`` would build an object and call
     # into it every time, measured at 91 ns against 18 ns.
     try:
         # Inside the guard: working out how to write the attribute reads the target's
         # class, and a hostile metaclass can raise from that alone.
-        if not _writes_a_plain_attribute(type(target)):
+        cls = type(target)
+        storage = _STORAGE.get(cls)
+        if storage is None:
+            storage = _storage(cls)
+        if storage is False:
             return target
-        metadata = getattr(source, METADATA_ATTR, None)
+        if type(source) is not cls:
+            storage = _storage(type(source))
+            if storage is False:
+                return target
+        # The read is inlined: this runs once per rebuilt container. An unset
+        # attribute read past the hooks raises ``AttributeError``, which ends the
+        # carry below with nothing to move.
+        if storage is _CARRIER:
+            metadata = getattr(source, METADATA_ATTR, None)
+        else:
+            metadata = _read_past_hooks(source, METADATA_ATTR)
         if metadata is not None:
             setattr(target, METADATA_ATTR, metadata)
     except Exception:  # noqa: BLE001 - a carrier's own code must not fail validation
