@@ -58,7 +58,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from types import MappingProxyType, MemberDescriptorType
-from typing import Any
+from typing import Any, Self
 
 # The one attribute a value carries its metadata in. The name is namespaced to
 # probatio and has two trailing underscores, so Python's private-name mangling
@@ -102,29 +102,36 @@ class Metadata(Mapping[str, Any]):
 
     __slots__ = ("_data",)
 
-    # Annotated, not assigned: the slot is filled once in ``__init__`` through
+    # Annotated, not assigned: the slot is filled once in ``__new__`` through
     # ``object.__setattr__``, since this class refuses ordinary attribute writes.
     _data: Mapping[str, Any]
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         metadata: Mapping[str, Any] | None = None,
         /,
         **extra: Any,
-    ) -> None:
+    ) -> Self:
         """Build metadata from a mapping, keyword arguments, or both.
 
         A keyword argument wins over the same key in ``metadata``. The mapping is
         copied, so a later change to it does not reach into the built object.
+
+        Built in ``__new__`` rather than ``__init__``, because ``__new__`` only ever
+        runs on a fresh object. Calling ``__init__`` again on an existing one reaches
+        ``object.__init__``, which does nothing, so there is no way to rebind the
+        storage of a ``Metadata`` that values already share.
         """
         data: dict[str, Any] = dict(metadata) if metadata is not None else {}
         if extra:
             data.update(extra)
+        self = object.__new__(cls)
         # The proxy wraps a dict that leaves this frame unreferenced, so the only
         # way to the contents is read-only, through the proxy. Set through
         # ``object.__setattr__`` because this class refuses attribute writes; this is
         # the one write, and it happens before anything else can see the object.
         object.__setattr__(self, "_data", MappingProxyType(data))
+        return self
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Refuse every attribute write: a ``Metadata`` is built once.

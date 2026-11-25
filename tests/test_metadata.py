@@ -249,6 +249,13 @@ def test_metadata_copy_the_source_mapping() -> None:
     assert metadata == {"file": "app.yaml"}
 
 
+def test_metadata_cannot_be_reinitialized() -> None:
+    """Calling __init__ again on a built Metadata leaves its contents alone."""
+    metadata = Metadata(SOURCE)
+    metadata.__init__(line=99)  # type: ignore[misc]
+    assert metadata == SOURCE
+
+
 def test_metadata_values_are_stored_as_given() -> None:
     """Immutability is shallow: a mutable value is the caller's own object."""
     findings: list[str] = []
