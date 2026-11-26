@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
+from math import inf
 from typing import TYPE_CHECKING, Any
 
 from probatio._engine import (
@@ -641,6 +642,7 @@ def compile_mapping(
         "_UNDEFINED_CLS": Undefined,
         "_interpreted": validator if fallback is None else fallback,
         "_Type": construct,
+        "inf": inf,
     }
     allowed = frozenset(candidate.key_schema for candidate in candidates)
     if construct is None:
@@ -728,7 +730,7 @@ def compile_sequence(
     inlines; ``fallback`` is the interpreted validator, used on any bail and for a
     non-list input (a tuple, a list subclass), which it rebuilds as its own type.
     """
-    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback}
+    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback, "inf": inf}
     inline = (
         _inline_sequence(schema, namespace, "0") if isinstance(schema, list) else None
     )
