@@ -169,21 +169,37 @@ def _inline_coerce(target: Any) -> list[str] | None:
     return None
 
 
-def _emit_bound(bound: float, namespace: dict[str, Any], name: str) -> str:
-    """Spell a numeric bound for the generated source.
+def _emit_bound_check(
+    fails: str, bound: float, namespace: dict[str, Any], name: str
+) -> list[str]:
+    """Emit a bail for when the ``fails`` comparison against a numeric bound holds.
 
-    A plain ``int`` or a finite ``float`` round-trips through ``repr``, so it is
-    emitted as a constant. Anything else has no literal spelling: an infinity or NaN
-    (``inf`` and ``nan`` are not names), or an ``int``/``float`` subclass such as an
-    ``IntEnum`` member (``<Level.LOW: 1>`` is not even valid syntax). Those are bound
-    into the namespace under ``name`` instead, which also keeps the comparison on the
-    bound's own type, exactly as the interpreted validator compares it.
+    ``fails`` is the comparison with ``{bound}`` where the bound goes, like
+    ``"_v < {bound}"``. A plain ``int`` or a finite ``float`` round-trips through
+    ``repr``, so it is emitted as a constant and the comparison cannot raise.
+
+    Anything else has no literal spelling: an infinity or NaN (``inf`` and ``nan``
+    are not names), or an ``int``/``float`` subclass such as an ``IntEnum`` member
+    (``<Level.LOW: 1>`` is not even valid syntax). Those are bound into the namespace
+    under ``name``, which keeps the comparison on the bound's own type, exactly as the
+    interpreted validator compares it. A subclass may override that comparison and
+    raise; the interpreted validator reports that as invalid, so the check bails on
+    any exception rather than leak it.
     """
     if type(bound) is int or (type(bound) is float and isfinite(bound)):
-        return repr(bound)
+        return [
+            f"        if {fails.format(bound=repr(bound))}:",
+            "            raise _Bail",
+        ]
 
     namespace[name] = bound
-    return name
+    return [
+        "        try:",
+        f"            if {fails.format(bound=name)}:",
+        "                raise _Bail",
+        "        except Exception:",
+        "            raise _Bail",
+    ]
 
 
 def _inline_range(
@@ -208,12 +224,14 @@ def _inline_range(
     )
     if low is not None:
         op = ">=" if schema.min_included else ">"
-        low_source = _emit_bound(low, namespace, f"_rmin{tag}")
-        lines += [f"        if not (_v {op} {low_source}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", low, namespace, f"_rmin{tag}"
+        )
     if high is not None:
         op = "<=" if schema.max_included else "<"
-        high_source = _emit_bound(high, namespace, f"_rmax{tag}")
-        lines += [f"        if not (_v {op} {high_source}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", high, namespace, f"_rmax{tag}"
+        )
     return lines
 
 
@@ -245,11 +263,11 @@ def _inline_length(
         "            raise _Bail",
     ]
     if low is not None:
-        low_source = _emit_bound(low, namespace, f"_lmin{tag}")
-        lines += [f"        if {name} < {low_source}:", "            raise _Bail"]
+        lines += _emit_bound_check(f"{name} < {{bound}}", low, namespace, f"_lmin{tag}")
     if high is not None:
-        high_source = _emit_bound(high, namespace, f"_lmax{tag}")
-        lines += [f"        if {name} > {high_source}:", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"{name} > {{bound}}", high, namespace, f"_lmax{tag}"
+        )
     return lines
 
 

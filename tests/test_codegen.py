@@ -139,6 +139,12 @@ _BUILDERS = {
     "length_int_enum": lambda **k: Schema(
         {"x": Length(min=_Level.LOW, max=_Level.HIGH)}, **k
     ),
+    # A bound whose own comparison raises: the interpreted validator reports it as
+    # invalid, so the compiled check must bail there rather than leak the TypeError.
+    "range_refusing_bound": lambda **k: Schema({"x": Range(min=_RefusingInt(1))}, **k),
+    "length_refusing_bound": lambda **k: Schema(
+        {"x": Length(max=_RefusingInt(4))}, **k
+    ),
     # Any inlining: all-types with None (allow_none), and a mixed Any with a
     # non-type branch that falls back to the closure.
     "any_maybe": lambda **k: Schema({"x": Any(int, None)}, **k),
@@ -191,6 +197,17 @@ class _Level(IntEnum):
 
     LOW = 1
     HIGH = 4
+
+
+class _RefusingInt(int):
+    """An int whose comparisons raise, so a check against it can only fail."""
+
+    def __lt__(self, other: int) -> bool:
+        """Refuse every ordering comparison."""
+        msg = "no ordering"
+        raise TypeError(msg)
+
+    __le__ = __gt__ = __ge__ = __lt__
 
 
 class _Svc(StrEnum):
@@ -700,6 +717,8 @@ def test_policy_turned_off_after_arming_stays_interpreted() -> None:
         ([Range(min=nan)], [[1]]),
         ([Range(min=_Level.LOW, max=_Level.HIGH)], [[1, 4], [0], [5]]),
         ([Length(min=_Level.LOW, max=_Level.HIGH)], [["abc"], [""], ["abcde"]]),
+        ([Range(max=_RefusingInt(4))], [[1]]),
+        ([Length(min=_RefusingInt(1))], [["abc"]]),
     ],
 )
 def test_compiled_sequence_matches_interpreted(
