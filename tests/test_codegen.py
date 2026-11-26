@@ -9,8 +9,8 @@ generate.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
-from math import inf
+from enum import Enum, IntEnum, StrEnum
+from math import inf, nan
 from types import MappingProxyType
 from typing import TypedDict
 
@@ -125,10 +125,20 @@ _BUILDERS = {
     "coerce_str": lambda **k: Schema({"x": Coerce(str)}, **k),
     "range_min_only": lambda **k: Schema({"x": All(int, Range(min=0))}, **k),
     "range_max_only": lambda **k: Schema({"x": All(int, Range(max=100))}, **k),
-    # `inf` is the string representation of positive infinity but it isn't a symbol that
-    # is in scope without being imported from `math`
+    # Bounds whose repr is not source: ``inf`` and ``nan`` are not names, and an
+    # IntEnum member reprs as ``<_Level.LOW: 1>``. They must compile, not crash.
     "range_neg_inf": lambda **k: Schema({"x": Range(min=float("-inf"))}, **k),
     "range_inf": lambda **k: Schema({"x": Range(max=float("inf"))}, **k),
+    "range_nan": lambda **k: Schema({"x": Range(min=nan)}, **k),
+    "range_int_enum": lambda **k: Schema(
+        {"x": Range(min=_Level.LOW, max=_Level.HIGH)}, **k
+    ),
+    "range_int_enum_coerced": lambda **k: Schema(
+        {"x": All(Coerce(int), Range(min=_Level.LOW))}, **k
+    ),
+    "length_int_enum": lambda **k: Schema(
+        {"x": Length(min=_Level.LOW, max=_Level.HIGH)}, **k
+    ),
     # Any inlining: all-types with None (allow_none), and a mixed Any with a
     # non-type branch that falls back to the closure.
     "any_maybe": lambda **k: Schema({"x": Any(int, None)}, **k),
@@ -174,6 +184,13 @@ _BUILDERS = {
 class _Color(Enum):
     RED = "red"
     BLUE = "blue"
+
+
+class _Level(IntEnum):
+    """An integer enum: its members are int instances, but repr is not source."""
+
+    LOW = 1
+    HIGH = 4
 
 
 class _Svc(StrEnum):
@@ -680,6 +697,9 @@ def test_policy_turned_off_after_arming_stays_interpreted() -> None:
         ([Any(int, str)], [[1, "a"], [1.5], []]),
         ([Range(min=-inf)], [[1]]),
         ([Range(max=inf)], [[1]]),
+        ([Range(min=nan)], [[1]]),
+        ([Range(min=_Level.LOW, max=_Level.HIGH)], [[1, 4], [0], [5]]),
+        ([Length(min=_Level.LOW, max=_Level.HIGH)], [["abc"], [""], ["abcde"]]),
     ],
 )
 def test_compiled_sequence_matches_interpreted(
