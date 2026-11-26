@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import Enum, StrEnum
 from typing import get_type_hints
 
 import pytest
@@ -710,3 +711,33 @@ def test_membership_and_equality_reject_signaling_nan() -> None:
             validator(snan)
     with pytest.raises(Invalid):
         Contains(snan)([1, 2])
+
+
+class _Choice(StrEnum):
+    """Members as a ``StrEnum``, like an integration's option values."""
+
+    A = "a"
+    B = "b"
+
+
+class _LegacyChoice(str, Enum):  # noqa: UP042 - the pre-StrEnum spelling, on purpose
+    """Members as a ``(str, Enum)`` mixin, whose ``str()`` is the member name."""
+
+    A = "a"
+    B = "b"
+
+
+@pytest.mark.parametrize("choice", [_Choice, _LegacyChoice])
+@pytest.mark.parametrize(("validator", "value"), [(In, "x"), (NotIn, "a")])
+def test_membership_message_shows_str_enum_members_by_value(
+    validator: type, value: str, choice: type[Enum]
+) -> None:
+    """String enum members render in the message and placeholders like plain strings."""
+    with pytest.raises(MultipleInvalid) as plain:
+        Schema(validator(["a", "b"]))(value)
+    with pytest.raises(MultipleInvalid) as enum:
+        Schema(validator(list(choice)))(value)
+
+    error = enum.value.errors[0]
+    assert error.error_message == plain.value.errors[0].error_message
+    assert all(type(member) is str for member in error.placeholders["values"])
