@@ -44,7 +44,7 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
-from probatio.codecs.jsonschema import _JsonPattern
+from probatio.codecs.jsonschema import _JsonNumberType, _JsonPattern
 from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
@@ -1046,6 +1046,11 @@ def _oa_typed(node: Any) -> dict[str, Any] | None:
         return {"type": "number", "multipleOf": node.factor}
     if isinstance(node, Base64):
         return {"type": "string", "contentEncoding": "base64"}
+
+    # The decoder's JSON-strict numeric types re-emit their keyword, so a
+    # decoded schema round-trips.
+    if isinstance(node, _JsonNumberType):
+        return {"type": "integer" if node.integer else "number"}
 
     return None
 
