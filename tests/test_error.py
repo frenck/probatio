@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum, StrEnum
 
 import pytest
 
@@ -358,19 +358,32 @@ class _Field(StrEnum):
     ORANGE = "orange"
 
 
-def test_unknown_key_suggests_a_str_enum_key_by_value() -> None:
-    """A near-miss of a StrEnum key suggests it by value, not by repr."""
+class _LegacyField(str, Enum):  # noqa: UP042 - the pre-StrEnum spelling, on purpose
+    """Keys and members as a ``(str, Enum)`` mixin, whose ``str()`` is the name."""
+
+    GREEN = "green"
+    ORANGE = "orange"
+
+
+@pytest.mark.parametrize("field", [_Field, _LegacyField])
+def test_unknown_key_suggests_a_str_enum_key_by_value(
+    field: type[_Field | _LegacyField],
+) -> None:
+    """A near-miss of a string enum key suggests it by value, not by repr."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema({Required(_Field.GREEN): str})({"gren": "x"})
+        Schema({Required(field.GREEN): str})({"gren": "x"})
     error = caught.value.errors[0]
     assert error.error_message == "not a valid option, did you mean 'green'?"
     assert all(type(candidate) is str for candidate in error.candidates)
 
 
-def test_in_suggests_a_str_enum_member_by_value() -> None:
-    """A near-miss of a StrEnum member in In suggests it by value, not by repr."""
+@pytest.mark.parametrize("field", [_Field, _LegacyField])
+def test_in_suggests_a_str_enum_member_by_value(
+    field: type[_Field | _LegacyField],
+) -> None:
+    """A near-miss of a string enum member in In suggests it by value, not by repr."""
     with pytest.raises(MultipleInvalid) as caught:
-        Schema(In([_Field.GREEN, _Field.ORANGE]))("gren")
+        Schema(In([field.GREEN, field.ORANGE]))("gren")
     error = caught.value.errors[0]
     assert error.error_message.endswith(", did you mean 'green'?")
     assert all(type(candidate) is str for candidate in error.candidates)
