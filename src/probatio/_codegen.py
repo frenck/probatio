@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
-from math import inf
+from math import isfinite
 from typing import TYPE_CHECKING, Any
 
 from probatio._engine import (
@@ -169,7 +169,42 @@ def _inline_coerce(target: Any) -> list[str] | None:
     return None
 
 
-def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | None:
+def _emit_bound_check(
+    fails: str, bound: float, namespace: dict[str, Any], name: str
+) -> list[str]:
+    """Emit a bail for when the ``fails`` comparison against a numeric bound holds.
+
+    ``fails`` is the comparison with ``{bound}`` where the bound goes, like
+    ``"_v < {bound}"``. A plain ``int`` or a finite ``float`` round-trips through
+    ``repr``, so it is emitted as a constant and the comparison cannot raise.
+
+    Anything else has no literal spelling: an infinity or NaN (``inf`` and ``nan``
+    are not names), or an ``int``/``float`` subclass such as an ``IntEnum`` member
+    (``<Level.LOW: 1>`` is not even valid syntax). Those are bound into the namespace
+    under ``name``, which keeps the comparison on the bound's own type, exactly as the
+    interpreted validator compares it. A subclass may override that comparison and
+    raise; the interpreted validator reports that as invalid, so the check bails on
+    any exception rather than leak it.
+    """
+    if type(bound) is int or (type(bound) is float and isfinite(bound)):
+        return [
+            f"        if {fails.format(bound=repr(bound))}:",
+            "            raise _Bail",
+        ]
+
+    namespace[name] = bound
+    return [
+        "        try:",
+        f"            if {fails.format(bound=name)}:",
+        "                raise _Bail",
+        "        except Exception:",
+        "            raise _Bail",
+    ]
+
+
+def _inline_range(
+    schema: Any, namespace: dict[str, Any], tag: str, *, type_checked: bool = False
+) -> list[str] | None:
     """Inline a numeric ``Range`` with numeric bounds; ``_v`` is unchanged.
 
     ``type_checked`` is the caller asserting ``_v`` is already known to be an
@@ -189,14 +224,20 @@ def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | Non
     )
     if low is not None:
         op = ">=" if schema.min_included else ">"
-        lines += [f"        if not (_v {op} {low!r}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", low, namespace, f"_rmin{tag}"
+        )
     if high is not None:
         op = "<=" if schema.max_included else "<"
-        lines += [f"        if not (_v {op} {high!r}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", high, namespace, f"_rmax{tag}"
+        )
     return lines
 
 
-def _inline_length(schema: Any, tag: str) -> list[str] | None:
+def _inline_length(
+    schema: Any, namespace: dict[str, Any], tag: str
+) -> list[str] | None:
     """Inline a ``Length`` with integer bounds; ``_v`` is unchanged.
 
     With no bound set the value always passes, so nothing is emitted. A value whose
@@ -222,9 +263,11 @@ def _inline_length(schema: Any, tag: str) -> list[str] | None:
         "            raise _Bail",
     ]
     if low is not None:
-        lines += [f"        if {name} < {low!r}:", "            raise _Bail"]
+        lines += _emit_bound_check(f"{name} < {{bound}}", low, namespace, f"_lmin{tag}")
     if high is not None:
-        lines += [f"        if {name} > {high!r}:", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"{name} > {{bound}}", high, namespace, f"_lmax{tag}"
+        )
     return lines
 
 
@@ -325,10 +368,11 @@ def _inline_all(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     chained: list[str] = []
     numeric = False
     for position, sub in enumerate(schema.validators):
+        sub_tag = f"{tag}_{position}"
         if numeric and isinstance(sub, range_cls):
-            sub_lines = _inline_range(sub, type_checked=True)
+            sub_lines = _inline_range(sub, namespace, sub_tag, type_checked=True)
         else:
-            sub_lines = _inline_value(sub, namespace, f"{tag}_{position}")
+            sub_lines = _inline_value(sub, namespace, sub_tag)
         if sub_lines is None:
             return None
         chained.extend(sub_lines)
@@ -419,7 +463,7 @@ def _inline_validator(  # noqa: PLR0911 - a flat one-per-validator type dispatch
     if isinstance(schema, coerce_cls):
         return _inline_coerce(schema.type)
     if isinstance(schema, range_cls):
-        return _inline_range(schema)
+        return _inline_range(schema, namespace, tag)
     if isinstance(schema, in_cls):
         return _inline_in(schema, namespace, tag)
     if isinstance(schema, any_cls):
@@ -427,7 +471,7 @@ def _inline_validator(  # noqa: PLR0911 - a flat one-per-validator type dispatch
     if isinstance(schema, all_cls):
         return _inline_all(schema, namespace, tag)
     if isinstance(schema, length_cls):
-        return _inline_length(schema, tag)
+        return _inline_length(schema, namespace, tag)
     if isinstance(schema, match_cls):
         return _inline_match(schema, namespace, tag)
     return None
@@ -642,7 +686,6 @@ def compile_mapping(
         "_UNDEFINED_CLS": Undefined,
         "_interpreted": validator if fallback is None else fallback,
         "_Type": construct,
-        "inf": inf,
     }
     allowed = frozenset(candidate.key_schema for candidate in candidates)
     if construct is None:
@@ -730,7 +773,7 @@ def compile_sequence(
     inlines; ``fallback`` is the interpreted validator, used on any bail and for a
     non-list input (a tuple, a list subclass), which it rebuilds as its own type.
     """
-    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback, "inf": inf}
+    namespace: dict[str, Any] = {"_Bail": _Bail, "_interpreted": fallback}
     inline = (
         _inline_sequence(schema, namespace, "0") if isinstance(schema, list) else None
     )
