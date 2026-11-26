@@ -172,8 +172,11 @@ def plain_strings(values: Iterable[Any]) -> list[Any]:
     """Return the values for a placeholder, with ``str`` subclasses as ``str``.
 
     A ``StrEnum`` member then reads as its value in a message, not its repr.
+    ``str.__str__`` takes the underlying string, never the subclass's own
+    ``__str__``: a ``(str, Enum)`` member's ``str()`` is its name
+    (``"Field.A"``), which would tell the reader to type the wrong thing.
     """
-    return [str(value) if isinstance(value, str) else value for value in values]
+    return [str.__str__(value) if isinstance(value, str) else value for value in values]
 
 
 def render(key: str, placeholders: dict[str, Any] | None) -> str:

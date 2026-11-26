@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING
 
 import pytest
@@ -255,6 +255,13 @@ class _Field(StrEnum):
     B = "b"
 
 
+class _LegacyField(str, Enum):  # noqa: UP042 - the pre-StrEnum spelling, on purpose
+    """Keys as a ``(str, Enum)`` mixin, whose ``str()`` is the member name."""
+
+    A = "a"
+    B = "b"
+
+
 @pytest.mark.parametrize(
     "build",
     [
@@ -268,14 +275,16 @@ class _Field(StrEnum):
         ),
     ],
 )
+@pytest.mark.parametrize("field", [_Field, _LegacyField])
 def test_group_message_shows_str_enum_keys_by_value(
     build: Callable[[str, str], dict[object, object]],
+    field: type[_Field | _LegacyField],
 ) -> None:
-    """StrEnum keys render in the message and placeholders like plain string keys."""
+    """String enum keys render in the message and placeholders like plain keys."""
     with pytest.raises(MultipleInvalid) as plain:
         Schema(build("a", "b"))({})
     with pytest.raises(MultipleInvalid) as enum:
-        Schema(build(_Field.A, _Field.B))({})
+        Schema(build(field.A, field.B))({})
 
     error = enum.value.errors[0]
     assert error.error_message == plain.value.errors[0].error_message
