@@ -11,6 +11,7 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    Coerce,
     Forbidden,
     MultipleInvalid,
     Optional,
@@ -77,6 +78,16 @@ def test_forbidden_type_key_forbids_matching_keys() -> None:
         schema({"nope": 1})
 
     assert caught.value.errors[0].path == ["nope"]
+
+
+def test_forbidden_callable_key_reports_the_input_key() -> None:
+    """A Forbidden callable key names the key as given, not what it coerced to."""
+    schema = Schema({Forbidden(Coerce(int)): object, str: object})
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema({"5": 1})
+
+    assert caught.value.errors[0].path == ["5"]
 
 
 def test_forbidden_exports_a_false_json_schema_property() -> None:
