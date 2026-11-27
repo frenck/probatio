@@ -231,9 +231,11 @@ they do on a plain array.
 `default` is an annotation and never makes an instance invalid. A property's
 `default` fills in an absent key only when the property's own schema accepts it;
 otherwise it is left out, so the key stays optional and is not rejected. That
-check runs the decoded schema once, so it is skipped, and the default left out,
-for a property whose schema spreads out to more than ten thousand nodes once its
-references are followed.
+check runs the decoded schema once, so it is bounded: the default is left out
+without being checked when it is large (more than 256 characters and members
+together), or when the property's schema spreads out to more than ten thousand
+nodes once its references are followed. The larger the default, the smaller that
+second limit.
 
 `from_openapi` adds the OpenAPI `nullable` keyword, covered in
 [OpenAPI](/guides/openapi/).

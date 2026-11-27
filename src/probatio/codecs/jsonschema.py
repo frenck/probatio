@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import datetime as dt
+import itertools
 import math
 import re
 from dataclasses import dataclass, field
@@ -2812,6 +2813,14 @@ def _from_key(
 # its default to be checked while decoding.
 _DEFAULT_CHECK_BUDGET = 10_000
 
+# How large a default may be to be checked, counting its containers, their
+# members and the characters of its strings. A ``pattern`` can take time
+# quadratic in the string it is matched against.
+_DEFAULT_SIZE_LIMIT = 256
+
+# The schema budget shrinks as the default grows: the two multiply.
+_DEFAULT_CHECK_WORK = 100_000
+
 
 def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
     """Whether validating against a property's schema is bounded work.
@@ -2823,7 +2832,16 @@ def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
     reference each time it appears, and the check is skipped past a fixed number
     of nodes. A default that is not checked is not carried, which costs the
     fill-in and never rejects an input.
+
+    The default counts too. Every node may look at all of it, and a ``pattern``
+    takes up to quadratic time in a string, so a large default is not checked at
+    all and a larger one leaves a smaller budget for the schema.
     """
+    size = _json_size(subschema["default"], _DEFAULT_SIZE_LIMIT)
+    if size > _DEFAULT_SIZE_LIMIT:
+        return False
+
+    budget = min(_DEFAULT_CHECK_BUDGET, _DEFAULT_CHECK_WORK // size)
     pending: list[Any] = [subschema]
     # Each pointer is resolved once: splitting a long one again for every
     # appearance would be work the budget does not see. ``None`` marks one that
@@ -2845,12 +2863,37 @@ def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
         # Charged before the children are queued, so a wide node reached through
         # many references cannot grow the queue past the budget either.
         spent += 1 + len(children)
-        if spent > _DEFAULT_CHECK_BUDGET:
+        if spent > budget:
             return False
 
         pending.extend(children)
 
     return True
+
+
+def _json_size(value: Any, limit: int) -> int:
+    """Measure a JSON value, stopping once it is known to be past ``limit``.
+
+    A scalar counts one, a string its characters, a container itself plus what
+    it holds (keys included). Never less than one.
+    """
+    pending: list[Any] = [value]
+    size = 0
+    while pending and size <= limit:
+        item = pending.pop()
+        if isinstance(item, str):
+            size += max(len(item), 1)
+        elif isinstance(item, list):
+            size += 1
+            pending.extend(item[: limit + 1])
+        elif isinstance(item, dict):
+            size += 1
+            for key, member in itertools.islice(item.items(), limit + 1):
+                pending.extend((key, member))
+        else:
+            size += 1
+
+    return size
 
 
 def _reference_target(ref: str, ctx: _Decode, targets: dict[str, Any]) -> Any:

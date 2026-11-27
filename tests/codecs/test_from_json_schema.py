@@ -2651,3 +2651,43 @@ def test_a_default_behind_a_wide_node_reached_many_times_is_not_checked() -> Non
     }
 
     assert from_json_schema(document)({}) == {}
+
+
+def test_a_long_default_is_not_matched_against_a_pattern_while_decoding() -> None:
+    """A pattern that is slow on a long string never sees a long default."""
+    document = {
+        "type": "object",
+        "properties": {
+            "s": {
+                "type": "string",
+                "pattern": "^a+aa+$",
+                "default": "a" * 50_000 + "!",
+            },
+        },
+    }
+
+    # Matching this default would take time quadratic in its length.
+    assert from_json_schema(document)({}) == {}
+
+
+@pytest.mark.parametrize(
+    "default",
+    [
+        pytest.param(list(range(300)), id="long_list"),
+        pytest.param({str(index): index for index in range(200)}, id="wide_object"),
+        pytest.param([["x" * 10] * 10] * 10, id="nested"),
+    ],
+)
+def test_a_large_default_is_not_carried(default: object) -> None:
+    """A default past the size limit is left out without being checked."""
+    document = {"type": "object", "properties": {"v": {"default": default}}}
+
+    assert from_json_schema(document)({}) == {}
+
+
+def test_a_modest_default_is_still_checked_and_filled_in() -> None:
+    """An ordinary list or object default is within the limit."""
+    default = {"tags": ["a", "b"], "retries": 3, "nested": {"on": True}}
+    document = {"type": "object", "properties": {"v": {"default": default}}}
+
+    assert from_json_schema(document)({}) == {"v": default}
