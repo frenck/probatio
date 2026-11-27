@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 from contextvars import ContextVar
 from enum import Enum
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, get_origin
 
 from probatio._engine import (
     PREVENT_EXTRA,
@@ -60,6 +60,13 @@ if TYPE_CHECKING:
 # ``schema``, breaking what would otherwise be an import cycle. Only ``compile_node``
 # reads it, to recognize a nested ``Schema`` reused as a mapping value.
 _SCHEMA_CLS: Any = None
+
+# The annotation translator (``dataclass_schema._annotation_to_schema``), registered
+# by ``dataclass_schema`` at import for the same reason as ``_SCHEMA_CLS``: it lives
+# in a module that imports this one. ``compile_node`` uses it to turn a parameterized
+# generic (``list[int]``, ``dict[str, str]``, ``int | None``) into the structural
+# schema it spells.
+_ANNOTATION_TO_SCHEMA: Any = None
 
 
 # The schema currently being compiled, so a ``Self`` reference inside it can be
@@ -351,6 +358,14 @@ def compile_node(schema: Any, ctx: CompileCtx) -> CompiledSchema:  # noqa: PLR09
         and (direct := _compile_nested_schema(schema)) is not None
     ):
         return direct
+    if get_origin(schema) is not None:
+        # A parameterized generic is not a ``type``, and most are callable, so it
+        # would otherwise compile as a callable and run as a constructor:
+        # ``list[int]("abc")`` returns ``["a", "b", "c"]`` and ignores the ``int``.
+        # Translate it the way a dataclass field annotation is translated, so
+        # ``dict[str, str]`` validates exactly like ``{str: str}`` (a deliberate
+        # deviation from voluptuous, ADR-018).
+        return compile_node(_ANNOTATION_TO_SCHEMA(schema, {}, ctx.extra), ctx)
     if callable(schema):
         # A combinator compiles its branches at construction with the strict
         # default extra. When this schema sets a different policy, rebind the
