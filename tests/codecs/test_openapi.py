@@ -2486,3 +2486,51 @@ def test_a_length_under_all_of_is_typed_per_sized_type(version: str) -> None:
     assert {"type": "array", "maxItems": 1} in document["allOf"][1]["anyOf"]
     for value in ([], [1], [1, 2], [1, 2, 3, 4], "ab"):
         assert _validates(document, version, value) is _accepts(schema, value), value
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(probatio.Maybe, id="maybe"),
+        pytest.param(lambda inner: probatio.Any(None, inner), id="any_with_none"),
+    ],
+)
+@pytest.mark.parametrize(
+    "inner",
+    [
+        pytest.param(
+            lambda: probatio.All(probatio.Maybe(str), probatio.Length(max=3)),
+            id="nullable_part",
+        ),
+        pytest.param(
+            lambda: probatio.All(probatio.In(["a"]), probatio.In(["a", "b"])),
+            id="conflicting_parts",
+        ),
+    ],
+)
+def test_a_nullable_all_of_offers_null_as_an_alternative(
+    inner: Any, wrap: Any, version: str
+) -> None:
+    """Null beside an ``allOf`` is a branch of its own, not one more conjunct."""
+    schema = Schema(wrap(inner()))
+    document = to_openapi(schema, openapi_version=version)
+
+    _REFERENCE_VALIDATOR[version].check_schema(document)
+    for value in (None, "a", "b", "abcd", 1):
+        assert _validates(document, version, value) is _accepts(schema, value), value
+
+
+def test_a_custom_length_rendering_is_left_alone_under_all_of() -> None:
+    """A ``custom_serializer`` answer for a ``Length`` is not expanded into branches."""
+
+    def custom(node: object) -> object:
+        """Render a ``Length`` as a bare string bound, and nothing else."""
+        if isinstance(node, probatio.Length):
+            return {"maxLength": node.max}
+        return probatio.codecs.UNSUPPORTED
+
+    schema = Schema(probatio.All([int], probatio.Length(max=1), probatio.Length(max=3)))
+    document = to_openapi(schema, custom_serializer=custom)
+
+    assert document["allOf"][1:] == [{"maxLength": 1}, {"maxLength": 3}]
