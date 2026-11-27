@@ -77,7 +77,9 @@ still live in one place. The knobs are in the
 
 One small optimization stays: validators can declare `__probatio_safe__` to
 promise they only raise `Invalid`, and the engine then calls them without the
-extra guard that wraps stray `ValueError`. It is a contract, not a second
+extra guard that wraps stray `ValueError`. The promise covers the `__call__`
+Probatio wrote, so a subclass that brings its own (or gets one from a mixin)
+loses the flag when the class is created. It is a contract, not a second
 engine.
 
 ### The Schema compiler

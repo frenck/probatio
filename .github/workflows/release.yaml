@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - name: 🏗 Set up uv and Python
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           # No cache in the publish path: a poisoned cache must never reach the
           # job that pushes artifacts to PyPI.
@@ -57,7 +57,7 @@ jobs:
           echo "WHEEL_PROBATIO=$(ls dist/probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
           echo "WHEEL_PYTEST=$(ls dist/pytest_probatio-*-py3-none-any.whl)" >> "${GITHUB_ENV}"
       - name: 📝 Generate a CycloneDX SBOM for probatio
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           file: ${{ env.WHEEL_PROBATIO }}
           format: cyclonedx-json
@@ -65,7 +65,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
       - name: 📝 Generate a CycloneDX SBOM for pytest-probatio
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        uses: anchore/sbom-action@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
         with:
           file: ${{ env.WHEEL_PYTEST }}
           format: cyclonedx-json
@@ -93,7 +93,7 @@ jobs:
         # `release` environment, or PyPI rejects the upload with a 403 (after the
         # first project has already published). The pytest-probatio publisher can be
         # registered as a pending publisher before its first release.
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           verbose: true
           print-hash: true

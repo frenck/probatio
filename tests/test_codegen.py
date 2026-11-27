@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
+from enum import Enum, IntEnum, StrEnum
+from math import inf, nan
 from types import MappingProxyType
 from typing import Annotated, NotRequired, TypedDict
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from probatio import (
     ALLOW_EXTRA,
@@ -22,30 +25,40 @@ from probatio import (
     UNDEFINED,
     All,
     Any,
+    Byte,
     Coerce,
     CompilePolicy,
     DataclassSchema,
     Exclusive,
     Forbidden,
     In,
+    Invalid,
+    Latitude,
     Length,
+    Longitude,
     Match,
+    Maybe,
     MultipleInvalid,
+    Negative,
+    NonNegative,
     Optional,
+    Positive,
     Range,
     Remove,
     Required,
     Schema,
     Self,
+    SmallFloat,
     TypedDictSchema,
     from_json_schema,
     set_compile_policy,
 )
-from probatio._codegen import compile_mapping
+from probatio._codegen import _emitters, compile_mapping
 from probatio._engine import _MappingValidator
 from probatio.codecs.jsonschema import _DeferredRef
 from probatio.dataclass_schema import _built_dataclass_schemas
 from probatio.schema import _AUTO_COMPILE_THRESHOLD
+from tests import strategies
 
 
 def _is_compiled(schema: Schema) -> bool:
@@ -126,6 +139,26 @@ _BUILDERS = {
     "coerce_str": lambda **k: Schema({"x": Coerce(str)}, **k),
     "range_min_only": lambda **k: Schema({"x": All(int, Range(min=0))}, **k),
     "range_max_only": lambda **k: Schema({"x": All(int, Range(max=100))}, **k),
+    # Bounds whose repr is not source: ``inf`` and ``nan`` are not names, and an
+    # IntEnum member reprs as ``<_Level.LOW: 1>``. They must compile, not crash.
+    "range_neg_inf": lambda **k: Schema({"x": Range(min=float("-inf"))}, **k),
+    "range_inf": lambda **k: Schema({"x": Range(max=float("inf"))}, **k),
+    "range_nan": lambda **k: Schema({"x": Range(min=nan)}, **k),
+    "range_int_enum": lambda **k: Schema(
+        {"x": Range(min=_Level.LOW, max=_Level.HIGH)}, **k
+    ),
+    "range_int_enum_coerced": lambda **k: Schema(
+        {"x": All(Coerce(int), Range(min=_Level.LOW))}, **k
+    ),
+    "length_int_enum": lambda **k: Schema(
+        {"x": Length(min=_Level.LOW, max=_Level.HIGH)}, **k
+    ),
+    # A bound whose own comparison raises: the interpreted validator reports it as
+    # invalid, so the compiled check must bail there rather than leak the TypeError.
+    "range_refusing_bound": lambda **k: Schema({"x": Range(min=_RefusingInt(1))}, **k),
+    "length_refusing_bound": lambda **k: Schema(
+        {"x": Length(max=_RefusingInt(4))}, **k
+    ),
     # Any inlining: all-types with None (allow_none), and a mixed Any with a
     # non-type branch that falls back to the closure.
     "any_maybe": lambda **k: Schema({"x": Any(int, None)}, **k),
@@ -171,6 +204,24 @@ _BUILDERS = {
 class _Color(Enum):
     RED = "red"
     BLUE = "blue"
+
+
+class _Level(IntEnum):
+    """An integer enum: its members are int instances, but repr is not source."""
+
+    LOW = 1
+    HIGH = 4
+
+
+class _RefusingInt(int):
+    """An int whose comparisons raise, so a check against it can only fail."""
+
+    def __lt__(self, other: int) -> bool:
+        """Refuse every ordering comparison."""
+        msg = "no ordering"
+        raise TypeError(msg)
+
+    __le__ = __gt__ = __ge__ = __lt__
 
 
 class _Svc(StrEnum):
@@ -675,6 +726,13 @@ def test_policy_turned_off_after_arming_stays_interpreted() -> None:
             [["1", "2"], [-1], [], "no", [1.5], ["x"]],
         ),
         ([Any(int, str)], [[1, "a"], [1.5], []]),
+        ([Range(min=-inf)], [[1]]),
+        ([Range(max=inf)], [[1]]),
+        ([Range(min=nan)], [[1]]),
+        ([Range(min=_Level.LOW, max=_Level.HIGH)], [[1, 4], [0], [5]]),
+        ([Length(min=_Level.LOW, max=_Level.HIGH)], [["abc"], [""], ["abcde"]]),
+        ([Range(max=_RefusingInt(4))], [[1]]),
+        ([Length(min=_RefusingInt(1))], [["abc"]]),
     ],
 )
 def test_compiled_sequence_matches_interpreted(
@@ -980,3 +1038,238 @@ def test_recursive_typeddict_keeps_the_cycle_interpreted() -> None:
         assert time.perf_counter() - start < 1.0
     finally:
         set_compile_policy(CompilePolicy.OFF)
+
+
+# One entry per validator codegen can inline: the class that owns the emitter, the
+# class to instantiate (a built-in subclass inherits the emitter), a way to build
+# it, a value its base ``__call__`` accepts (otherwise the generated code bails to
+# the interpreted engine and a test passes for the wrong reason), and an int the
+# base accepts too, for the ``All(Coerce(int), ...)`` composition (``None`` where
+# the validator does not take an int).
+_INLINABLE = {
+    "Coerce": (Coerce, Coerce, lambda cls: cls(int), "5", 5),
+    "Range": (Range, Range, lambda cls: cls(min=0, max=10), 3, 3),
+    "Positive": (Range, Positive, lambda cls: cls(), 3, 3),
+    "NonNegative": (Range, NonNegative, lambda cls: cls(), 3, 3),
+    "Negative": (Range, Negative, lambda cls: cls(), -3, -3),
+    "Byte": (Range, Byte, lambda cls: cls(), 3, 3),
+    "SmallFloat": (Range, SmallFloat, lambda cls: cls(), 0.5, None),
+    "Latitude": (Range, Latitude, lambda cls: cls(), 45, 45),
+    "Longitude": (Range, Longitude, lambda cls: cls(), 45, 45),
+    "In": (In, In, lambda cls: cls([1, 2, 3]), 1, 1),
+    "Any": (Any, Any, lambda cls: cls(1, 2), 1, 1),
+    "All": (All, All, lambda cls: cls(Range(min=0, max=10)), 3, 3),
+    "Length": (Length, Length, lambda cls: cls(min=1, max=3), "ab", None),
+    "Match": (Match, Match, lambda cls: cls("^a"), "ab", None),
+}
+
+_OVERRIDDEN = object()
+
+
+class _OverridesCall:
+    """A mixin that supplies ``__call__``, as a framework base class might."""
+
+    def __call__(self, _value: object) -> object:
+        """Ignore the value and return a sentinel the base would never produce."""
+        return _OVERRIDDEN
+
+
+def _override_directly(cls: type) -> type:
+    """Subclass ``cls`` with its own ``__call__``."""
+
+    class Overridden(cls):  # type: ignore[misc]
+        """A user extension that replaces the validation."""
+
+        def __call__(self, _value: object) -> object:
+            """Ignore the value and return a sentinel the base would never produce."""
+            return _OVERRIDDEN
+
+    return Overridden
+
+
+def _override_through_mixin(cls: type) -> type:
+    """Subclass ``cls`` with a ``__call__`` that arrives through a mixin."""
+
+    class Mixed(_OverridesCall, cls):  # type: ignore[misc]
+        """A user extension whose ``__call__`` is not in its own body."""
+
+    return Mixed
+
+
+_OVERRIDES = {
+    "directly": _override_directly,
+    "mixin": _override_through_mixin,
+}
+
+
+def test_every_inlinable_validator_is_covered_by_the_override_table() -> None:
+    """A new codegen emitter fails here until the override table covers its class."""
+    covered = {base for base, *_ in _INLINABLE.values()}
+
+    assert covered == set(_emitters())
+
+
+@pytest.mark.parametrize("how", sorted(_OVERRIDES))
+@pytest.mark.parametrize("name", sorted(_INLINABLE))
+def test_compiled_schema_runs_a_call_override_in_every_position(
+    name: str, how: str
+) -> None:
+    """A subclass with its own ``__call__`` is called, not inlined as its base."""
+    _, cls, build, value, int_value = _INLINABLE[name]
+    validator = build(_OVERRIDES[how](cls))
+    schemas = {
+        "mapping value": (Schema({"k": validator}, compile=True), value, _OVERRIDDEN),
+        "list element": (
+            Schema({"k": [validator]}, compile=True),
+            [value],
+            [_OVERRIDDEN],
+        ),
+        "all member": (
+            Schema({"k": All(validator)}, compile=True),
+            value,
+            _OVERRIDDEN,
+        ),
+    }
+    if int_value is not None:
+        schemas["all member after Coerce"] = (
+            Schema({"k": All(Coerce(int), validator)}, compile=True),
+            int_value,
+            _OVERRIDDEN,
+        )
+
+    for position, (schema, given_value, expected) in schemas.items():
+        assert schema({"k": given_value}) == {"k": expected}, position
+
+
+def test_compiled_override_rejects_where_the_base_accepts() -> None:
+    """The override's own rejection reaches the caller when compiled (the report)."""
+
+    class EvenRange(Range):
+        """A range that only takes even numbers."""
+
+        def __call__(self, value: int) -> int:
+            """Run the range check, then reject odd numbers."""
+            value = super().__call__(value)
+            if value % 2:
+                message = "odd"
+                raise Invalid(message)
+            return value
+
+    compiled = Schema({"x": EvenRange(min=0, max=10)}, compile=True)
+    interpreted = Schema({"x": EvenRange(min=0, max=10)}, compile=False)
+
+    assert _outcome(compiled, {"x": 3}) == _outcome(interpreted, {"x": 3})
+    assert _outcome(compiled, {"x": 3})[0] == "err"
+    assert _outcome(compiled, {"x": 4}) == ("ok", {"x": 4}, "dict", (("x", None),))
+
+
+def test_auto_does_not_flip_the_outcome_of_a_call_override() -> None:
+    """One schema holding an override answers the same before and after going hot."""
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema({"x": _override_directly(Range)(min=0, max=10)})
+
+    outcomes = {
+        repr(_outcome(schema, {"x": 3})) for _ in range(_AUTO_COMPILE_THRESHOLD + 10)
+    }
+
+    assert _is_compiled(schema)
+    assert outcomes == {repr(("ok", {"x": _OVERRIDDEN}, "dict", (("x", None),)))}
+
+
+class _PlainRange(Range):
+    """A user subclass that leaves ``__call__`` alone."""
+
+
+@pytest.mark.parametrize("validator", [Positive(), _PlainRange(min=0, max=10)])
+def test_a_subclass_without_a_call_override_is_still_inlined(
+    validator: Range,
+) -> None:
+    """Inheriting ``__call__`` keeps the base's inline code, with no closure call."""
+    schema = Schema({"k": validator}, compile=False)
+    generated = compile_mapping(schema._compiled)
+
+    assert generated is not None
+    # A value that is not inlined is bound as a closure named ``_c<index>``.
+    assert "_c0" not in generated.__globals__
+    assert _outcome(Schema({"k": validator}, compile=True), {"k": 3}) == _outcome(
+        schema, {"k": 3}
+    )
+    assert _outcome(Schema({"k": validator}, compile=True), {"k": -3})[0] == "err"
+
+
+class _Unhashable(type):
+    """A metaclass whose classes cannot be dictionary keys."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+class _UnhashableCallable(metaclass=_Unhashable):
+    """A plain callable validator whose class is unhashable."""
+
+    def __call__(self, value: object) -> object:
+        """Accept anything."""
+        return value
+
+
+class _UnhashableRange(Range, metaclass=_Unhashable):
+    """A Range subclass whose class is unhashable but whose ``__call__`` is Range's."""
+
+
+def test_a_validator_with_an_unhashable_class_still_compiles() -> None:
+    """A class that cannot be a dictionary key does not break the emitter lookup."""
+    callable_schema = Schema({"k": _UnhashableCallable()}, compile=True)
+    range_schema = Schema({"k": _UnhashableRange(min=0, max=10)}, compile=True)
+
+    assert callable_schema({"k": 3}) == {"k": 3}
+    assert range_schema({"k": 3}) == {"k": 3}
+    assert _is_compiled(callable_schema)
+    assert _is_compiled(range_schema)
+    assert _outcome(range_schema, {"k": 30})[0] == "err"
+
+
+def test_a_subclass_with_a_call_override_is_bound_as_a_closure() -> None:
+    """The counterpart of the inlined case: an override is called through ``_c0``."""
+    schema = Schema({"k": _override_directly(Range)(min=0, max=10)}, compile=False)
+    generated = compile_mapping(schema._compiled)
+
+    assert generated is not None
+    assert "_c0" in generated.__globals__
+
+
+# Validators for the compiled-versus-interpreted differential: every inlinable
+# base class as the override table builds it, plus the arguments that send an
+# emitter down a different branch.
+_DIFFERENTIAL = {
+    **{
+        name: build(cls)
+        for name, (base, cls, build, _, _) in _INLINABLE.items()
+        if base is cls
+    },
+    "Coerce to float": Coerce(float),
+    "Range with exclusive bounds": Range(
+        min=0, max=10, min_included=False, max_included=False
+    ),
+    "Range with one bound": Range(min=0),
+    "In of strings": In(["a", "b"]),
+    "Any of types": Any(int, str),
+    "Any of a type and None": Any(int, None),
+    "Maybe": Maybe(Coerce(int)),
+    "All chain": All(Coerce(int), Range(min=1, max=65535)),
+    "Length with one bound": Length(min=1),
+}
+
+
+@given(data=st.one_of(st.just({}), strategies.data().map(lambda value: {"k": value})))
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+@pytest.mark.parametrize("name", sorted(_DIFFERENTIAL))
+def test_compiled_matches_interpreted_for_every_inlinable_validator(
+    name: str, data: object
+) -> None:
+    """Each inlinable validator, in a mapping, behaves the same compiled or not."""
+    validator = _DIFFERENTIAL[name]
+    compiled = Schema({"k": validator}, compile=True)
+    interpreted = Schema({"k": validator}, compile=False)
+
+    # Compared by repr: a coerced ``nan`` is a fresh object on each side, and
+    # ``nan != nan`` would report a difference that is not one.
+    assert repr(_outcome(compiled, data)) == repr(_outcome(interpreted, data))

@@ -12,6 +12,7 @@ from collections import defaultdict
 from collections.abc import Callable, Mapping
 from typing import Any, NamedTuple
 
+from probatio._messages import plain_strings
 from probatio.error import (
     DictInvalid,
     ExclusiveInvalid,
@@ -272,7 +273,7 @@ class _MappingValidator:
             # turn (a ``str: str`` may take it) and ``_match_validator`` applies
             # the extra-key policy if none match.
             index, candidate = match
-            if not self._apply(key, value, index, candidate, out, errors, seen):
+            if not self._apply(key, key, value, index, candidate, out, errors, seen):
                 self._match_validator(key, value, out, errors, seen)
 
         if seen is not None:
@@ -346,7 +347,9 @@ class _MappingValidator:
             if key_type is not None:
                 # Inlined type key (``{str: int}``): isinstance, no key-check call.
                 if isinstance(key, key_type):
-                    if self._apply(key, value, index, candidate, out, errors, seen):
+                    if self._apply(
+                        key, key, value, index, candidate, out, errors, seen
+                    ):
                         return
                     # A Remove key matched but its value did not validate: keep
                     # trying the remaining candidates (a ``str: str`` may take it).
@@ -360,7 +363,7 @@ class _MappingValidator:
                 if key_error is None or len(exc.path) > len(key_error.path):
                     key_error = exc
                 continue
-            if self._apply(new_key, value, index, candidate, out, errors, seen):
+            if self._apply(key, new_key, value, index, candidate, out, errors, seen):
                 return
 
         self._unmatched(key, value, key_error, out, errors)
@@ -368,6 +371,7 @@ class _MappingValidator:
     def _apply(  # noqa: PLR0913, PLR0917
         self,
         key: Any,
+        out_key: Any,
         value: Any,
         index: int,
         candidate: _Candidate,
@@ -376,6 +380,12 @@ class _MappingValidator:
         seen: bytearray | None,
     ) -> bool:
         """Validate a matched pair; return whether the candidate handled the key.
+
+        ``key`` is the key as the input holds it, and every error path names it.
+        ``out_key`` is the key the validated value is stored under: what a key
+        validator returned (``Coerce(int)`` turns ``"1"`` into ``1``), or ``key``
+        itself. An error must point at the input, where ``[1]`` does not exist,
+        so it reports ``["1"]``, as voluptuous does.
 
         Returns ``True`` once the pair is stored, removed, or reported. Returns
         ``False`` only when a ``Remove`` key matched but its value did not
@@ -405,13 +415,16 @@ class _MappingValidator:
         if value_type is not None:
             # Inlined type value (the ``int`` of ``{str: int}``): no value call.
             if isinstance(value, value_type):
-                out[key] = value
+                out[out_key] = value
             else:
                 errors.append(
                     _type_error(value_type.__name__, [key], self._invalid_msg)
                 )
             return True
-        self._store(key, value, candidate.check_value, out, errors)
+        try:
+            out[out_key] = candidate.check_value(value)
+        except Invalid as exc:
+            self._collect(key, exc, errors)
         return True
 
     @staticmethod
@@ -546,7 +559,7 @@ class _MappingValidator:
                         candidate.msg,
                         path=[candidate.key_schema],
                         translation_key="required_any_of",
-                        placeholders={"keys": candidate.complex_keys},
+                        placeholders={"keys": plain_strings(candidate.complex_keys)},
                     ),
                 )
             else:
@@ -596,7 +609,7 @@ class _MappingValidator:
                 RequiredFieldInvalid(
                     path=[VirtualPathComponent(group)],
                     translation_key="required_one_of",
-                    placeholders={"keys": keys},
+                    placeholders={"keys": plain_strings(keys)},
                 ),
             )
 

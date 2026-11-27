@@ -87,6 +87,11 @@ def callable_key(lib: Any) -> Any:
     return lib.Schema({lib.Coerce(int): str})
 
 
+def callable_key_nested(lib: Any) -> Any:
+    """A callable key over a nested mapping, so a value error comes from deeper."""
+    return lib.Schema({lib.Coerce(int): {"a": int}})
+
+
 def two_callable_keys(lib: Any) -> Any:
     """Two callable keys, so a key failing both keeps the first key error."""
     return lib.Schema({lib.Coerce(int): str, lib.Coerce(float): bool})
@@ -179,6 +184,11 @@ CASES: list[tuple[Any, Any]] = [
     (two_type_keys, {"x": "v"}),
     (callable_key, {"5": "v"}),
     (callable_key, {"x": "v"}),
+    # A value failing under a key the key validator changed: the error path names
+    # the key as the input holds it ("5"), not the coerced one (5).
+    (callable_key, {"5": 7}),
+    (callable_key_nested, {"5": {"a": 1}}),
+    (callable_key_nested, {"5": {"a": "x"}}),
     (two_callable_keys, {"x": "v"}),
     (remove_extra_mapping, {"a": 1, "x": 2}),
     (literal_value, "on"),

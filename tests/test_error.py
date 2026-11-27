@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from enum import Enum, StrEnum
+
 import pytest
 
 import probatio
-from probatio import _messages
+from probatio import In, Required, Schema, _messages
 from probatio.error import (
     Error,
     Invalid,
@@ -347,3 +349,41 @@ def test_invalid_without_message_or_key_is_empty() -> None:
     err = Invalid()
     assert err.msg == ""
     assert str(err) == ""
+
+
+class _Field(StrEnum):
+    """Keys and members as a ``StrEnum``, like an integration's action fields."""
+
+    GREEN = "green"
+    ORANGE = "orange"
+
+
+class _LegacyField(str, Enum):  # noqa: UP042 - the pre-StrEnum spelling, on purpose
+    """Keys and members as a ``(str, Enum)`` mixin, whose ``str()`` is the name."""
+
+    GREEN = "green"
+    ORANGE = "orange"
+
+
+@pytest.mark.parametrize("field", [_Field, _LegacyField])
+def test_unknown_key_suggests_a_str_enum_key_by_value(
+    field: type[_Field | _LegacyField],
+) -> None:
+    """A near-miss of a string enum key suggests it by value, not by repr."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema({Required(field.GREEN): str})({"gren": "x"})
+    error = caught.value.errors[0]
+    assert error.error_message == "not a valid option, did you mean 'green'?"
+    assert all(type(candidate) is str for candidate in error.candidates)
+
+
+@pytest.mark.parametrize("field", [_Field, _LegacyField])
+def test_in_suggests_a_str_enum_member_by_value(
+    field: type[_Field | _LegacyField],
+) -> None:
+    """A near-miss of a string enum member in In suggests it by value, not by repr."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(In([field.GREEN, field.ORANGE]))("gren")
+    error = caught.value.errors[0]
+    assert error.error_message.endswith(", did you mean 'green'?")
+    assert all(type(candidate) is str for candidate in error.candidates)

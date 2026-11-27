@@ -78,9 +78,9 @@ include = [
 # directly with `uv sync --group <name>` rather than re-listing versions in the
 # workflows, so this file is the single source of truth.
 test = [
-  "pytest==9.1.1",
+  "pytest==9.2.0",
   "pytest-cov==7.1.0",
-  "syrupy==6.1.1",
+  "syrupy==7.0.3",
   "covdefaults==2.3.0",
   # voluptuous is a dev-only oracle for the conformance tests: probatio and
   # voluptuous run the same schemas and inputs and their results are compared.
@@ -106,13 +106,13 @@ test = [
   "mashumaro==3.23",
   # Hypothesis drives the property-based and differential fuzz tests (the engine
   # and the codecs are hammered with generated schemas and data). Dev-only.
-  "hypothesis==6.170.0",
+  "hypothesis==6.170.17",
 ]
-typing = ["mypy==2.4.0", "ty==0.0.89"]
-lint = ["ruff==0.17.1", "codespell==2.4.3", "zizmor==1.31.1"]
+typing = ["mypy==2.4.1", "ty==0.0.112"]
+lint = ["ruff==0.17.6", "codespell==2.4.3", "zizmor==1.33.1"]
 # Continuous performance testing (bench/) measured by CodSpeed. Includes the test
 # group for voluptuous, which the benchmarks compare against.
-codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
+codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.4"]
 # Cross-library comparison for the "rest of the world" benchmark (bench_world.py).
 # Benchmark-only, installed on demand (just bench-world syncs this group); none is a
 # runtime or test dependency, and none is a correctness oracle. pydantic v1 is read
@@ -121,10 +121,10 @@ codspeed = [{ include-group = "test" }, "pytest-codspeed==5.0.3"]
 bench-world = [
   { include-group = "test" },
   "cattrs==26.2.1",
-  "dacite==1.9.2",
+  "dacite==1.9.3",
   "dataclasses-json==0.6.7",
   "marshmallow==3.26.2",
-  "pydantic==2.14.1",
+  "pydantic==2.14.4",
   # Renders the benchmark charts (just charts) into the docs assets, themed to the
   # docs. Benchmark-only; never a runtime or test dependency.
   "matplotlib==3.11.2",

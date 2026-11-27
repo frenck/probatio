@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
+from math import isfinite
 from typing import TYPE_CHECKING, Any
 
 from probatio._engine import (
@@ -48,21 +49,8 @@ if TYPE_CHECKING:
     from types import CodeType
 
     from probatio._engine import _Candidate
-    from probatio.validators.coerce import Coerce
-    from probatio.validators.combinators import All
-    from probatio.validators.combinators import Any as AnyValidator
-    from probatio.validators.comparison import In, Length, Range
-    from probatio.validators.strings import Match
 
-    _ValidatorTypes = tuple[
-        type[Coerce[Any]],
-        type[Range],
-        type[In],
-        type[AnyValidator],
-        type[All[Any]],
-        type[Length],
-        type[Match],
-    ]
+    _Emitter = Callable[[Any, dict[str, Any], str], "list[str] | None"]
 
 # A missing key, distinct from any real value (a key whose value is ``None`` is
 # present). Module-level so every generated function shares it by identity.
@@ -132,13 +120,18 @@ def _is_generatable(validator: _MappingValidator) -> bool:
     )
 
 
-def _inline_coerce(target: Any) -> list[str] | None:
+def _inline_coerce(
+    schema: Any, _namespace: dict[str, Any], _tag: str
+) -> list[str] | None:
     """Inline a ``Coerce`` to int or float; leave the coerced value in ``_v``.
 
     An int (or float) passes through, a string is parsed, and anything else bails
     to the interpreted ``Coerce`` (which handles the rest, like a float-to-int
     truncation). The success cases produce exactly the same value ``Coerce`` would.
+    The namespace and tag go unused: every emitter shares one signature, so the
+    dispatch table can hold them all.
     """
+    target = schema.type
     if target is int:
         return [
             "        if type(_v) is int:",
@@ -168,7 +161,42 @@ def _inline_coerce(target: Any) -> list[str] | None:
     return None
 
 
-def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | None:
+def _emit_bound_check(
+    fails: str, bound: float, namespace: dict[str, Any], name: str
+) -> list[str]:
+    """Emit a bail for when the ``fails`` comparison against a numeric bound holds.
+
+    ``fails`` is the comparison with ``{bound}`` where the bound goes, like
+    ``"_v < {bound}"``. A plain ``int`` or a finite ``float`` round-trips through
+    ``repr``, so it is emitted as a constant and the comparison cannot raise.
+
+    Anything else has no literal spelling: an infinity or NaN (``inf`` and ``nan``
+    are not names), or an ``int``/``float`` subclass such as an ``IntEnum`` member
+    (``<Level.LOW: 1>`` is not even valid syntax). Those are bound into the namespace
+    under ``name``, which keeps the comparison on the bound's own type, exactly as the
+    interpreted validator compares it. A subclass may override that comparison and
+    raise; the interpreted validator reports that as invalid, so the check bails on
+    any exception rather than leak it.
+    """
+    if type(bound) is int or (type(bound) is float and isfinite(bound)):
+        return [
+            f"        if {fails.format(bound=repr(bound))}:",
+            "            raise _Bail",
+        ]
+
+    namespace[name] = bound
+    return [
+        "        try:",
+        f"            if {fails.format(bound=name)}:",
+        "                raise _Bail",
+        "        except Exception:",
+        "            raise _Bail",
+    ]
+
+
+def _inline_range(
+    schema: Any, namespace: dict[str, Any], tag: str, *, type_checked: bool = False
+) -> list[str] | None:
     """Inline a numeric ``Range`` with numeric bounds; ``_v`` is unchanged.
 
     ``type_checked`` is the caller asserting ``_v`` is already known to be an
@@ -188,14 +216,20 @@ def _inline_range(schema: Any, *, type_checked: bool = False) -> list[str] | Non
     )
     if low is not None:
         op = ">=" if schema.min_included else ">"
-        lines += [f"        if not (_v {op} {low!r}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", low, namespace, f"_rmin{tag}"
+        )
     if high is not None:
         op = "<=" if schema.max_included else "<"
-        lines += [f"        if not (_v {op} {high!r}):", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"not (_v {op} {{bound}})", high, namespace, f"_rmax{tag}"
+        )
     return lines
 
 
-def _inline_length(schema: Any, tag: str) -> list[str] | None:
+def _inline_length(
+    schema: Any, namespace: dict[str, Any], tag: str
+) -> list[str] | None:
     """Inline a ``Length`` with integer bounds; ``_v`` is unchanged.
 
     With no bound set the value always passes, so nothing is emitted. A value whose
@@ -221,9 +255,11 @@ def _inline_length(schema: Any, tag: str) -> list[str] | None:
         "            raise _Bail",
     ]
     if low is not None:
-        lines += [f"        if {name} < {low!r}:", "            raise _Bail"]
+        lines += _emit_bound_check(f"{name} < {{bound}}", low, namespace, f"_lmin{tag}")
     if high is not None:
-        lines += [f"        if {name} > {high!r}:", "            raise _Bail"]
+        lines += _emit_bound_check(
+            f"{name} > {{bound}}", high, namespace, f"_lmax{tag}"
+        )
     return lines
 
 
@@ -320,21 +356,24 @@ def _inline_all(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     dominant hot-path composition). ``Range`` and ``In`` leave ``_v`` unchanged,
     so the knowledge survives them; any other branch conservatively resets it.
     """
-    coerce_cls, range_cls, in_cls, _, _, _, _ = _validator_types()
     chained: list[str] = []
     numeric = False
     for position, sub in enumerate(schema.validators):
-        if numeric and isinstance(sub, range_cls):
-            sub_lines = _inline_range(sub, type_checked=True)
+        sub_tag = f"{tag}_{position}"
+        # Ask the same gate ``_inline_validator`` uses, so a subclass that overrides
+        # ``__call__`` neither takes the range shortcut nor steers ``numeric``.
+        emitter = _emitter_for(sub)
+        if numeric and emitter is _inline_range:
+            sub_lines = _inline_range(sub, namespace, sub_tag, type_checked=True)
         else:
-            sub_lines = _inline_value(sub, namespace, f"{tag}_{position}")
+            sub_lines = _inline_value(sub, namespace, sub_tag)
         if sub_lines is None:
             return None
         chained.extend(sub_lines)
-        if isinstance(sub, coerce_cls):
+        if emitter is _inline_coerce:
             # The lines were emitted, so ``_inline_coerce`` accepted the target.
             numeric = sub.type is int or sub.type is float
-        elif not isinstance(sub, (range_cls, in_cls)):
+        elif emitter not in (_inline_range, _inline_in):
             numeric = False
     return chained
 
@@ -385,51 +424,68 @@ def _inline_any(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     return None
 
 
-# The validator classes ``_inline_validator`` dispatches on, bound on first use: a
-# module-level import would cycle (``probatio.schema`` imports this module, and the
-# validator package imports ``probatio.schema``), and a per-call import was a
-# measurable slice of generation cost. Generation first runs long after both
-# modules are initialized, so the lazy binding always succeeds.
-_VALIDATOR_TYPES: _ValidatorTypes | None = None
+# The inline emitter for each validator class, bound on first use: a module-level
+# import would cycle (``probatio.schema`` imports this module, and the validator
+# package imports ``probatio.schema``), and a per-call import was a measurable slice
+# of generation cost. Generation first runs long after both modules are initialized,
+# so the lazy binding always succeeds.
+_EMITTERS: dict[type, _Emitter] | None = None
 
 
-def _validator_types() -> _ValidatorTypes:
-    """Return ``(Coerce, Range, In, AnyValidator, All, Length, Match)``, imported once."""
-    global _VALIDATOR_TYPES  # noqa: PLW0603 - a write-once import cache
-    if _VALIDATOR_TYPES is None:
+def _emitters() -> dict[type, _Emitter]:
+    """Return the validator class to inline emitter table, imported once."""
+    global _EMITTERS  # noqa: PLW0603 - a write-once import cache
+    if _EMITTERS is None:
         from probatio.validators.coerce import Coerce  # noqa: PLC0415
         from probatio.validators.combinators import All  # noqa: PLC0415
         from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
         from probatio.validators.comparison import In, Length, Range  # noqa: PLC0415
         from probatio.validators.strings import Match  # noqa: PLC0415
 
-        _VALIDATOR_TYPES = (Coerce, Range, In, AnyValidator, All, Length, Match)
-    return _VALIDATOR_TYPES
+        _EMITTERS = {
+            Coerce: _inline_coerce,
+            Range: _inline_range,
+            In: _inline_in,
+            AnyValidator: _inline_any,
+            All: _inline_all,
+            Length: _inline_length,
+            Match: _inline_match,
+        }
+    return _EMITTERS
 
 
-def _inline_validator(  # noqa: PLR0911 - a flat one-per-validator type dispatch
+def _emitter_for(schema: Any) -> _Emitter | None:
+    """Return the inline emitter for a validator instance, or ``None``.
+
+    The emitter of the nearest class in the MRO wins, but only while the instance
+    still runs the ``__call__`` that emitter was written against. A subclass that
+    overrides ``__call__`` (a common way to extend a validator) changes what the
+    validator does, so inlining its base class would skip the override; it stays a
+    closure that calls the real ``__call__``, the same check ``_compile_nested_schema``
+    makes for ``Schema`` subclasses.
+    """
+    emitters = _emitters()
+    schema_type = type(schema)
+    for cls in schema_type.__mro__:
+        # A class with a custom metaclass is never one of the table's own, and its
+        # metaclass may make it unhashable or equal to another class, so it is
+        # skipped before the lookup (``_compile_type`` guards its lookup the same
+        # way). A built-in ancestor further up the MRO is still found.
+        if type(cls) is not type:
+            continue
+
+        emitter = emitters.get(cls)
+        if emitter is not None:
+            return emitter if schema_type.__call__ is cls.__call__ else None
+    return None
+
+
+def _inline_validator(
     schema: Any, namespace: dict[str, Any], tag: str
 ) -> list[str] | None:
     """Dispatch a non-type value schema to its inline emitter, or ``None``."""
-    coerce_cls, range_cls, in_cls, any_cls, all_cls, length_cls, match_cls = (
-        _validator_types()
-    )
-
-    if isinstance(schema, coerce_cls):
-        return _inline_coerce(schema.type)
-    if isinstance(schema, range_cls):
-        return _inline_range(schema)
-    if isinstance(schema, in_cls):
-        return _inline_in(schema, namespace, tag)
-    if isinstance(schema, any_cls):
-        return _inline_any(schema, namespace, tag)
-    if isinstance(schema, all_cls):
-        return _inline_all(schema, namespace, tag)
-    if isinstance(schema, length_cls):
-        return _inline_length(schema, tag)
-    if isinstance(schema, match_cls):
-        return _inline_match(schema, namespace, tag)
-    return None
+    emitter = _emitter_for(schema)
+    return None if emitter is None else emitter(schema, namespace, tag)
 
 
 def _inline_sequence(
