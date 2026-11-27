@@ -522,8 +522,12 @@ def _make_candidate(key: Any, value_schema: Any, ctx: CompileCtx) -> _Candidate:
         # The overwhelmingly common key shape: a plain string is a literal (not
         # a type, not callable), so skip the classification and the ``compile_node``
         # dispatch ladder it would walk to reach the same equality check.
+        #
+        # A literal key is found by a dict lookup in the engine, which never
+        # calls its key check. A closure per key would be built, and kept for
+        # the life of the schema, to do nothing, so they all share one stand-in.
         is_literal = True
-        check_key = _compile_literal(key_schema)
+        check_key: CompiledSchema = _literal_key_is_looked_up
     else:
         is_literal = not (isinstance(key_schema, type) or callable(key_schema))
         check_key = compile_node(key_schema, ctx)
@@ -654,6 +658,21 @@ def _compile_callable(schema: Callable[[Any], Any]) -> CompiledSchema:
             raise ValueInvalid(translation_key="not_a_valid_value") from exc
 
     return validate
+
+
+def _literal_key_is_looked_up(data: Any) -> Any:
+    """Stand in for the key check of a literal string key, which nothing calls.
+
+    The mapping engine matches a literal key through its lookup table and only
+    runs a key check for the keys that match by type or by callable. Should that
+    ever change, this says so at once, where a silent pass would let every key
+    through.
+    """
+    message = (
+        "the key check of a literal mapping key was called; literal keys are "
+        f"matched by lookup, not checked (got {data!r})"
+    )
+    raise RuntimeError(message)
 
 
 def _compile_literal(schema: Any) -> CompiledSchema:
