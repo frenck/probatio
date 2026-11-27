@@ -7,6 +7,9 @@ data matters more than the exact internal shape, so that is what is asserted.
 
 from __future__ import annotations
 
+from typing import Any
+
+import jsonschema
 import pytest
 
 from probatio import (
@@ -14,9 +17,12 @@ from probatio import (
     MultipleInvalid,
     Schema,
     from_json_schema,
+    from_openapi,
     to_json_schema,
+    to_openapi,
 )
-from probatio.error import SchemaError
+from probatio.codecs.jsonschema import _JsonPrefixItems
+from probatio.error import LengthInvalid, SchemaError, SequenceTypeInvalid
 from probatio.markers import Forbidden
 from probatio.validators import (
     All,
@@ -1524,18 +1530,15 @@ def test_min_contains_zero_makes_contains_vacuous() -> None:
     assert schema([1, 2]) == [1, 2]
 
 
-def test_property_default_is_validated_after_it_is_applied() -> None:
-    """A default that violates its own subschema fails validation (voluptuous parity).
+def test_property_default_that_violates_its_subschema_is_not_applied() -> None:
+    """A default its own subschema rejects is left out, so an absent key stays valid.
 
-    JSON Schema treats default as annotation-only; probatio applies it and then
-    validates, a deliberate deviation, so a default that breaks its subschema is
-    rejected rather than silently emitted.
+    JSON Schema treats default as an annotation: it never makes an instance invalid.
     """
     schema = from_json_schema(
         {"type": "object", "properties": {"a": {"type": "integer", "default": "oops"}}},
     )
-    with pytest.raises(MultipleInvalid):
-        schema({})
+    assert schema({}) == {}
 
 
 def test_property_names_constrains_undeclared_keys() -> None:
@@ -1871,3 +1874,654 @@ def test_pattern_round_trips_unanchored() -> None:
     encoded = to_json_schema(from_json_schema({"type": "string", "pattern": "x"}))
     again = from_json_schema(encoded)
     assert again("ax") == "ax"
+
+
+def _agrees_with_reference(document: dict[str, Any], instances: list[Any]) -> None:
+    """Assert the decoder and the reference validator accept the same instances."""
+    schema = from_json_schema(document)
+    reference = jsonschema.Draft202012Validator(document)
+
+    for instance in instances:
+        try:
+            schema(instance)
+            accepted = True
+        except Invalid:
+            accepted = False
+
+        assert accepted is reference.is_valid(instance), (document, instance)
+
+
+_ARRAYS: list[Any] = [
+    [],
+    [1],
+    [1, 2],
+    [1, 1],
+    [1, 2, 3],
+    [1, "a"],
+    ["a"],
+    [5],
+    [5, 5],
+    [1, 5],
+    [1.0, 1],
+    [True, 1],
+    "a",
+    1,
+    None,
+    {},
+]
+_CLOSED_PAIR = {
+    "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+    "items": False,
+}
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"minItems": 1},
+        {"minItems": 2},
+        {"minItems": 3},
+        {"maxItems": 0},
+        {"maxItems": 1},
+        {"maxItems": 2},
+        {"maxItems": 5},
+        {"minItems": 1, "maxItems": 1},
+        {"minItems": 2, "maxItems": 1},
+        {"uniqueItems": True},
+        {"uniqueItems": False},
+        {"contains": {"const": 5}},
+        {"contains": {"const": 5}, "minContains": 0},
+        {"contains": {"const": 5}, "minContains": 2},
+        {"contains": {"const": 5}, "maxContains": 1},
+        {"contains": {"type": "integer"}, "minContains": 2, "maxContains": 2},
+        {"minItems": 1, "uniqueItems": True, "contains": {"const": 5}},
+    ],
+)
+@pytest.mark.parametrize("typed", [True, False])
+def test_closed_prefix_items_matches_the_reference(
+    extra: dict[str, Any],
+    *,
+    typed: bool,
+) -> None:
+    """A closed prefixItems with any array keyword accepts what the document does."""
+    document = {**({"type": "array"} if typed else {}), **_CLOSED_PAIR, **extra}
+
+    _agrees_with_reference(document, _ARRAYS)
+
+
+@pytest.mark.parametrize(
+    "context",
+    ["items", "anyOf", "oneOf", "allOf", "not", "properties"],
+)
+def test_closed_prefix_items_matches_the_reference_when_nested(context: str) -> None:
+    """The prefix rule holds under each combinator, in items and in properties."""
+    inner = {"type": "array", **_CLOSED_PAIR, "maxItems": 1}
+    document: dict[str, Any] = {
+        "items": {"items": inner},
+        "anyOf": {"anyOf": [inner, {"const": "zzz"}]},
+        "oneOf": {"oneOf": [inner, {"const": "zzz"}]},
+        "allOf": {"allOf": [inner]},
+        "not": {"not": inner},
+        "properties": {
+            "type": "object",
+            "properties": {"p": inner},
+            "additionalProperties": True,
+        },
+    }[context]
+    instances = [
+        *_ARRAYS,
+        "zzz",
+        *([value] for value in _ARRAYS),
+        *({"p": value} for value in _ARRAYS),
+    ]
+
+    _agrees_with_reference(document, instances)
+
+
+def test_closed_prefix_items_accepts_a_shorter_array() -> None:
+    """prefixItems validates the positions present; only minItems makes them mandatory."""
+    schema = from_json_schema(
+        {
+            "type": "array",
+            "prefixItems": [{"type": "integer"}, {"type": "string"}],
+            "items": False,
+        },
+    )
+
+    assert schema([]) == []
+    assert schema([1]) == [1]
+    assert schema([1, "a"]) == [1, "a"]
+    with pytest.raises(Invalid):
+        schema([1, "a", 2])
+    with pytest.raises(Invalid):
+        schema(["a"])
+
+
+def test_closed_prefix_items_reports_the_path_of_a_bad_position() -> None:
+    """An element that breaks its position schema is reported at its index."""
+    schema = from_json_schema(
+        {"type": "array", "prefixItems": [{"type": "integer"}], "items": False},
+    )
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(["a"])
+
+    assert caught.value.errors[0].path == [0]
+
+
+def test_prefix_items_pinned_to_its_length_is_an_exact_sequence() -> None:
+    """minItems and maxItems both equal to the position count keep the ExactSequence."""
+    document = {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}, {"type": "string"}],
+        "items": False,
+        "minItems": 2,
+        "maxItems": 2,
+    }
+
+    schema = from_json_schema(document)
+
+    assert isinstance(schema.schema, ExactSequence)
+    with pytest.raises(Invalid):
+        schema([1])
+
+
+def test_exact_sequence_round_trips_through_the_decoder() -> None:
+    """to_json_schema then from_json_schema gives an ExactSequence and the same document."""
+    document = to_json_schema(Schema(ExactSequence([int, str])))
+
+    decoded = from_json_schema(document)
+
+    assert isinstance(decoded.schema, ExactSequence)
+    assert to_json_schema(decoded) == document
+    assert decoded([1, "a"]) == [1, "a"]
+    for rejected in ([], [1], [1, "a", 2], ["a", 1]):
+        with pytest.raises(Invalid):
+            decoded(rejected)
+
+
+def test_empty_prefix_items_only_accepts_the_empty_array() -> None:
+    """An empty closed prefix has no position, so only [] is valid."""
+    document = {"type": "array", "prefixItems": [], "items": False}
+
+    _agrees_with_reference(document, _ARRAYS)
+
+
+def test_prefix_items_min_items_beyond_the_positions_accepts_no_array() -> None:
+    """minItems above the number of positions can never be met under items: false."""
+    document = {**_CLOSED_PAIR, "type": "array", "minItems": 3}
+
+    _agrees_with_reference(document, _ARRAYS)
+
+
+def test_typeless_prefix_items_passes_a_non_array_through() -> None:
+    """Array keywords only apply to arrays, so a value of another type is valid."""
+    schema = from_json_schema(_CLOSED_PAIR)
+
+    assert schema("text") == "text"
+    assert schema(None) is None
+    assert schema([1]) == [1]
+    with pytest.raises(Invalid):
+        schema([1, 2, 3])
+
+
+def test_open_prefix_items_is_still_refused() -> None:
+    """A prefixItems with an open tail cannot be honored, so it is refused."""
+    with pytest.raises(SchemaError, match="prefixItems"):
+        from_json_schema({"type": "array", "prefixItems": [{"type": "integer"}]})
+    with pytest.raises(SchemaError, match="prefixItems"):
+        from_json_schema(
+            {
+                "type": "array",
+                "prefixItems": [{"type": "integer"}],
+                "items": {"type": "string"},
+            },
+        )
+
+
+@pytest.mark.parametrize("key", ["minItems", "maxItems"])
+def test_prefix_items_refuses_a_malformed_bound(key: str) -> None:
+    """A negative bound beside prefixItems is refused like it is on a plain array."""
+    with pytest.raises(SchemaError, match=key):
+        from_json_schema({**_CLOSED_PAIR, "type": "array", key: -1})
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"const": "a", "enum": ["b", "c"]},
+        {"const": "a", "enum": ["a", "b"]},
+        {"const": "a", "enum": ["a"], "minLength": 2},
+        {"const": "a", "enum": ["a"], "type": "string"},
+        {"const": "a", "enum": ["a"], "type": "integer"},
+        {"const": 1, "enum": [1.0]},
+        {"const": 1, "enum": [True]},
+        {"const": True, "enum": [1]},
+        {"const": True, "enum": [True, False]},
+        {"const": 1.0, "enum": [1, 2]},
+        {"const": [1], "enum": [[1], [2]]},
+        {"const": [1], "enum": [[True]]},
+        {"const": None, "enum": [None]},
+        {"const": None, "enum": ["a"]},
+        {"const": "a"},
+        {"enum": ["a", "b"]},
+        {"const": 1},
+        {"enum": [1, "a"]},
+    ],
+)
+def test_const_and_enum_are_both_honored(document: dict[str, Any]) -> None:
+    """A value has to satisfy const and enum together, with JSON-strict equality."""
+    instances = [
+        "a",
+        "b",
+        "c",
+        "ab",
+        1,
+        1.0,
+        2,
+        True,
+        False,
+        None,
+        [1],
+        [True],
+        [2],
+        {},
+    ]
+
+    _agrees_with_reference(document, instances)
+
+
+@pytest.mark.parametrize("context", ["items", "anyOf", "not", "properties"])
+def test_const_and_enum_are_both_honored_when_nested(context: str) -> None:
+    """The const plus enum conjunction holds under combinators and in properties."""
+    inner = {"const": "a", "enum": ["b", "c"]}
+    document: dict[str, Any] = {
+        "items": {"type": "array", "items": inner},
+        "anyOf": {"anyOf": [inner, {"const": "d"}]},
+        "not": {"not": inner},
+        "properties": {
+            "type": "object",
+            "properties": {"p": inner},
+            "additionalProperties": True,
+        },
+    }[context]
+    instances = ["a", "b", "d", [], ["a"], ["b"], {"p": "a"}, {"p": "b"}, {}]
+
+    _agrees_with_reference(document, instances)
+
+
+def test_a_property_named_enum_is_not_the_keyword() -> None:
+    """Property names that spell keywords stay properties."""
+    document = {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {
+            "const": {"type": "string"},
+            "enum": {"type": "integer"},
+            "prefixItems": {"type": "string"},
+        },
+    }
+
+    _agrees_with_reference(
+        document,
+        [
+            {},
+            {"const": "a"},
+            {"const": 1},
+            {"enum": 1},
+            {"enum": "a"},
+            {"prefixItems": "a"},
+            {"prefixItems": [1]},
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "prop",
+    [
+        {"type": "integer", "default": "x"},
+        {"type": "integer", "default": None},
+        {"type": "integer", "default": 1.5},
+        {"type": "string", "default": 1},
+        {"type": ["integer", "null"], "default": "x"},
+        {"type": "boolean", "default": 1},
+        {"type": "array", "minItems": 1, "default": []},
+        {"default": 1},
+        {"type": "integer", "default": 1},
+        {"type": "string", "default": "x"},
+        {"type": ["integer", "null"], "default": None},
+        {"type": "null", "default": None},
+    ],
+)
+@pytest.mark.parametrize("required", [False, True])
+def test_a_default_never_rejects_an_absent_key(
+    prop: dict[str, Any],
+    *,
+    required: bool,
+) -> None:
+    """default is an annotation, so an absent key is valid exactly when the document says."""
+    document: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {"n": prop},
+        **({"required": ["n"]} if required else {}),
+    }
+    instances = [{}, {"n": 1}, {"n": "x"}, {"n": None}, {"n": 1.5}, {"n": []}]
+
+    _agrees_with_reference(document, instances)
+
+
+def test_an_invalid_default_is_not_filled_in() -> None:
+    """A default the property rejects is dropped, so it never lands in the output."""
+    schema = from_json_schema(
+        {"type": "object", "properties": {"n": {"type": "integer", "default": None}}},
+    )
+
+    assert schema({}) == {}
+    assert schema({"n": 3}) == {"n": 3}
+    with pytest.raises(Invalid):
+        schema({"n": None})
+
+
+def test_a_valid_default_is_still_filled_in() -> None:
+    """A default the property accepts keeps filling an absent key."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "default": 3},
+                "tags": {"type": "array", "items": {"type": "string"}, "default": []},
+                "m": {"type": ["integer", "null"], "default": None},
+            },
+        },
+    )
+
+    assert schema({}) == {"n": 3, "tags": [], "m": None}
+    assert schema({"n": 4}) == {"n": 4, "tags": [], "m": None}
+
+
+def test_a_default_beside_a_recursive_reference_never_rejects_an_absent_key() -> None:
+    """A default that cannot be checked yet is left out rather than risked."""
+    document = {
+        "type": "object",
+        "$defs": {
+            "node": {
+                "type": "object",
+                "properties": {"next": {"$ref": "#/$defs/node", "default": "bad"}},
+            },
+        },
+        "properties": {"root": {"$ref": "#/$defs/node"}},
+    }
+
+    schema = from_json_schema(document)
+
+    assert schema({}) == {}
+    assert schema({"root": {}}) == {"root": {}}
+    assert schema({"root": {"next": {}}}) == {"root": {"next": {}}}
+
+
+def test_a_default_on_a_property_named_like_a_keyword_is_still_checked() -> None:
+    """A property called default or enum carries its own default like any other."""
+    schema = from_json_schema(
+        {
+            "type": "object",
+            "properties": {
+                "default": {"type": "integer", "default": "x"},
+                "enum": {"type": "integer", "default": 2},
+            },
+        },
+    )
+
+    assert schema({}) == {"enum": 2}
+
+
+def _prefix_document(
+    count: int,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build a closed prefixItems document with ``count`` integer positions."""
+    return {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}] * count,
+        "items": False,
+        **extra,
+    }
+
+
+def _as_prefix_validator(document: dict[str, Any]) -> _JsonPrefixItems:
+    """Decode a document that must come out as the internal prefix validator."""
+    node = from_json_schema(document).schema
+    assert isinstance(node, _JsonPrefixItems)
+    return node
+
+
+def test_a_long_prefix_decodes_to_one_validator_not_one_per_length() -> None:
+    """Decoding stays linear: one validator holds every position, whatever the range."""
+    node = _as_prefix_validator(_prefix_document(500))
+
+    assert len(node.validators) == 500
+    assert (node.shortest, node.longest) == (0, 500)
+
+
+@pytest.mark.parametrize("length", [0, 1, 2, 3])
+def test_prefix_validator_accepts_every_length_in_its_range(length: int) -> None:
+    """Any length from the shortest to the longest is valid, and is returned as is."""
+    schema = from_json_schema(_prefix_document(3))
+    value = list(range(length))
+
+    assert schema(value) == value
+
+
+def test_prefix_validator_enforces_its_length_bounds() -> None:
+    """A length outside the range raises the same length errors a plain array does."""
+    node = _as_prefix_validator(_prefix_document(4, minItems=1, maxItems=3))
+
+    assert node([1]) == [1]
+    assert node([1, 2, 3]) == [1, 2, 3]
+    with pytest.raises(LengthInvalid) as too_short:
+        node([])
+    assert too_short.value.translation_key == "length_min"
+    with pytest.raises(LengthInvalid) as too_long:
+        node([1, 2, 3, 4])
+    assert too_long.value.translation_key == "length_max"
+
+
+def test_prefix_validator_takes_a_list_only() -> None:
+    """A non-list, a tuple included, is refused the way a plain array refuses it."""
+    node = _as_prefix_validator(_prefix_document(2))
+
+    for rejected in ((1,), "ab", 1, None, {}):
+        with pytest.raises(SequenceTypeInvalid) as caught:
+            node(rejected)
+        assert caught.value.translation_key == "expected_sequence"
+    with pytest.raises(Invalid):
+        from_json_schema({"type": "array", "items": {"type": "integer"}})((1,))
+
+
+def test_prefix_validator_reports_every_bad_position_with_its_index() -> None:
+    """Each position that fails is reported at its own index, all in one error."""
+    schema = from_json_schema(
+        {
+            "type": "array",
+            "prefixItems": [
+                {"type": "integer"},
+                {"type": "string"},
+                {"type": "integer"},
+            ],
+            "items": False,
+        },
+    )
+
+    with pytest.raises(MultipleInvalid) as caught:
+        schema(["a", 1])
+
+    assert sorted(error.path for error in caught.value.errors) == [[0], [1]]
+
+
+def test_prefix_validator_renders_readably() -> None:
+    """The repr names the range, for error paths."""
+    node = _as_prefix_validator(_prefix_document(2))
+
+    assert "shortest=0" in repr(node)
+    assert "longest=2" in repr(node)
+
+
+def test_an_impossible_prefix_range_accepts_no_array() -> None:
+    """minItems beyond the positions leaves no valid length, with or without a prefix."""
+    for document in (
+        _prefix_document(2, minItems=3),
+        _prefix_document(2, minItems=2, maxItems=1),
+        {"type": "array", "prefixItems": [], "items": False, "minItems": 1},
+    ):
+        _agrees_with_reference(document, _ARRAYS)
+        _as_prefix_validator(document)
+
+
+def test_prefix_validator_works_in_a_compiled_mapping() -> None:
+    """The internal validator runs under compile=True and the default policy."""
+    document = {
+        "type": "object",
+        "additionalProperties": True,
+        "properties": {"pair": _prefix_document(2, minItems=1)},
+    }
+
+    for compile_flag in (True, None):
+        schema = Schema(from_json_schema(document).schema, compile=compile_flag)
+
+        assert schema({"pair": [1]}) == {"pair": [1]}
+        assert schema({"pair": [1, 2]}) == {"pair": [1, 2]}
+        with pytest.raises(MultipleInvalid) as caught:
+            schema({"pair": ["a"]})
+        assert caught.value.errors[0].path == ["pair", 0]
+        with pytest.raises(MultipleInvalid):
+            schema({"pair": []})
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        _prefix_document(2),
+        _prefix_document(2, minItems=1),
+        _prefix_document(3, maxItems=2),
+        _prefix_document(3, minItems=1, maxItems=2),
+        _prefix_document(2, minItems=3),
+        {"type": "array", "prefixItems": [], "items": False, "minItems": 1},
+    ],
+)
+def test_prefix_validator_re_encodes_to_an_equivalent_document(
+    document: dict[str, Any],
+) -> None:
+    """to_json_schema gives back a document that decodes to the same acceptance."""
+    original = from_json_schema(document)
+    encoded = to_json_schema(original)
+
+    assert encoded.get("prefixItems") != []
+    assert encoded["items"] is False
+    _agrees_with_reference(encoded, _ARRAYS)
+    again = from_json_schema(encoded)
+    for instance in _ARRAYS:
+        try:
+            original(instance)
+            expected = True
+        except Invalid:
+            expected = False
+        try:
+            again(instance)
+            actual = True
+        except Invalid:
+            actual = False
+        assert actual is expected, (document, instance)
+
+
+def test_prefix_validator_re_encodes_the_range_keywords() -> None:
+    """minItems shows when above zero, maxItems when below the position count."""
+    assert to_json_schema(from_json_schema(_prefix_document(3))) == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}] * 3,
+        "items": False,
+    }
+    assert to_json_schema(
+        from_json_schema(_prefix_document(3, minItems=1, maxItems=2)),
+    ) == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}] * 3,
+        "items": False,
+        "minItems": 1,
+        "maxItems": 2,
+    }
+
+
+def test_prefix_validator_re_encodes_in_openapi_31() -> None:
+    """OpenAPI 3.1 gets the same keywords and decodes back to the same acceptance."""
+    original = from_openapi(_prefix_document(3, minItems=1, maxItems=2))
+
+    encoded = to_openapi(original, openapi_version="3.1.0")
+
+    assert encoded == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}] * 3,
+        "items": False,
+        "minItems": 1,
+        "maxItems": 2,
+    }
+    again = from_openapi(encoded)
+    for instance in _ARRAYS:
+        for schema in (original, again):
+            try:
+                schema(instance)
+                accepted = True
+            except Invalid:
+                accepted = False
+            assert accepted is jsonschema.Draft202012Validator(encoded).is_valid(
+                instance,
+            )
+
+
+def test_prefix_validator_in_openapi_31_leaves_an_empty_prefix_out() -> None:
+    """prefixItems must not be an empty array, so an impossible empty prefix omits it."""
+    original = from_openapi(
+        {"type": "array", "prefixItems": [], "items": False, "minItems": 1},
+    )
+
+    encoded = to_openapi(original, openapi_version="3.1.0")
+
+    assert encoded == {"type": "array", "items": False, "minItems": 1, "maxItems": 0}
+
+
+def test_prefix_validator_in_openapi_30_keeps_the_length_and_reports_the_loss() -> None:
+    """OpenAPI 3.0 has no prefixItems: the range survives, the positions are reported."""
+    original = from_openapi(_prefix_document(3, minItems=1))
+
+    assert to_openapi(original, openapi_version="3.0") == {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+    }
+    with pytest.raises(SchemaError, match="prefixItems"):
+        to_openapi(original, openapi_version="3.0", strict=True)
+
+    empty = from_openapi(
+        {"type": "array", "prefixItems": [], "items": False, "minItems": 1},
+    )
+    assert to_openapi(empty, openapi_version="3.0", strict=True) == {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 0,
+    }
+
+
+def test_prefix_validator_without_a_minimum_leaves_min_items_out_of_openapi() -> None:
+    """A range that starts at zero needs no minItems in either OpenAPI version."""
+    original = from_openapi(_prefix_document(2))
+
+    assert to_openapi(original, openapi_version="3.0") == {
+        "type": "array",
+        "maxItems": 2,
+    }
+    assert to_openapi(original, openapi_version="3.1.0") == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}] * 2,
+        "items": False,
+        "maxItems": 2,
+    }

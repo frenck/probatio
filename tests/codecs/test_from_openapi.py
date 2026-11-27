@@ -260,3 +260,68 @@ def test_numeric_types_survive_openapi_round_trip() -> None:
         "latitude": -37.8136,
         "days": 2,
     }
+
+
+def test_openapi_nullable_property_with_a_null_default() -> None:
+    """A nullable property accepts its null default, so it is filled in when absent."""
+    schema = from_openapi(
+        {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "nullable": True, "default": None},
+            },
+        },
+    )
+
+    assert schema({}) == {"n": None}
+    assert schema({"n": 3}) == {"n": 3}
+    assert schema({"n": None}) == {"n": None}
+
+
+def test_openapi_default_that_the_property_rejects_is_not_applied() -> None:
+    """An invalid default never makes an absent key invalid, nullable or not."""
+    document = {
+        "type": "object",
+        "properties": {
+            "plain": {"type": "integer", "default": None},
+            "wrong": {"type": "integer", "nullable": True, "default": "x"},
+            "fine": {"type": "string", "default": "ok"},
+        },
+    }
+
+    schema = from_openapi(document)
+
+    assert schema({}) == {"fine": "ok"}
+    with pytest.raises(Invalid):
+        schema({"plain": None})
+
+
+def test_openapi_const_and_enum_are_both_honored() -> None:
+    """const beside enum is a conjunction in the OpenAPI 3.1 decoder too."""
+    schema = from_openapi({"const": "a", "enum": ["b", "c"]})
+
+    for value in ("a", "b", "c"):
+        with pytest.raises(Invalid):
+            schema(value)
+
+    assert from_openapi({"const": "a", "enum": ["a", "b"]})("a") == "a"
+
+
+def test_openapi_closed_prefix_items_accepts_a_shorter_array() -> None:
+    """The OpenAPI 3.1 decoder reads a closed prefixItems the way JSON Schema does."""
+    document = {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+        "items": False,
+        "uniqueItems": True,
+        "maxItems": 2,
+    }
+
+    schema = from_openapi(document)
+
+    assert schema([]) == []
+    assert schema([1]) == [1]
+    assert schema([1, 2]) == [1, 2]
+    for rejected in ([1, 1], [1, 2, 3], ["a"]):
+        with pytest.raises(Invalid):
+            schema(rejected)

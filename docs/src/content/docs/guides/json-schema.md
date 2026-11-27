@@ -213,6 +213,22 @@ common in machine-generated schemas such as MCP tool definitions.
 `oneOf` decodes with its exact semantics (a value must match exactly one branch,
 so one matching two or more is rejected), unlike the looser `anyOf`.
 
+`prefixItems` is honored in its closed form (`items: false`) and refused with an
+open tail. As in JSON Schema it validates the positions that are present, so a
+shorter array is valid and only `minItems` makes positions mandatory. When
+`minItems` and `maxItems` both equal the number of positions it decodes to an
+`ExactSequence`; otherwise it decodes to one validator that checks the length
+range and each position present, in time linear in the number of positions (a
+list only, like a plain array). Both encoders write it back as `prefixItems`
+with `items: false`, plus `minItems` and `maxItems` where they narrow the range.
+`uniqueItems`, `contains`, `minContains` and `maxContains` apply beside it as
+they do on a plain array.
+
+`const` and `enum` on the same node both apply: a value has to satisfy each.
+`default` is an annotation and never makes an instance invalid. A property's
+`default` fills in an absent key only when the property's own schema accepts it;
+otherwise it is left out, so the key stays optional and is not rejected.
+
 `from_openapi` adds the OpenAPI `nullable` keyword, covered in
 [OpenAPI](/guides/openapi/).
 
