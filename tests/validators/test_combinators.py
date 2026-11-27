@@ -16,6 +16,7 @@ from probatio import (
     MultipleInvalid,
     Or,
     Range,
+    Remove,
     Required,
     Schema,
     SchemaError,
@@ -458,3 +459,16 @@ def test_tagged_union_list_form_needs_a_plain_literal_tag(bad_tag: object) -> No
     """A discriminator mapping to a type, a validator, or an unhashable is not a tag."""
     with pytest.raises(SchemaError):
         TaggedUnion("type", [{Required("type"): bad_tag, "v": int}])
+
+
+def test_the_extra_policy_reaches_a_dict_in_a_remove_element() -> None:
+    """A combinator hands the policy to a mapping wrapped in a sequence ``Remove``."""
+    elements = [Remove({"a": int}), dict]
+    data = {"rows": [{"a": 1, "other": 2}]}
+
+    bare = Schema({"rows": elements}, extra=ALLOW_EXTRA)
+    combined = Schema({"rows": All(elements)}, extra=ALLOW_EXTRA)
+
+    # With extra keys allowed the item matches the ``Remove`` and is dropped,
+    # the same with and without the combinator around the sequence.
+    assert bare(data) == combined(data) == {"rows": []}

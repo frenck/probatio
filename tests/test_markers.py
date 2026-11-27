@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import copy
+import pickle
+
+import pytest
 
 from probatio import (
     UNDEFINED,
     Extra,
+    MultipleInvalid,
     Optional,
     Remove,
     Required,
+    Schema,
+    Self,
 )
 from probatio.markers import Undefined, default_factory
 
@@ -176,3 +182,29 @@ def test_resolve_key_rejects_two_presence_markers() -> None:
 
     # A bare Secret carries no presence marker of its own.
     assert resolve_key(Secret("name")).marker is None
+
+
+@pytest.mark.parametrize("sentinel", [Self, Extra], ids=["Self", "Extra"])
+def test_sentinels_keep_their_identity_through_copy_and_pickle(
+    sentinel: object,
+) -> None:
+    """Copy, deepcopy and a pickle round trip all return the singleton."""
+    assert copy.copy(sentinel) is sentinel
+    assert copy.deepcopy(sentinel) is sentinel
+    assert pickle.loads(pickle.dumps(sentinel)) is sentinel  # noqa: S301
+
+
+def test_a_deep_copied_recursive_schema_still_validates() -> None:
+    """A deep copy of a ``Self`` schema definition still recurses."""
+    schema = Schema(copy.deepcopy({"children": [Self]}))
+
+    assert schema({"children": [{"children": []}]}) == {"children": [{"children": []}]}
+    with pytest.raises(MultipleInvalid, match="children"):
+        schema({"children": [{"children": "no"}]})
+
+
+def test_a_deep_copied_extra_schema_still_means_extra_keys() -> None:
+    """A deep copy of ``{Extra: object}`` still accepts any key."""
+    schema = Schema(copy.deepcopy({Extra: object}))
+
+    assert schema({"anything": 1}) == {"anything": 1}

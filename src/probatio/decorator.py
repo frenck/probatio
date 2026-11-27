@@ -18,6 +18,7 @@ from probatio.dataclass_schema import _annotation_to_schema
 from probatio.error import Invalid, SchemaError
 from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, Schema
 from probatio.validators import All
+from probatio.validators.combinators import _branch_holds_mapping
 
 # ``probatio`` preserves the decorated callable's signature for callers: the
 # wrapper forwards ``*args, **kwargs`` (so it cannot pass a ParamSpec through
@@ -156,12 +157,28 @@ def _parameter_schema(
             inferred = _UNSET
         extra = constraints.get(name, _UNSET)
         if inferred is not _UNSET and extra is not _UNSET:
-            mapping[name] = All(inferred, extra)
+            mapping[name] = _own_policy(All(inferred, extra))
         elif inferred is not _UNSET:
-            mapping[name] = inferred
+            mapping[name] = _own_policy(inferred)
         elif extra is not _UNSET:
-            mapping[name] = extra
+            mapping[name] = _own_policy(extra)
     return mapping
+
+
+def _own_policy(schema: typing.Any) -> typing.Any:
+    """Give a parameter's schema its own extra-key policy.
+
+    The call as a whole allows extra keys (parameters that are not validated pass
+    through), and a schema hands that policy down to the mappings inside it. A
+    parameter must not inherit it: a ``dict[int, str]`` has to reject a key that is
+    not an ``int``. A nested ``Schema`` compiles under its own policy, so a fragment
+    that holds a mapping is wrapped in one. Anything else validates the same under
+    either policy and is left alone, which keeps the wrapper off the call path.
+    """
+    if _branch_holds_mapping(schema):
+        return Schema(schema)
+
+    return schema
 
 
 def _return_schema(

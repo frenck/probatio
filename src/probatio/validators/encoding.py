@@ -130,7 +130,9 @@ class FromJSONString(_SafeValidator):
 
         try:
             decoded = json.loads(value)
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
+            # A document nested deeper than the interpreter allows is not valid
+            # input either, and must not escape as a raw RecursionError.
             raise JsonInvalid(self.msg, translation_key="invalid_json") from exc
 
         return self._validate(decoded) if self._validate is not None else decoded

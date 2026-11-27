@@ -24,6 +24,7 @@ from probatio.error import (
     SchemaError,
     TooManyValid,
 )
+from probatio.markers import Remove
 from probatio.schema import PREVENT_EXTRA, Schema, compile_schema
 from probatio.validators._base import _SafeValidator
 
@@ -69,7 +70,13 @@ def _branch_holds_mapping(node: typing.Any) -> bool:
     if isinstance(node, dict):
         return True
     if isinstance(node, list | tuple | set | frozenset):
-        return any(_branch_holds_mapping(element) for element in node)
+        # A ``Remove`` element compiles as the schema it wraps, so look inside it.
+        return any(
+            _branch_holds_mapping(
+                element.schema if isinstance(element, Remove) else element
+            )
+            for element in node
+        )
 
     children = getattr(node, "validators", None)
     if isinstance(children, list):

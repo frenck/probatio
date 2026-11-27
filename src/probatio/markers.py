@@ -66,6 +66,18 @@ class _Self:
         """Render as ``Self``."""
         return "Self"
 
+    def __copy__(self) -> _Self:
+        """Return the singleton: the engine recognises it by identity."""
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _Self:
+        """Return the singleton: the engine recognises it by identity."""
+        return self
+
+    def __reduce__(self) -> str:
+        """Pickle by global name, so loading returns the singleton."""
+        return "Self"
+
 
 # Used inside a schema to mean "validate against the whole enclosing schema",
 # which is how recursive structures (a tree, a nested condition) are expressed.
@@ -87,6 +99,18 @@ class _Extra:
 
     def __repr__(self) -> str:
         """Render as ``Extra``."""
+        return "Extra"
+
+    def __copy__(self) -> _Extra:
+        """Return the singleton: the engine recognises it by identity."""
+        return self
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> _Extra:
+        """Return the singleton: the engine recognises it by identity."""
+        return self
+
+    def __reduce__(self) -> str:
+        """Pickle by global name, so loading returns the singleton."""
         return "Extra"
 
 
