@@ -643,23 +643,45 @@ def test_any_float_walk_leaves_a_failing_int_conversion_to_the_next_branch() -> 
     )
 
 
-def test_any_float_walk_survives_a_type_check_that_raises_invalid() -> None:
-    """An ``Invalid`` from a metaclass ``__instancecheck__`` rejects only that branch."""
+def test_any_float_walk_leaves_a_type_check_that_runs_code_to_the_branches() -> None:
+    """A type with its own ``__instancecheck__`` is checked once, by its branch."""
+    answers: list[object] = []
 
-    class Refusing(type):
-        """A metaclass whose instance check raises instead of answering."""
+    class Moody(type):
+        """A metaclass whose instance check raises once, then accepts."""
 
         def __instancecheck__(cls, instance: object) -> bool:
-            """Reject every instance check with an ``Invalid``."""
-            message = "no instances"
-            raise Invalid(message)
+            """Refuse the first check with an ``Invalid`` and accept every later one."""
+            answers.append(instance)
+            if len(answers) == 1:
+                message = "not yet"
+                raise Invalid(message)
+            return True
 
-    class Odd(metaclass=Refusing):
+    class Odd(metaclass=Moody):
+        """A type whose instance check has a mind of its own."""
+
+    # An int too large for a float passes the float branch by and reaches ``Odd``,
+    # whose one check refuses, which leaves the value to the ``str`` branch.
+    with pytest.raises(MultipleInvalid):
+        Schema(Any(float, Odd, str))(10**400)
+
+    assert len(answers) == 1
+
+
+def test_any_float_walk_does_not_skip_a_branch_for_none() -> None:
+    """A type check that raises on ``None`` still runs when a ``None`` branch follows."""
+
+    class Loud(type):
+        """A metaclass whose instance check always fails loudly."""
+
+        def __instancecheck__(cls, instance: object) -> bool:
+            """Raise instead of answering."""
+            message = "boom"
+            raise RuntimeError(message)
+
+    class Odd(metaclass=Loud):
         """A type no value can be checked against."""
 
-    # An int too large for a float passes the float branch by, so the walk reaches
-    # the refusing type before the int branch accepts.
-    huge = 10**400
-
-    assert Schema(Any(float, Odd, int))(huge) == huge
-    assert Schema(Any(float, Odd, int))(True) is True
+    with pytest.raises(RuntimeError, match="boom"):
+        Schema(Any(Odd, float, None))(None)

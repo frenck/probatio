@@ -366,7 +366,7 @@ def _type_tuple(
 
 def _float_superset(
     validators: list[typing.Any], compiled: list[typing.Any]
-) -> tuple[tuple[type, ...], bool, tuple[type, ...]] | None:
+) -> tuple[tuple[type, ...], bool, tuple[type, ...] | None] | None:
     """Return ``(accept_types, allow_none, ordered)`` for types plus a float tower.
 
     Only for a branch set that is otherwise all bare types or ``None`` but for the
@@ -380,11 +380,17 @@ def _float_superset(
     ``ordered`` lists the non-``None`` branches in their original order, a bare
     ``float`` standing for the tower (a type branch is never the bare ``float``,
     which always compiles to the tower). A value inside the superset walks it to
-    resolve a hit without raising. ``None`` if a branch is neither a type, ``None``,
-    nor the float tower, or if no float tower is present.
+    resolve a hit without raising. It is ``None`` when a branch is a class with its
+    own metaclass: ``isinstance`` then runs that metaclass's ``__instancecheck__``,
+    and a check that runs code is left to the generic path, which calls it once and
+    judges whatever it raises.
+
+    The result as a whole is ``None`` if a branch is neither a type, ``None``, nor
+    the float tower, or if no float tower is present.
     """
     types: list[type] = []
     ordered: list[type] = []
+    plain = True
     allow_none = False
     has_float_tower = False
     for raw, branch in zip(validators, compiled, strict=True):
@@ -404,10 +410,11 @@ def _float_superset(
             return None
         types.append(checked_type)
         ordered.append(checked_type)
+        plain = plain and type(checked_type) is type
 
     if not has_float_tower:
         return None
-    return tuple(types), allow_none, tuple(ordered)
+    return tuple(types), allow_none, tuple(ordered) if plain else None
 
 
 def _run_typed_any(
@@ -440,7 +447,7 @@ def _run_typed_any(
 
 
 def _run_float_superset_any(
-    superset: tuple[tuple[type, ...], bool, tuple[type, ...]],
+    superset: tuple[tuple[type, ...], bool, tuple[type, ...] | None],
     candidates: list[typing.Any],
     value: typing.Any,
     msg: str | None,
@@ -451,26 +458,25 @@ def _run_float_superset_any(
     A value outside the accept superset cannot match any branch, so it is rejected
     without running one (the common error path). A value inside it is walked against
     the branches in order, which resolves a hit without the raised and caught
-    ``Invalid`` every earlier rejecting branch would cost. A type branch accepts on
-    ``isinstance`` and returns the value, as its compiled check does. The tower
-    returns a ``float`` as is, coerces an exact ``int``, and skips to the next branch
-    for an ``int`` too large for a ``float``, as the compiled tower rejects it. A
-    ``bool`` or another ``int`` subclass reaching the tower ends the walk. When the
-    walk settles nothing, ``_run_any`` runs, so every error and every conversion
-    that calls into the value is exactly what the generic path produces.
+    ``Invalid`` every earlier rejecting branch would cost.
+
+    The walk settles only what needs no code of the value or of a branch to run. A
+    type branch accepts on ``isinstance`` and returns the value, as its compiled
+    check does. The tower returns a ``float`` as is, coerces an exact ``int``, and
+    skips to the next branch for an ``int`` too large for a ``float``, as the
+    compiled tower rejects it. A ``bool`` or another ``int`` subclass reaching the
+    tower ends the walk, since converting it may call its ``__float__``. Whatever the
+    walk does not settle goes to ``_run_any``, so every error and every call into
+    user code is exactly what the generic path produces.
     """
     accept_types, allow_none, ordered = superset
-    if allow_none and value is None:
-        # ``None`` matches no other branch kind, and a type branch that accepts it
-        # returns it unchanged, so the result is the same whichever branch wins.
-        return value
+    if (allow_none and value is None) or isinstance(value, accept_types):
+        if ordered is not None:
+            if value is None:
+                # Inside the superset, so a ``None`` branch or a type like
+                # ``object`` accepts it, and either returns it unchanged.
+                return value
 
-    if isinstance(value, accept_types):
-        # The walk only settles what it can without running code of the value: an
-        # ``int`` subclass may define ``__float__``, and what that raises is for the
-        # generic path to judge, as is an ``Invalid`` from a metaclass
-        # ``__instancecheck__``.
-        try:
             for branch in ordered:
                 if branch is float:
                     if isinstance(value, float):
@@ -487,8 +493,6 @@ def _run_float_superset_any(
                         break
                 elif isinstance(value, branch):
                     return value
-        except Invalid:
-            pass
 
         return _run_any(candidates, value, msg, miss_label)
 
