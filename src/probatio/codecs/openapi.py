@@ -1640,15 +1640,24 @@ def _flatten_any(any_of: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bo
 def _dedup_preserving_order(values: list[Any]) -> list[Any]:
     """Drop duplicate enum values by equality, keeping first-seen order.
 
-    Used when a member is unhashable (an enum of lists or dicts, valid in JSON
-    Schema), where ``list(set(...))`` would raise. Enums are short, so the
-    quadratic scan does not matter.
+    The order is part of the document: a consumer that caches on it, an LLM tool
+    definition for one, must get the same bytes on every run. A set would drop the
+    duplicates too, but hands the members back in an order that changes from one
+    process to the next.
+
+    Hashable members go through a dict, in one pass. A member that is not (an
+    enum of lists or dicts, valid in JSON Schema) falls back to comparing each
+    value with the ones kept so far.
     """
-    result: list[Any] = []
-    for value in values:
-        if value not in result:
-            result.append(value)
-    return result
+    try:
+        return list(dict.fromkeys(values))
+    except TypeError:
+        result: list[Any] = []
+        for value in values:
+            if value not in result:
+                result.append(value)
+
+        return result
 
 
 def _dedup_any(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1670,16 +1679,10 @@ def _dedup_any(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if twin is not None:
             if item.get("nullable"):
                 twin["nullable"] = True
-            combined = twin["enum"] + item["enum"]
-            try:
-                # Match voluptuous-openapi's ``list(set(...))`` for the common
-                # hashable case, so the converted output stays identical.
-                twin["enum"] = list(set(combined))
-            except TypeError:
-                # Unhashable enum members (an enum of lists or dicts) cannot go
-                # through a set; dedup by equality instead, keeping order. The
-                # oracle cannot convert these at all, so there is nothing to match.
-                twin["enum"] = _dedup_preserving_order(combined)
+            # voluptuous-openapi merges these through a set, so its member order
+            # is whatever that process hashed to. Declaration order holds the
+            # same members and is the same every time.
+            twin["enum"] = _dedup_preserving_order(twin["enum"] + item["enum"])
             continue
         out.append(item)
 
