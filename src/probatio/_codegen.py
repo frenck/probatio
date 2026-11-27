@@ -49,21 +49,8 @@ if TYPE_CHECKING:
     from types import CodeType
 
     from probatio._engine import _Candidate
-    from probatio.validators.coerce import Coerce
-    from probatio.validators.combinators import All
-    from probatio.validators.combinators import Any as AnyValidator
-    from probatio.validators.comparison import In, Length, Range
-    from probatio.validators.strings import Match
 
-    _ValidatorTypes = tuple[
-        type[Coerce[Any]],
-        type[Range],
-        type[In],
-        type[AnyValidator],
-        type[All[Any]],
-        type[Length],
-        type[Match],
-    ]
+    _Emitter = Callable[[Any, dict[str, Any], str], "list[str] | None"]
 
 # A missing key, distinct from any real value (a key whose value is ``None`` is
 # present). Module-level so every generated function shares it by identity.
@@ -133,13 +120,18 @@ def _is_generatable(validator: _MappingValidator) -> bool:
     )
 
 
-def _inline_coerce(target: Any) -> list[str] | None:
+def _inline_coerce(
+    schema: Any, _namespace: dict[str, Any], _tag: str
+) -> list[str] | None:
     """Inline a ``Coerce`` to int or float; leave the coerced value in ``_v``.
 
     An int (or float) passes through, a string is parsed, and anything else bails
     to the interpreted ``Coerce`` (which handles the rest, like a float-to-int
     truncation). The success cases produce exactly the same value ``Coerce`` would.
+    The namespace and tag go unused: every emitter shares one signature, so the
+    dispatch table can hold them all.
     """
+    target = schema.type
     if target is int:
         return [
             "        if type(_v) is int:",
@@ -364,22 +356,24 @@ def _inline_all(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     dominant hot-path composition). ``Range`` and ``In`` leave ``_v`` unchanged,
     so the knowledge survives them; any other branch conservatively resets it.
     """
-    coerce_cls, range_cls, in_cls, _, _, _, _ = _validator_types()
     chained: list[str] = []
     numeric = False
     for position, sub in enumerate(schema.validators):
         sub_tag = f"{tag}_{position}"
-        if numeric and isinstance(sub, range_cls):
+        # Ask the same gate ``_inline_validator`` uses, so a subclass that overrides
+        # ``__call__`` neither takes the range shortcut nor steers ``numeric``.
+        emitter = _emitter_for(sub)
+        if numeric and emitter is _inline_range:
             sub_lines = _inline_range(sub, namespace, sub_tag, type_checked=True)
         else:
             sub_lines = _inline_value(sub, namespace, sub_tag)
         if sub_lines is None:
             return None
         chained.extend(sub_lines)
-        if isinstance(sub, coerce_cls):
+        if emitter is _inline_coerce:
             # The lines were emitted, so ``_inline_coerce`` accepted the target.
             numeric = sub.type is int or sub.type is float
-        elif not isinstance(sub, (range_cls, in_cls)):
+        elif emitter not in (_inline_range, _inline_in):
             numeric = False
     return chained
 
@@ -430,51 +424,61 @@ def _inline_any(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] |
     return None
 
 
-# The validator classes ``_inline_validator`` dispatches on, bound on first use: a
-# module-level import would cycle (``probatio.schema`` imports this module, and the
-# validator package imports ``probatio.schema``), and a per-call import was a
-# measurable slice of generation cost. Generation first runs long after both
-# modules are initialized, so the lazy binding always succeeds.
-_VALIDATOR_TYPES: _ValidatorTypes | None = None
+# The inline emitter for each validator class, bound on first use: a module-level
+# import would cycle (``probatio.schema`` imports this module, and the validator
+# package imports ``probatio.schema``), and a per-call import was a measurable slice
+# of generation cost. Generation first runs long after both modules are initialized,
+# so the lazy binding always succeeds.
+_EMITTERS: dict[type, _Emitter] | None = None
 
 
-def _validator_types() -> _ValidatorTypes:
-    """Return ``(Coerce, Range, In, AnyValidator, All, Length, Match)``, imported once."""
-    global _VALIDATOR_TYPES  # noqa: PLW0603 - a write-once import cache
-    if _VALIDATOR_TYPES is None:
+def _emitters() -> dict[type, _Emitter]:
+    """Return the validator class to inline emitter table, imported once."""
+    global _EMITTERS  # noqa: PLW0603 - a write-once import cache
+    if _EMITTERS is None:
         from probatio.validators.coerce import Coerce  # noqa: PLC0415
         from probatio.validators.combinators import All  # noqa: PLC0415
         from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
         from probatio.validators.comparison import In, Length, Range  # noqa: PLC0415
         from probatio.validators.strings import Match  # noqa: PLC0415
 
-        _VALIDATOR_TYPES = (Coerce, Range, In, AnyValidator, All, Length, Match)
-    return _VALIDATOR_TYPES
+        _EMITTERS = {
+            Coerce: _inline_coerce,
+            Range: _inline_range,
+            In: _inline_in,
+            AnyValidator: _inline_any,
+            All: _inline_all,
+            Length: _inline_length,
+            Match: _inline_match,
+        }
+    return _EMITTERS
 
 
-def _inline_validator(  # noqa: PLR0911 - a flat one-per-validator type dispatch
+def _emitter_for(schema: Any) -> _Emitter | None:
+    """Return the inline emitter for a validator instance, or ``None``.
+
+    The emitter of the nearest class in the MRO wins, but only while the instance
+    still runs the ``__call__`` that emitter was written against. A subclass that
+    overrides ``__call__`` (a common way to extend a validator) changes what the
+    validator does, so inlining its base class would skip the override; it stays a
+    closure that calls the real ``__call__``, the same check ``_compile_nested_schema``
+    makes for ``Schema`` subclasses.
+    """
+    emitters = _emitters()
+    schema_type = type(schema)
+    for cls in schema_type.__mro__:
+        emitter = emitters.get(cls)
+        if emitter is not None:
+            return emitter if schema_type.__call__ is cls.__call__ else None
+    return None
+
+
+def _inline_validator(
     schema: Any, namespace: dict[str, Any], tag: str
 ) -> list[str] | None:
     """Dispatch a non-type value schema to its inline emitter, or ``None``."""
-    coerce_cls, range_cls, in_cls, any_cls, all_cls, length_cls, match_cls = (
-        _validator_types()
-    )
-
-    if isinstance(schema, coerce_cls):
-        return _inline_coerce(schema.type)
-    if isinstance(schema, range_cls):
-        return _inline_range(schema, namespace, tag)
-    if isinstance(schema, in_cls):
-        return _inline_in(schema, namespace, tag)
-    if isinstance(schema, any_cls):
-        return _inline_any(schema, namespace, tag)
-    if isinstance(schema, all_cls):
-        return _inline_all(schema, namespace, tag)
-    if isinstance(schema, length_cls):
-        return _inline_length(schema, namespace, tag)
-    if isinstance(schema, match_cls):
-        return _inline_match(schema, namespace, tag)
-    return None
+    emitter = _emitter_for(schema)
+    return None if emitter is None else emitter(schema, namespace, tag)
 
 
 def _inline_sequence(

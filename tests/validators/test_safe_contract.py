@@ -49,10 +49,12 @@ from probatio import (
     Maybe,
     Modulo,
     Msg,
+    MultipleInvalid,
     MultipleOf,
     Multiply,
     NotIn,
     Offset,
+    Range,
     Remap,
     RemovePrefix,
     RemoveSuffix,
@@ -147,11 +149,12 @@ def _all_subclasses(cls: type) -> set[type]:
 
 
 # Public subclasses only; the private bases (_CharacterClass, _FilesystemCheck) are
-# abstract and only ever used through their concrete children.
+# abstract and only ever used through their concrete children. And only the ones
+# probatio ships: a subclass a test module defines stands in for user code.
 _SUBCLASSES = {
     cls.__name__: cls
     for cls in _all_subclasses(_SafeValidator)
-    if not cls.__name__.startswith("_")
+    if not cls.__name__.startswith("_") and cls.__module__.startswith("probatio.")
 }
 
 
@@ -332,3 +335,77 @@ def test_no_builtin_leaks_on_a_hostile_probe(probe: Any) -> None:
     for schema in _SAFE_SCHEMAS:
         with contextlib.suppress(Invalid):
             schema(probe)
+
+
+class _LeakyEven(Range):
+    """A user subclass whose own ``__call__`` leaks a ``ValueError``."""
+
+    def __call__(self, value: Any) -> Any:
+        """Run the range check, then reject odd numbers with a ``ValueError``."""
+        value = super().__call__(value)
+        if value % 2:
+            message = "must be even"
+            raise ValueError(message)
+        return value
+
+
+class _ValueErrorMixin:
+    """A mixin that supplies a ``__call__`` leaking a ``ValueError``."""
+
+    def __call__(self, _value: Any) -> Any:
+        """Always reject with a ``ValueError``."""
+        message = "mixin says no"
+        raise ValueError(message)
+
+
+class _MixedIn(_ValueErrorMixin, Range):
+    """A user subclass whose ``__call__`` comes from a mixin, not its own body."""
+
+
+class _KeepsCall(Range):
+    """A user subclass that leaves the built-in ``__call__`` alone."""
+
+
+class _LeakyEvenChild(_LeakyEven):
+    """A subclass of a subclass that already brought its own ``__call__``."""
+
+
+_LEAKING_VALIDATORS = {
+    "own call": _LeakyEven(min=0),
+    "mixin call": _MixedIn(min=0),
+}
+
+
+@pytest.mark.parametrize("compile_schema", [False, True])
+@pytest.mark.parametrize("name", sorted(_LEAKING_VALIDATORS))
+def test_a_subclass_call_that_raises_value_error_becomes_invalid(
+    name: str, *, compile_schema: bool
+) -> None:
+    """A user ``__call__`` raising ``ValueError`` is Invalid, in a mapping and at top level."""
+    validator = _LEAKING_VALIDATORS[name]
+
+    with pytest.raises(MultipleInvalid):
+        Schema({"n": validator}, compile=compile_schema)({"n": 3})
+
+    with pytest.raises(Invalid):
+        Schema(validator, compile=compile_schema)(3)
+
+
+def test_every_builtin_safe_validator_keeps_the_flag() -> None:
+    """No built-in loses ``__probatio_safe__``, so the compiler still skips the guard."""
+    builtins = _all_subclasses(_SafeValidator)
+
+    assert builtins
+    assert all(
+        cls.__probatio_safe__
+        for cls in builtins
+        if cls.__module__.startswith("probatio.")
+    )
+
+
+def test_the_safe_flag_follows_whose_call_the_class_runs() -> None:
+    """Only a class that resolves to a ``__call__`` from outside Probatio loses the flag."""
+    assert _KeepsCall.__probatio_safe__
+    assert not _LeakyEven.__probatio_safe__
+    assert not _MixedIn.__probatio_safe__
+    assert not _LeakyEvenChild.__probatio_safe__

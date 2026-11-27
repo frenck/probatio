@@ -79,7 +79,13 @@ def _every_validator() -> list[type[_SafeValidator]]:
             if subclass not in found:
                 found.add(subclass)
                 pending.append(subclass)
-    return sorted(found, key=lambda cls: cls.__qualname__)
+
+    # Only the validators probatio ships: a subclass another test module defines is
+    # a stand-in for user code, and the typing rule is not about user code.
+    return sorted(
+        (cls for cls in found if cls.__module__.startswith("probatio.")),
+        key=lambda cls: cls.__qualname__,
+    )
 
 
 def _pass_through_validators() -> list[type[_SafeValidator]]:
