@@ -28,6 +28,7 @@ from probatio._compile import recursion_guard
 from probatio.codecs._regex_safety import is_catastrophic
 from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
+    INLINE_REGEX_FLAGS,
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
@@ -42,6 +43,12 @@ from probatio.codecs._shared import (
     is_one_of,
     key_presence_constraint,
     literal_any_names,
+    members_a_json_value_can_equal,
+    membership_normalizes_strings,
+    note_widening,
+    only_string_members,
+    regex_flags_change_meaning,
+    widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -212,6 +219,8 @@ def _open(reason: str) -> dict[str, Any]:
             "open schema (pass strict=False to allow it)"
         )
         raise SchemaError(message)
+
+    note_widening()
     return {}
 
 
@@ -921,10 +930,19 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     (``min == 1``, ``max`` the branch count) is ``anyOf``; every branch
     (``min == max == count``) is ``allOf``. Any other count has no clean JSON
     Schema form, so it widens to an open schema.
+
+    ``oneOf`` is only right when every branch rendered exactly. A branch that came
+    out wider than its validator can match a value another branch matches too, and
+    ``oneOf`` would then reject a value exactly one validator accepts. Exactly one
+    then renders as ``anyOf``, which is wider and never rejects such a value.
     """
+    before = widenings()
     branches = [_child(validator) for validator in node.validators]
     count = len(branches)
     if node.min_valid == node.max_valid == 1:
+        if count > 1 and widenings() != before:
+            return {"anyOf": branches}
+
         return {"oneOf": branches}
     if node.min_valid == 1 and node.max_valid == count:
         return {"anyOf": branches}
@@ -1049,6 +1067,44 @@ def _enum(container: Any) -> dict[str, Any]:
     return {"enum": values}
 
 
+def _convert_in(node: In) -> dict[str, Any]:
+    """Render an ``In`` as an ``enum``, unless its options widen what it accepts.
+
+    ``fold_case`` and ``space`` normalize the value and the string members before
+    comparing, so ``In(["A"], fold_case=True)`` also accepts ``"a"``. An ``enum``
+    lists exact values and would reject that spelling. Such an ``In`` widens to
+    what is certain: a string when every member is one, anything otherwise. Strict
+    mode refuses the widening like any other. Options that cannot matter (no string
+    member) keep the exact ``enum``.
+    """
+    members = _ordered(node.container)
+    if not membership_normalizes_strings(node, members):
+        return _enum(members)
+
+    _open("an In that normalizes the case or spacing of its string members")
+    if only_string_members(members):
+        return {"type": "string"}
+
+    return {}
+
+
+def _convert_not_in(node: NotIn) -> dict[str, Any]:
+    """Render a ``NotIn`` as a ``not`` over the members a JSON value can equal.
+
+    A member whose JSON form no longer equals it (a tuple rendered as a list, say)
+    is left out: the validator accepts that list, so excluding it would reject a
+    valid value. Leaving a member out widens, which strict mode refuses.
+    """
+    members = _ordered(node.container)
+    excluded = members_a_json_value_can_equal(members)
+    if len(excluded) != len(members):
+        _open("a NotIn member that no JSON value equals")
+        if not excluded:
+            return {}
+
+    return {"not": _enum(excluded)}
+
+
 def _const(value: Any) -> dict[str, Any]:
     """Render an equality target as a ``const``, or open when unrepresentable.
 
@@ -1068,13 +1124,10 @@ def _const(value: Any) -> dict[str, Any]:
 def _convert_equality(node: Any) -> dict[str, Any] | None:
     """Render the equality/membership validators as enum/const/not, or None."""
     if isinstance(node, In):
-        return _enum(node.container)
+        return _convert_in(node)
 
     if isinstance(node, NotIn):
-        enum = _enum(node.container)
-        # An unrepresentable ``NotIn`` container already widened (or raised in
-        # strict mode) inside ``_enum``, so a truthy ``enum`` is the only case here.
-        return {"not": enum} if enum else enum
+        return _convert_not_in(node)
 
     if isinstance(node, Equal):
         return _const(node.target)
@@ -1245,8 +1298,7 @@ _PYTHON_ONLY_REGEX = re.compile(
     r"|\(\?\#"  # inline comment (?#...)
     r"|\(\?\("  # conditional (?(id)yes|no)
     r"|\(\?>"  # atomic group (?>...)
-    r"|\(\?[aiLmsux]+[:)]"  # inline flags (?i) or scoped (?im:...)
-    r"|\(\?[aiLmsux]*-[aiLmsux]+:"  # negated/mixed scoped flags (?-i:...)
+    rf"|{INLINE_REGEX_FLAGS}"  # inline flags (?i), scoped (?im:...) or (?-i:...)
     r"|(?<!\\)[*+?}]\+"  # possessive quantifier (*+ ++ ?+ }+), not an escape
     r"|\\[AZ]",  # \A / \Z anchors, which ECMA-262 spells ^ / $
 )
@@ -1268,10 +1320,17 @@ def _convert_match(node: Match | _JsonPattern) -> dict[str, Any]:
     so it needs no wrapper and keeps its meaning across a round trip.
 
     A ``bytes`` pattern has no JSON Schema (JSON strings are text), so it renders
-    as a plain string rather than crashing on the ``str``/``bytes`` mismatch.
+    as a plain string rather than crashing on the ``str``/``bytes`` mismatch. A
+    pattern whose flags change what it matches (``re.IGNORECASE`` and the like)
+    has no ECMA-262 spelling either, and is dropped the same way.
     """
     source = node.pattern.pattern
-    if isinstance(source, bytes) or _PYTHON_ONLY_REGEX.search(source):
+    if (
+        isinstance(source, bytes)
+        or _PYTHON_ONLY_REGEX.search(source)
+        or regex_flags_change_meaning(node.pattern)
+    ):
+        note_widening()
         return {"type": "string"}
 
     # A decoded ``pattern`` already carries the spec's search semantics, so it

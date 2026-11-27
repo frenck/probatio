@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import enum
 import itertools
+import json
 import re
 from decimal import Decimal
 
@@ -68,8 +71,10 @@ from probatio import (
     RequiredWith,
     RequiredWithout,
     Schema,
+    SchemaError,
     Secret,
     Slug,
+    SomeOf,
     Time,
     TimeZone,
     TimeZoneInfo,
@@ -2274,3 +2279,296 @@ def test_strict_allows_a_universal_key_with_no_leaf_rendering() -> None:
     """Extra has no leaf form, but the mapping renders exactly as its values."""
     encoded = to_json_schema(Schema({Extra: int}), strict=True)
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def _document_accepts(schema: Schema, value: object) -> bool:
+    """Whether the document ``to_json_schema`` emits for the schema accepts the value."""
+    return jsonschema.Draft202012Validator(to_json_schema(schema)).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    ("validator", "accepted"),
+    [
+        pytest.param(In(["A"], fold_case=True), "a", id="fold_case"),
+        pytest.param(In(["a b"], space="_"), "a_b", id="space"),
+        pytest.param(In(["A B"], fold_case=True, space="_"), "a b", id="both"),
+    ],
+)
+def test_in_with_normalizing_options_accepts_the_spellings_it_normalizes(
+    validator: In, accepted: str
+) -> None:
+    """An In that folds case or spacing widens to a string instead of an enum."""
+    schema = Schema(validator)
+
+    assert schema(accepted) is not None
+    assert to_json_schema(schema) == {"type": "string"}
+    assert _document_accepts(schema, accepted)
+
+
+def test_in_with_normalizing_options_and_mixed_members_widens_to_open() -> None:
+    """A non-string member keeps the widening from claiming a type for every member."""
+    schema = Schema(In(["A", 1, None], fold_case=True))
+
+    assert to_json_schema(schema) == {}
+    for value in ("a", 1, None):
+        assert _document_accepts(schema, value)
+
+
+@pytest.mark.parametrize(
+    "validator",
+    [
+        pytest.param(In(["A"], fold_case=True), id="fold_case"),
+        pytest.param(In(["a b"], space="_"), id="space"),
+        pytest.param(In(["A", 1], fold_case=True), id="mixed"),
+    ],
+)
+def test_strict_refuses_an_in_with_normalizing_options(validator: In) -> None:
+    """strict=True refuses the widening an In with normalizing options needs."""
+    with pytest.raises(SchemaError, match="normalizes the case or spacing"):
+        to_json_schema(Schema(validator), strict=True)
+
+
+@pytest.mark.parametrize(
+    ("validator", "expected"),
+    [
+        pytest.param(
+            In([1, 2], fold_case=True), {"enum": [1, 2]}, id="numbers_fold_case"
+        ),
+        pytest.param(In([None], space=" "), {"enum": [None]}, id="null_space"),
+        pytest.param(In(["A"], fold_case=False, space=None), {"enum": ["A"]}, id="off"),
+    ],
+)
+def test_in_whose_options_cannot_matter_keeps_the_exact_enum(
+    validator: In, expected: dict[str, object]
+) -> None:
+    """Options only act on strings, so an In without any renders an exact enum."""
+    assert to_json_schema(Schema(validator), strict=True) == expected
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param({"k": In(["A"], fold_case=True)}, id="mapping_value"),
+        pytest.param(All(str, In(["A"], fold_case=True)), id="all"),
+        pytest.param(Any(In(["A"], fold_case=True), int), id="any"),
+        pytest.param(Maybe(In(["A"], fold_case=True)), id="maybe"),
+        pytest.param([In(["A"], fold_case=True)], id="sequence"),
+    ],
+)
+def test_in_with_normalizing_options_widens_on_every_route(schema: object) -> None:
+    """Wherever the In sits, the document accepts the folded spelling."""
+    document = to_json_schema(Schema(schema))
+
+    assert "enum" not in json.dumps(document)
+    with pytest.raises(SchemaError):
+        to_json_schema(Schema(schema), strict=True)
+
+
+def test_in_with_normalizing_options_as_a_mapping_key_adds_no_key_constraint() -> None:
+    """A folded In key renders no ``propertyNames``, so ``"a"`` still passes."""
+    schema = Schema({In(["A"], fold_case=True): int})
+
+    assert "propertyNames" not in to_json_schema(schema)
+    assert _document_accepts(schema, {"a": 1})
+    with pytest.raises(SchemaError):
+        to_json_schema(schema, strict=True)
+
+
+def test_not_in_stays_a_not_over_an_exact_enum() -> None:
+    """NotIn has no normalizing options, so it keeps its exact ``not`` enum."""
+    assert to_json_schema(Schema(NotIn(["A"])), strict=True) == {"not": {"enum": ["A"]}}
+
+
+@pytest.mark.parametrize(
+    ("flags", "accepted"),
+    [
+        pytest.param(re.IGNORECASE, "A", id="ignorecase"),
+        pytest.param(re.DOTALL, "a\nb", id="dotall"),
+        pytest.param(re.MULTILINE, "a\nb", id="multiline"),
+        pytest.param(re.VERBOSE, "ab", id="verbose"),
+    ],
+)
+def test_match_drops_a_pattern_whose_flags_change_what_it_matches(
+    flags: int, accepted: str
+) -> None:
+    """A flag ECMA-262 has no plain spelling for drops the pattern."""
+    sources = {
+        re.IGNORECASE: "a",
+        re.DOTALL: "a.b",
+        re.MULTILINE: "a$",
+        re.VERBOSE: "a b",
+    }
+    schema = Schema(Match(re.compile(sources[flags], flags)))
+
+    assert schema(accepted) == accepted
+    assert to_json_schema(schema) == {"type": "string"}
+    assert _document_accepts(schema, accepted)
+
+
+def test_match_drops_an_ascii_pattern_that_reads_whitespace() -> None:
+    r"""ASCII narrows ``\s`` in Python only, so ``\S`` would reject a no-break space."""
+    schema = Schema(Match(re.compile(r"\S", re.ASCII)))
+
+    assert schema("\N{NO-BREAK SPACE}") == "\N{NO-BREAK SPACE}"
+    assert to_json_schema(schema) == {"type": "string"}
+
+
+def test_match_keeps_an_ascii_pattern_that_reads_no_whitespace() -> None:
+    r"""ASCII mode agrees with ECMA for ``\w``, so the pattern is kept."""
+    assert to_json_schema(Schema(Match(re.compile(r"\w+", re.ASCII)))) == {
+        "type": "string",
+        "pattern": r"^(?:\w+)",
+    }
+
+
+def test_match_keeps_a_pattern_with_only_the_default_unicode_flag() -> None:
+    """Every str pattern carries re.UNICODE, which does not count as a flag."""
+    assert to_json_schema(Schema(Match(re.compile("a", re.UNICODE)))) == {
+        "type": "string",
+        "pattern": "^(?:a)",
+    }
+    assert to_json_schema(Schema(Match(re.compile("a")))) == {
+        "type": "string",
+        "pattern": "^(?:a)",
+    }
+
+
+def test_match_drops_a_flagged_pattern_without_refusing_strict() -> None:
+    """Dropping a pattern is silent in strict mode, like any Python-only pattern."""
+    assert to_json_schema(
+        Schema(Match(re.compile("a", re.IGNORECASE))), strict=True
+    ) == {"type": "string"}
+
+
+def test_match_with_flags_as_a_mapping_key_adds_no_key_constraint() -> None:
+    """A flagged Match key renders no ``propertyNames`` that would reject ``"A"``."""
+    schema = Schema({Match(re.compile("a", re.IGNORECASE)): int})
+
+    assert _document_accepts(schema, {"A": 1})
+
+
+def test_in_reads_an_iterator_container_once() -> None:
+    """An ``In`` over an iterator still lists its members when an option is set."""
+    document = to_json_schema(Schema(In(iter([1, 2]), fold_case=True)))
+
+    assert document == {"enum": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    ("container", "expected"),
+    [
+        pytest.param([(1, 2)], {}, id="tuple_only"),
+        pytest.param([1, (1, 2)], {"not": {"enum": [1]}}, id="tuple_beside_int"),
+        pytest.param([dt.date(2020, 1, 1)], {}, id="date"),
+        pytest.param([[(1, 2)]], {}, id="tuple_nested_in_list"),
+    ],
+)
+def test_not_in_leaves_out_a_member_no_json_value_equals(
+    container: list[object], expected: dict[str, object]
+) -> None:
+    """A member whose JSON form differs from it is not excluded by the document."""
+    document = to_json_schema(Schema(NotIn(container)))
+
+    assert document == expected
+    # The validator accepts the JSON form of the member, so the document must too.
+    rendered = json.loads(json.dumps(container[-1], default=str))
+    assert Schema(NotIn(container))(rendered) == rendered
+    jsonschema.validate(rendered, document)
+
+
+def test_strict_refuses_a_not_in_member_no_json_value_equals() -> None:
+    """Leaving a member out of the ``not`` widens, which strict mode reports."""
+    with pytest.raises(SchemaError, match="NotIn member"):
+        to_json_schema(Schema(NotIn([(1, 2)])), strict=True)
+
+
+@pytest.mark.parametrize(
+    "widened",
+    [
+        pytest.param(In(["A"], fold_case=True), id="in_with_fold_case"),
+        pytest.param(Match(re.compile("a", re.IGNORECASE)), id="match_with_flag"),
+        pytest.param(Match("(?P<name>a)"), id="match_with_python_only_syntax"),
+    ],
+)
+def test_exactly_one_with_a_widened_branch_renders_as_any_of(widened: object) -> None:
+    """A branch that renders wider must not make ``oneOf`` reject a valid value."""
+    schema = Schema(SomeOf([widened, In(["b"])], min_valid=1, max_valid=1))
+    document = to_json_schema(schema)
+
+    assert "oneOf" not in document
+    assert len(document["anyOf"]) == 2
+    # Only the second validator accepts "b", yet both rendered branches match it.
+    assert schema("b") == "b"
+    jsonschema.validate("b", document)
+
+
+def test_exactly_one_with_exact_branches_stays_one_of() -> None:
+    """Branches that render exactly keep the exact ``oneOf``."""
+    document = to_json_schema(
+        Schema(SomeOf([In(["a"]), In(["b"])], min_valid=1, max_valid=1))
+    )
+
+    assert document == {"oneOf": [{"enum": ["a"]}, {"enum": ["b"]}]}
+
+
+def test_exactly_one_of_a_single_widened_branch_stays_one_of() -> None:
+    """One branch cannot overlap another, so its ``oneOf`` is kept."""
+    document = to_json_schema(
+        Schema(SomeOf([In(["A"], fold_case=True)], min_valid=1, max_valid=1))
+    )
+
+    assert document == {"oneOf": [{"type": "string"}]}
+
+
+class _IdentityInt(int):
+    """An int that only equals itself, so no JSON number ever equals it."""
+
+    __hash__ = int.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        """Compare by identity."""
+        return self is other
+
+
+class _RaisingInt(int):
+    """An int whose comparison raises."""
+
+    __hash__ = int.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        """Refuse to be compared."""
+        message = "not comparable"
+        raise ValueError(message)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        pytest.param(_IdentityInt(1), id="identity_equality"),
+        pytest.param(_RaisingInt(1), id="raising_equality"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="infinity"),
+        pytest.param({1: 2}, id="dict_with_a_non_string_key"),
+    ],
+)
+def test_not_in_leaves_out_a_member_that_does_not_compare_like_json(
+    member: object,
+) -> None:
+    """A member with its own idea of equality is left out without being compared."""
+    assert to_json_schema(Schema(NotIn([member]))) == {}
+    assert to_openapi(Schema(NotIn([member]))) == {}
+
+
+def test_not_in_keeps_a_str_enum_member() -> None:
+    """A ``StrEnum`` member compares like its string value, so it stays excluded."""
+
+    class Mode(enum.StrEnum):
+        """A string enum."""
+
+        AUTO = "auto"
+
+    document = to_json_schema(Schema(NotIn([Mode.AUTO, [1, {"a": [2]}]])))
+
+    assert json.loads(json.dumps(document)) == {
+        "not": {"enum": ["auto", [1, {"a": [2]}]]}
+    }

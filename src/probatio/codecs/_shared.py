@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
+import math
+import re
 from collections import Counter
 from collections.abc import Hashable
 from dataclasses import dataclass, field
@@ -36,6 +39,7 @@ from probatio.validators import (
     Hex,
     HexColor,
     Hostname,
+    In,
     IPAddress,
     IPNetwork,
     IPv4Address,
@@ -707,6 +711,137 @@ def covers_every_property_name(key: Any) -> bool:
         key = key.validator if type(key) is Msg else key.schema
 
     return key is Extra or key is str or key is object
+
+
+# How many renderings so far came out wider than the validator they describe. Only
+# ever compared with an earlier reading of itself, so it is never reset.
+_WIDENINGS: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "_WIDENINGS", default=0
+)
+
+
+def note_widening() -> None:
+    """Record that a rendering accepts more than its validator does.
+
+    A wider document is the allowed direction on its own, but not everywhere:
+    ``oneOf`` passes a value only when exactly one branch matches, so a branch
+    that got wider can make a second branch match and the whole reject a valid
+    value. The renderer of such a construct reads ``widenings`` before and after
+    its children to learn whether one of them widened. A renderer that widens
+    without calling this is not seen.
+    """
+    _WIDENINGS.set(_WIDENINGS.get() + 1)
+
+
+def widenings() -> int:
+    """Return the number of widenings recorded so far, to compare across a render."""
+    return _WIDENINGS.get()
+
+
+def membership_normalizes_strings(node: In, members: list[Any]) -> bool:
+    """Whether an ``In``'s options change which strings it accepts.
+
+    ``fold_case`` and ``space`` rewrite the value and every string member before
+    they are compared, so a string member stands for a family of spellings that no
+    ``enum`` can list. A member that is not a string is compared as it is, so the
+    options only matter when at least one member is a string.
+
+    ``members`` is the container listed once by the caller: a container can be an
+    iterator, which a second listing would find empty.
+    """
+    if not node.fold_case and node.space is None:
+        return False
+
+    return any(isinstance(member, str) for member in members)
+
+
+def only_string_members(members: list[Any]) -> bool:
+    """Whether every member is a string (an empty list has none)."""
+    return bool(members) and all(isinstance(member, str) for member in members)
+
+
+def members_a_json_value_can_equal(members: list[Any]) -> list[Any]:
+    """Keep the members that compare to a JSON value the way their JSON form does.
+
+    For the members a ``NotIn`` excludes. Rendering a tuple gives a list, a
+    ``datetime`` a string, a plain ``Enum`` member its value, and none of those
+    equals the member, so the validator accepts the very value the document would
+    exclude. Leaving such a member out of the ``not`` only widens it, which is the
+    safe direction, where keeping it rejects a value that is valid.
+    """
+    return [member for member in members if _compares_like_its_json_form(member)]
+
+
+def _compares_like_its_json_form(member: Any) -> bool:
+    """Whether a JSON value equals ``member`` exactly when it equals its JSON form.
+
+    Decided from the type alone, without comparing anything, so no ``__eq__`` of a
+    member runs here. A scalar qualifies when its class still compares with the
+    builtin's own ``__eq__``: a ``StrEnum`` member does, a subclass that defines
+    its own equality does not. A list or a dict qualifies when it is exactly that
+    type and everything in it qualifies; a tuple never equals the list it renders
+    as.
+    """
+    if member is None or type(member) is bool:
+        return True
+
+    if isinstance(member, float):
+        # JSON has no spelling for a NaN or an infinity.
+        return type(member).__eq__ is float.__eq__ and math.isfinite(member)
+
+    for scalar in (str, int):
+        if isinstance(member, scalar):
+            return type(member).__eq__ is scalar.__eq__
+
+    if type(member) is list:
+        return all(_compares_like_its_json_form(item) for item in member)
+
+    if type(member) is dict:
+        return all(
+            type(key) is str and _compares_like_its_json_form(value)
+            for key, value in member.items()
+        )
+
+    return False
+
+
+# Flags a pattern can switch on with a group, like ``(?i)`` or ``(?s:...)``,
+# including the scoped ``(?-i:...)`` form that switches one off.
+INLINE_REGEX_FLAGS = r"\(\?[aiLmsux]+[:)]|\(\?[aiLmsux]*-[aiLmsux]+:"
+
+# Flags that change what a pattern matches compared to the same source read as a
+# plain ECMA-262 pattern, which is what JSON Schema and OpenAPI mean by ``pattern``:
+#
+# - IGNORECASE: ECMA is case sensitive without its own ``i`` flag.
+# - VERBOSE: whitespace and ``#`` comments in the source are ignored.
+# - DOTALL: ``.`` also matches a line break, which it never does in ECMA.
+# - MULTILINE: ``^`` and ``$`` also match at each line break.
+# - LOCALE: bytes patterns only, and those have no document form at all.
+#
+# UNICODE is left out on purpose: every ``str`` pattern carries it. ASCII is
+# handled apart, since ECMA already limits ``\w``, ``\d`` and ``\b`` to ASCII.
+_MEANING_CHANGING_FLAGS = (
+    re.IGNORECASE | re.VERBOSE | re.DOTALL | re.MULTILINE | re.LOCALE
+)
+_WHITESPACE_CLASS = re.compile(r"\\[sS]")
+
+
+def regex_flags_change_meaning(pattern: re.Pattern[Any]) -> bool:
+    r"""Whether the flags on a compiled pattern make it match differently as ECMA.
+
+    Such a pattern cannot be emitted as it is, because the document would accept
+    a different set of strings than ``Match`` does. ASCII only matters for ``\s``
+    and ``\S``: ECMA reads them as Unicode whitespace, Python's ASCII mode as
+    the six ASCII whitespace characters, so ``\S`` would reject a non-breaking
+    space that ``Match`` accepts. The check is a loose match on the source, which
+    can only drop a pattern that was safe, never keep one that was not.
+    """
+    if pattern.flags & _MEANING_CHANGING_FLAGS:
+        return True
+
+    return bool(pattern.flags & re.ASCII) and bool(
+        _WHITESPACE_CLASS.search(pattern.pattern)
+    )
 
 
 def ordered_values(values: Any) -> list[Any]:
