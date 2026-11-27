@@ -14,8 +14,12 @@ import pytest
 
 from probatio import (
     Invalid,
+    Maybe,
+    Msg,
     MultipleInvalid,
+    Optional,
     Schema,
+    Self,
     from_json_schema,
     from_openapi,
     to_json_schema,
@@ -31,10 +35,12 @@ from probatio.validators import (
     ExactSequence,
     In,
     Length,
+    Match,
     MultipleOf,
     Range,
     Unique,
 )
+from probatio.validators import Any as AnyOf
 
 
 def test_primitive_types() -> None:
@@ -2691,3 +2697,82 @@ def test_a_modest_default_is_still_checked_and_filled_in() -> None:
     document = {"type": "object", "properties": {"v": {"default": default}}}
 
     assert from_json_schema(document)({}) == {"v": default}
+
+
+def _scope() -> dict[object, object]:
+    """Build a scope body with a Self in a mapping value, under an ``Any``."""
+    return {Optional("n"): AnyOf(int, Self)}
+
+
+def _nested_values() -> list[object]:
+    """Build values three levels deep: chains of mappings, lists and pairs."""
+    values: list[object] = [None, "s", 1, {}, []]
+    for _ in range(3):
+        values = [
+            *values,
+            *({key: value} for key in ("a", "n", "i") for value in values),
+            *([value] for value in values),
+            *([value, 1] for value in values),
+            *([1, value] for value in values),
+        ]
+    return values
+
+
+def _accepts(schema: Schema, value: object) -> bool:
+    """Whether the schema accepts the value."""
+    try:
+        schema(value)
+    except Invalid:
+        return False
+    return True
+
+
+_HOISTED_ROUND_TRIPS = {
+    "mapping_value": Schema({Optional("a"): Schema(_scope())}),
+    "sequence_element": Schema({Optional("a"): [Schema(_scope())]}),
+    "any": Schema({Optional("a"): AnyOf(Schema(_scope()), int)}),
+    "maybe": Schema({Optional("a"): Maybe(_scope())}),
+    "msg": Schema({Optional("a"): Msg(_scope(), "message")}),
+    "exact_sequence_position": Schema({Optional("a"): ExactSequence([_scope(), int])}),
+    "two_levels": Schema(
+        {
+            Optional("a"): Schema(
+                {Optional("n"): AnyOf(int, Self), Optional("i"): Schema(_scope())}
+            )
+        }
+    ),
+    "root_beside_nested": Schema(
+        {Optional("a"): Schema(_scope()), Optional("n"): AnyOf(int, Self)}
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "schema", _HOISTED_ROUND_TRIPS.values(), ids=list(_HOISTED_ROUND_TRIPS)
+)
+def test_a_hoisted_self_survives_the_round_trip(schema: Schema) -> None:
+    """The decoded schema accepts and rejects what the original does, nested values included."""
+    decoded = from_json_schema(to_json_schema(schema))
+    reencoded = jsonschema.Draft202012Validator(to_json_schema(decoded))
+
+    verdicts = []
+    for value in _nested_values():
+        expected = _accepts(schema, value)
+        assert _accepts(decoded, value) is expected, value
+        if expected:
+            assert reencoded.is_valid(value), value
+        verdicts.append(expected)
+
+    assert verdicts.count(True) >= 3
+    assert verdicts.count(False) >= 3
+
+
+def test_a_document_with_a_recursive_definition_is_decoded() -> None:
+    """A ``$ref`` into ``$defs`` that refers to itself ties the knot at every depth."""
+    document = to_json_schema(
+        Schema({"schema": {str: Schema(AnyOf(Match(r"^str$"), {str: Self}))}})
+    )
+    decoded = from_json_schema(document)
+
+    assert _accepts(decoded, {"schema": {"a": "str", "b": {"c": {"d": "str"}}}})
+    assert not _accepts(decoded, {"schema": {"a": {"b": {"c": "nope"}}}})
