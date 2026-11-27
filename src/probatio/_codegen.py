@@ -10,16 +10,16 @@ It is deliberately *safe by construction*. The generated function is a fast
 a type mismatch, a value validator raising, an unexpected key, a declining
 default), it raises ``_Bail`` and the caller re-runs the original interpreted
 ``_MappingValidator``, which produces the exact errors, paths, codes, and order.
-Validation of valid data, the overwhelming common case, never leaves the fast
-path; only a failure pays the interpreted re-run, and failures are not the hot
-path. So the compiled and interpreted schemas return the same value and raise the
+Valid data, the overwhelming common case, stays on the fast path, bar the few
+values the generated code defers on (a float for ``Coerce(int)``, say). Only a
+bail pays the interpreted re-run, and bails are not the hot path. So the compiled and interpreted schemas return the same value and raise the
 same error, and the generator only has to get the *happy* path right.
 
-The one observable seam is side effects on the failure path. The fast path runs
-fields optimistically, so a validator or ``default`` factory that already ran
-before some later field bails runs a second time in the interpreted re-run. The
-value and the error are still identical; only the count of side effects differs,
-and only when validation fails. Probatio's own validators are pure, so this is
+The one observable seam is side effects on a bail. The fast path runs fields
+optimistically, so a validator or ``default`` factory that already ran before some
+later field bails runs a second time in the interpreted re-run. For pure validators
+the value and the error are still identical; only the count of calls differs, and
+only when the fast path bails. Probatio's own validators are pure, so this is
 invisible for them; a user validator or default factory that mutates state should
 be pure too, the same expectation the interpreted engine already leans on.
 

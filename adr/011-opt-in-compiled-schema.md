@@ -96,8 +96,8 @@ asking every consumer to opt in by hand.
   ordering are the interpreted engine's, because anything that is not the plain happy
   path bails to it. The one seam is side effects on a bail: the fast path
   runs fields optimistically, so a validator or `default` factory that already ran
-  before a later field bails runs again in the interpreted re-run. The value and the
-  error are still identical; only the count of side effects differs, and only when
+  before a later field bails runs again in the interpreted re-run. For a pure validator the
+  value and the error are still identical; only the count of side effects differs, and only when
   the fast path bails: on a failing validation, or on a valid input it does not
   settle itself (a float for `Coerce(int)`, for example). Probatio's own validators are pure, so this is invisible for them,
   and a user validator that mutates state should be pure too, the same expectation the
