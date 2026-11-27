@@ -1141,6 +1141,10 @@ def _oa_typed(node: Any) -> dict[str, Any] | None:
     return None
 
 
+# The keys a ``Length`` renders before a sibling in an ``All`` types them.
+_LENGTH_BOUNDS = frozenset({"minLength", "maxLength"})
+
+
 def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     """Merge an All's parts, falling back to allOf when keys conflict."""
     merged: dict[str, Any] = {}
@@ -1172,7 +1176,21 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
         if not fallback:
             merged.update(part)
 
+    # ``nullable`` says "this part, or null", about the part as a whole. Merged
+    # into one schema it would speak for the other parts too, which may not take
+    # null, or leave their keywords shutting null out again. Kept apart under
+    # ``allOf``, each part admits null on its own terms.
+    if len(all_of) > 1 and any("nullable" in part for part in all_of):
+        fallback = True
+
     if fallback:
+        # A ``Length`` part is raw string-length bounds, waiting for a sibling to
+        # type them. With no merge there is no sibling, so it takes the form it
+        # has on its own: one typed branch per sized type.
+        all_of = [
+            _oa_length_branches(part) if part.keys() <= _LENGTH_BOUNDS else part
+            for part in all_of
+        ]
         return _widen_for_ensure_list({"allOf": all_of}, version, leading=leading)
     merged = _retarget_length(merged)
 

@@ -11,6 +11,7 @@ against the ``openapi-schema-validator`` reference implementation.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from enum import Enum, IntEnum, StrEnum
@@ -2414,3 +2415,74 @@ def test_alias_that_lists_its_canonical_wrapped_in_a_marker_keeps_it_typed() -> 
     document = to_openapi(schema, strict=True)
 
     assert document["properties"]["new"] == {"type": "integer"}
+
+
+_NULLABLE_PARTS = {
+    "maybe_str": lambda: probatio.Maybe(str),
+    "in_with_none": lambda: probatio.In(["a", None]),
+    "in_without_none": lambda: probatio.In(["a", "b"]),
+    "any_none_str": lambda: probatio.Any(None, str),
+    "any_str_int": lambda: probatio.Any(str, int),
+    "maybe_any": lambda: probatio.Maybe(probatio.Any(str, int)),
+    "none": lambda: None,
+    "length": lambda: probatio.Length(max=3),
+}
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "names",
+    [
+        pytest.param(pair, id="+".join(pair))
+        for pair in itertools.permutations(_NULLABLE_PARTS, 2)
+    ],
+)
+def test_all_of_nullable_parts_agrees_with_the_validator(
+    names: tuple[str, str], version: str
+) -> None:
+    """An ``All`` over parts that take null accepts and rejects what the schema does."""
+    schema = Schema(probatio.All(*(_NULLABLE_PARTS[name]() for name in names)))
+    document = to_openapi(schema, openapi_version=version)
+
+    _REFERENCE_VALIDATOR[version].check_schema(document)
+    for value in (None, "a", "b", "abcd", 1, 1.5, []):
+        assert _validates(document, version, value) is _accepts(schema, value), value
+
+
+def test_all_keeps_a_nullable_part_apart_from_its_siblings() -> None:
+    """A part that takes null is not merged into a sibling that shuts null out."""
+    schema = Schema(probatio.All(probatio.Maybe(str), probatio.In(["a", None])))
+
+    assert to_openapi(schema, openapi_version="3.1.0") == {
+        "allOf": [
+            {"anyOf": [{"type": "null"}, {"type": "string"}]},
+            {"type": ["string", "null"], "enum": ["a", None]},
+        ]
+    }
+    assert to_openapi(schema) == {
+        "allOf": [
+            {"type": "string", "nullable": True},
+            {"type": "string", "enum": ["a", None], "nullable": True},
+        ]
+    }
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_all_of_one_nullable_part_stays_merged(version: str) -> None:
+    """A lone nullable part has no sibling to disagree with, so no ``allOf``."""
+    document = to_openapi(
+        Schema(probatio.All(probatio.In(["a", None]))), openapi_version=version
+    )
+
+    assert "allOf" not in document
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_length_under_all_of_is_typed_per_sized_type(version: str) -> None:
+    """Parts that cannot merge leave a ``Length`` its own typed branches."""
+    schema = Schema(probatio.All([int], probatio.Length(max=1), probatio.Length(max=3)))
+    document = to_openapi(schema, openapi_version=version)
+
+    assert {"type": "array", "maxItems": 1} in document["allOf"][1]["anyOf"]
+    for value in ([], [1], [1, 2], [1, 2, 3, 4], "ab"):
+        assert _validates(document, version, value) is _accepts(schema, value), value
