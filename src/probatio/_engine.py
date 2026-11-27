@@ -27,6 +27,7 @@ from probatio.error import (
     TypeInvalid,
 )
 from probatio.markers import UNDEFINED, Undefined, VirtualPathComponent
+from probatio.metadata import METADATA_ATTR, carry_metadata
 
 # How a mapping schema treats keys that are not in the schema.
 PREVENT_EXTRA = 0  # reject them (the default)
@@ -224,13 +225,19 @@ class _MappingValidator:
         # Preserve real dict subclasses, matching voluptuous. Other Mapping
         # implementations validate too, but rebuild as a plain dict.
         data_type = type(data)
+        out: dict[Any, Any]
+        if data_type is dict or not issubclass(data_type, dict):
+            out = {}
+        else:
+            # The rebuilt subclass starts empty, so move the original's metadata
+            # onto it. Done here, before the alias pre-pass below rebinds ``data``
+            # to a plain dict that carries none, and before the fill, so a
+            # subclass's ``__setitem__`` already sees it.
+            out = carry_metadata(data, data_type())
 
         if self._alias_lookup:
             data = self._resolve_aliases(data)
 
-        out: dict[Any, Any] = (
-            {} if data_type is dict or not issubclass(data_type, dict) else data_type()
-        )
         errors: list[Invalid] = []
 
         # Track matches by candidate position. A bytearray is cheaper than a set
@@ -670,9 +677,19 @@ def _iterate_object(obj: Any) -> Any:
     except TypeError:
         # A namedtuple (or similar) has no ``__dict__`` but exposes ``_asdict``.
         attributes = obj._asdict() if hasattr(obj, "_asdict") else {}
-    yield from attributes.items()
-    for key in getattr(obj, "__slots__", ()):
-        if key != "__dict__":
+    # The metadata attribute is probatio's own, not one of the object's fields, so
+    # it is not offered to the attribute schema. Skipping it also keeps
+    # the slot walk below off an attribute that is very often left unset.
+    for key, value in attributes.items():
+        if key != METADATA_ATTR:
+            yield (key, value)
+    slots = getattr(obj, "__slots__", ())
+    # A single slot may be declared as a plain string, which names one slot, not
+    # one per character.
+    if isinstance(slots, str):
+        slots = (slots,)
+    for key in slots:
+        if key not in ("__dict__", METADATA_ATTR):
             yield (key, getattr(obj, key))
 
 
@@ -699,7 +716,12 @@ class _ObjectValidator:
         }
 
         validated = self._mapping(attributes)
-        return type(data)(**validated)
+        rebuilt = type(data)(**validated)
+        # Carried like any other rebuild. ``carry_metadata`` writes only where the
+        # write lands in the attribute itself, which matters most here: the object is
+        # *constructed* from the validated attributes rather than filled, so every
+        # piece of validated state is an attribute a carrier's setter could reach.
+        return carry_metadata(data, rebuilt)
 
 
 class _SequenceValidator:
@@ -785,10 +807,18 @@ class _SequenceValidator:
             return result
         try:
             if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-                return out_type(*result)
-            return out_type(result)
+                rebuilt = out_type(*result)
+            else:
+                rebuilt = out_type(result)
         except TypeError:
+            # The fallback degrades to the plain base type, which can hold no
+            # attribute, so there is nothing to carry metadata onto.
             return list(result) if issubclass(out_type, list) else tuple(result)
+        # A rebuilt subclass is a fresh instance holding only the validated items;
+        # move the original's metadata onto it. A plain tuple or set reaches here
+        # too and carries nothing, which costs one failed attribute lookup (~14 ns,
+        # the cheap kind: the type defines no such attribute at all).
+        return carry_metadata(data, rebuilt)
 
     def _validate_item(
         self,

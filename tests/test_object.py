@@ -87,3 +87,15 @@ def test_object_reads_slots() -> None:
             return hash(self.x)
 
     assert Schema(Object({"x": int}))(Slotted(5)) == Slotted(5)
+
+
+def test_object_reads_a_single_slot_declared_as_a_string() -> None:
+    """A __slots__ given as one string names one slot, not one per character."""
+
+    class Named:
+        __slots__ = "name"  # noqa: PLC0205 - the form under test
+
+        def __init__(self, name: Any = None) -> None:
+            self.name = name
+
+    assert Schema(Object({"name": str}))(Named("kitchen")).name == "kitchen"
