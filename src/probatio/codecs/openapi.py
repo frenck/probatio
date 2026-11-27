@@ -523,6 +523,9 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     # A group with an unrenderable member is not rendered at all: the rest would
     # say something the mapping does not.
     abandoned = abandoned_group_names(node, contested)
+    # Canonical names an ``Alias`` claims without accepting, which no other key gets
+    # to declare; collected up front because the alias may come later.
+    claimed_names = claimed_canonical_names(node)
     for key, value in node.items():
         facets = resolve_key(key)
         marker = facets.marker
@@ -571,14 +574,7 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
         )
 
         if isinstance(marker, Alias):
-            # Each accepted name renders as a property (the value is the same), and
-            # a required Alias with no default demands at least one of them, an
-            # object-level constraint like a required ``Any`` key. A default fills
-            # the empty case, so a required Alias carrying one demands no name.
-            names = [str(alias_name) for alias_name in marker.input_names]
-            properties.update(_alias_properties(marker, pkey, names, pval))
-            if marker.required and isinstance(marker.default, Undefined):
-                constraint_groups.append(names)
+            _declare_alias(marker, pkey, pval, properties, constraint_groups)
         elif (any_names := literal_any_names(pkey)) is not None:
             props, any_group = _expand_any_key(
                 any_names,
@@ -592,7 +588,7 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
                 {
                     name: prop
                     for name, prop in props.items()
-                    if name not in claimed_canonical_names(node)
+                    if name not in claimed_names
                 }
             )
             # The properties stand either way; only the at-least-one rule needs
@@ -626,20 +622,30 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     )
 
 
-def _alias_properties(
-    marker: Alias, canonical: Any, names: list[str], value: dict[str, Any]
-) -> dict[str, dict[str, Any]]:
-    """Render the properties an ``Alias`` key stands for.
+def _declare_alias(
+    marker: Alias,
+    canonical: Any,
+    value: dict[str, Any],
+    properties: dict[str, Any],
+    constraint_groups: list[list[str]],
+) -> None:
+    """Add the properties and the presence rule an ``Alias`` key stands for.
 
-    Each accepted name carries the value schema. A canonical name the alias does
-    not accept is still claimed by it, so the object has to let it through with
-    any value.
+    Each accepted name renders as a property carrying the value schema. A
+    canonical name the alias does not accept is still claimed by it, so the object
+    has to let it through with any value. A required alias with no default demands
+    at least one of its names, an object-level constraint like a required ``Any``
+    key; a default fills the empty case, so with one it demands no name.
     """
-    properties = {name: value.copy() for name in names}
+    names = [str(alias_name) for alias_name in marker.input_names]
+    for name in names:
+        properties[name] = value.copy()
+
     if (claimed := claimed_canonical_name(marker, canonical)) is not None:
         properties[claimed] = {}
 
-    return properties
+    if marker.required and isinstance(marker.default, Undefined):
+        constraint_groups.append(names)
 
 
 @dataclass
