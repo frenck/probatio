@@ -2534,3 +2534,74 @@ def test_a_custom_length_rendering_is_left_alone_under_all_of() -> None:
     document = to_openapi(schema, custom_serializer=custom)
 
     assert document["allOf"][1:] == [{"maxLength": 1}, {"maxLength": 3}]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda inner: probatio.SomeOf([inner, dict], min_valid=1, max_valid=1),
+            id="beside_a_dict",
+        ),
+        pytest.param(
+            lambda inner: probatio.SomeOf([inner, None], min_valid=1, max_valid=1),
+            id="beside_none",
+        ),
+        pytest.param(
+            lambda inner: probatio.Maybe(
+                probatio.SomeOf([inner, int], min_valid=1, max_valid=1)
+            ),
+            id="nullable_exactly_one",
+        ),
+    ],
+)
+def test_exactly_one_never_rejects_what_a_null_branch_let_in(
+    build: Any, version: str
+) -> None:
+    """An exactly-one ``SomeOf`` stays honest when admitting null widens a branch."""
+    inner = probatio.Maybe(probatio.All(probatio.Maybe(str), probatio.Length(max=3)))
+    schema = Schema(build(inner))
+    document = to_openapi(schema, openapi_version=version)
+
+    _REFERENCE_VALIDATOR[version].check_schema(document)
+    for value in (None, "a", "abcd", 1, {}, {"k": 1}, []):
+        if _accepts(schema, value):
+            assert _validates(document, version, value), value
+
+
+@pytest.mark.parametrize("order", ["custom_first", "built_in_first"])
+def test_a_custom_and_a_built_in_length_are_not_one_part(order: str) -> None:
+    """A built-in ``Length`` survives beside a custom answer of the same shape."""
+    overridden = probatio.Length(max=1)
+    built_in = probatio.Length(max=1)
+
+    def custom(node: object) -> object:
+        """Render one particular ``Length`` as a bare string bound."""
+        return {"maxLength": 1} if node is overridden else UNSUPPORTED
+
+    lengths = (
+        (overridden, built_in) if order == "custom_first" else (built_in, overridden)
+    )
+    schema = Schema(probatio.All(probatio.Maybe([int]), *lengths))
+    document = to_openapi(schema, custom_serializer=custom)
+
+    assert {"maxLength": 1} in document["allOf"]
+    assert not _validates(document, "3.0", [1, 2])
+
+
+def test_a_relaxed_one_of_keeps_apart_from_an_any_of_beside_it() -> None:
+    """A ``oneOf`` relaxed by a null branch does not swallow a sibling ``anyOf``."""
+    nullable = probatio.Maybe(probatio.All(probatio.In(["a"]), probatio.In(["a", "b"])))
+    schema = Schema(
+        probatio.All(
+            probatio.Any(str, dict),
+            probatio.SomeOf([nullable, dict], min_valid=1, max_valid=1),
+        )
+    )
+    document = to_openapi(schema)
+
+    assert "oneOf" not in json.dumps(document)
+    for value in ("a", "b", {}, {"k": 1}, 1, None):
+        if _accepts(schema, value):
+            assert _validates(document, "3.0", value), value
