@@ -2398,3 +2398,19 @@ def test_a_non_empty_exact_sequence_keeps_its_positions_on_3_1() -> None:
         "prefixItems": [{"type": "integer"}],
         "items": False,
     }
+
+
+def test_alias_that_lists_its_canonical_wrapped_in_a_marker_keeps_it_typed() -> None:
+    """An alias name wrapped in a marker is read by its key, as the engine reads it."""
+    schema = Schema(
+        {
+            probatio.Alias(
+                "new", probatio.Optional("new"), "old", accept_canonical=False
+            ): int
+        }
+    )
+
+    assert schema({"new": 1}) == {"new": 1}
+    document = to_openapi(schema, strict=True)
+
+    assert document["properties"]["new"] == {"type": "integer"}

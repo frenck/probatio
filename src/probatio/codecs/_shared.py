@@ -184,7 +184,9 @@ def claimed_canonical_name(marker: Alias, name: Any) -> str | None:
         return None
 
     for alias in marker.input_names:
-        if isinstance(alias, str) and str.__eq__(alias, name) is True:
+        # An alias may be wrapped in a marker, which the engine reads by its key.
+        spelling = resolve_key(alias).key
+        if isinstance(spelling, str) and str.__eq__(spelling, name) is True:
             return None
 
     return name
