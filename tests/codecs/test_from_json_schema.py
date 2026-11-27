@@ -2637,3 +2637,17 @@ def test_a_default_holding_a_reference_like_key_does_not_break_decoding() -> Non
 
     # The default is data, not a reference, and a valid one: it is filled in.
     assert from_json_schema(document)({}) == {"link": {"$ref": "#/nowhere"}}
+
+
+def test_a_default_behind_a_wide_node_reached_many_times_is_not_checked() -> None:
+    """A wide definition named over and over is charged for its width each time."""
+    wide = {"anyOf": [{"type": "integer"}] * 2_000}
+    document = {
+        "$defs": {"wide": wide},
+        "type": "object",
+        "properties": {
+            "n": {"allOf": [{"$ref": "#/$defs/wide"}] * 50, "default": 1},
+        },
+    }
+
+    assert from_json_schema(document)({}) == {}

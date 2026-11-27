@@ -14,7 +14,6 @@ validator instead of looping.
 
 from __future__ import annotations
 
-import contextlib
 import contextvars
 import datetime as dt
 import math
@@ -2826,28 +2825,50 @@ def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
     fill-in and never rejects an input.
     """
     pending: list[Any] = [subschema]
-    visited = 0
+    # Each pointer is resolved once: splitting a long one again for every
+    # appearance would be work the budget does not see. ``None`` marks one that
+    # does not resolve.
+    targets: dict[str, Any] = {}
+    spent = 0
     while pending:
         node = pending.pop()
-        visited += 1
-        if visited > _DEFAULT_CHECK_BUDGET:
-            return False
-
         if isinstance(node, list):
-            pending.extend(node)
+            children: list[Any] = node
         elif isinstance(node, dict):
-            pending.extend(node.values())
+            children = list(node.values())
             ref = node.get("$ref")
             if isinstance(ref, str):
-                # The walk does not tell a schema from literal data, and counting
-                # data as schema only overstates the work. Data may hold a ``$ref``
-                # key that points nowhere, though. A reference in a schema position
-                # resolved when the property was decoded, so a pointer that fails
-                # here is such data and is not followed.
-                with contextlib.suppress(SchemaError):
-                    pending.append(_resolve_pointer(ref, ctx.root))
+                children.append(_reference_target(ref, ctx, targets))
+        else:
+            continue
+
+        # Charged before the children are queued, so a wide node reached through
+        # many references cannot grow the queue past the budget either.
+        spent += 1 + len(children)
+        if spent > _DEFAULT_CHECK_BUDGET:
+            return False
+
+        pending.extend(children)
 
     return True
+
+
+def _reference_target(ref: str, ctx: _Decode, targets: dict[str, Any]) -> Any:
+    """Resolve a pointer for the budget walk, remembering the answer.
+
+    The walk does not tell a schema from literal data, and counting data as schema
+    only overstates the work. Data may hold a ``$ref`` key that points nowhere,
+    though. A reference in a schema position resolved when the property was
+    decoded, so a pointer that fails here is such data: it resolves to ``None``,
+    which the walk passes over.
+    """
+    if ref not in targets:
+        try:
+            targets[ref] = _resolve_pointer(ref, ctx.root)
+        except SchemaError:
+            targets[ref] = None
+
+    return targets[ref]
 
 
 def _accepts(validator: Any, value: Any) -> bool:
