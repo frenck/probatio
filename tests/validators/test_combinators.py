@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from probatio import (
@@ -472,3 +474,151 @@ def test_the_extra_policy_reaches_a_dict_in_a_remove_element() -> None:
     # With extra keys allowed the item matches the ``Remove`` and is dropped,
     # the same with and without the combinator around the sequence.
     assert bare(data) == combined(data) == {"rows": []}
+
+
+class _SubFloat(float):
+    """A float subclass, to check the float branch keeps the instance."""
+
+
+class _SubInt(int):
+    """An int subclass, to check the float branch coerces it."""
+
+
+def test_any_float_branch_order_decides_an_int_result() -> None:
+    """The first accepting branch wins: int first keeps 7, float first coerces it."""
+    keeps = Schema(Any(str, int, float))(7)
+    coerces = Schema(Any(str, float, int))(7)
+
+    assert keeps == 7
+    assert type(keeps) is int
+    assert coerces == 7.0
+    assert type(coerces) is float
+
+
+def test_any_float_branch_keeps_a_float_subclass_instance() -> None:
+    """A float subclass passes the float branch as the same object, uncoerced."""
+    value = _SubFloat(2.5)
+    result = Schema(Any(str, float))(value)
+
+    assert result is value
+
+
+def test_any_float_branch_coerces_an_int_subclass() -> None:
+    """An int subclass becomes a plain float through the float branch."""
+    result = Schema(Any(str, float))(_SubInt(7))
+
+    assert result == 7.0
+    assert type(result) is float
+
+
+def test_any_float_branch_rejects_a_bool_but_a_later_bool_branch_takes_it() -> None:
+    """A bool is not coerced by the float branch; a later int or bool branch gets it."""
+    assert Schema(Any(float, bool))(True) is True
+    assert Schema(Any(float, int))(True) is True
+    with pytest.raises(MultipleInvalid, match="expected float or str"):
+        Schema(Any(float, str))(True)
+
+
+def test_any_float_branch_hands_an_oversized_int_to_the_next_branch() -> None:
+    """An int too large for a float is rejected by the float branch, not raised."""
+    huge = 10**400
+
+    assert Schema(Any(float, int))(huge) == huge
+    assert Schema(Any(float, str))("x") == "x"
+    with pytest.raises(MultipleInvalid, match="expected float or str"):
+        Schema(Any(float, str))(huge)
+
+
+def test_any_float_branch_with_a_none_branch() -> None:
+    """None passes through a None branch and a float is still coerced or kept."""
+    schema = Schema(Any(None, str, float))
+
+    assert schema(None) is None
+    assert schema(1.5) == 1.5
+    assert type(schema(7)) is float
+    with pytest.raises(MultipleInvalid, match="expected None or str or float"):
+        schema([])
+
+
+def test_any_float_branch_custom_msg_applies_to_a_miss_and_a_rejected_bool() -> None:
+    """A custom msg replaces the error for an outside value and for a bool."""
+    schema = Schema(Any(str, float, msg="nope"))
+
+    for value in ([], True, 10**400):
+        with pytest.raises(MultipleInvalid, match="nope"):
+            schema(value)
+
+
+def test_any_float_branch_miss_matches_the_union_error() -> None:
+    """Any and Union (which takes no fast path) report the same error on a miss."""
+    for value in ([], True, 10**400):
+        with pytest.raises(MultipleInvalid) as any_caught:
+            Schema(Any(str, float))(value)
+        with pytest.raises(MultipleInvalid) as union_caught:
+            Schema(Union(str, float))(value)
+
+        any_error = any_caught.value.errors[0]
+        union_error = union_caught.value.errors[0]
+        assert type(any_error) is type(union_error)
+        assert str(any_caught.value) == str(union_caught.value)
+        assert any_error.code == union_error.code
+        assert any_error.path == union_error.path
+
+
+def test_any_float_branch_survives_extra_policy_recompile() -> None:
+    """Rebinding the Any under another extra policy keeps the ordered float walk."""
+    schema = Schema({"k": Any(int, float)}, extra=ALLOW_EXTRA)
+
+    assert schema({"k": 7}) == {"k": 7}
+    assert type(schema({"k": 7})["k"]) is int
+    assert (
+        type(Schema({"k": Any(float, int)}, extra=ALLOW_EXTRA)({"k": 7})["k"]) is float
+    )
+
+
+def _any_outcome(schema: Schema, value: object) -> tuple[object, ...]:
+    """The result of a call, or its error, in a form two schemas can be compared on."""
+    try:
+        result = schema(value)
+    except MultipleInvalid as error:
+        first = error.errors[0]
+        return ("error", type(first), str(error), first.code, first.path)
+    return ("value", type(result), repr(result))
+
+
+_FLOAT_WALK_BRANCHES = (int, float, str, bool, None, object, _SubFloat)
+_FLOAT_WALK_VALUES = (
+    0,
+    7,
+    -0.0,
+    1.5,
+    float("nan"),
+    True,
+    False,
+    "x",
+    None,
+    10**400,
+    b"x",
+    [],
+    _SubFloat(2.5),
+    _SubInt(7),
+)
+
+
+@pytest.mark.parametrize("size", [1, 2, 3])
+def test_any_float_walk_agrees_with_running_every_branch(size: int) -> None:
+    """The exception-free walk gives what calling the branches in order gives."""
+    for branches in itertools.permutations(_FLOAT_WALK_BRANCHES, size):
+        if float not in branches:
+            continue
+
+        # ``Union`` without a discriminant runs each compiled branch in order,
+        # which is the behavior the walk in ``Any`` has to reproduce.
+        fast = Schema(Any(*branches))
+        reference = Schema(Union(*branches))
+
+        for value in _FLOAT_WALK_VALUES:
+            assert _any_outcome(fast, value) == _any_outcome(reference, value), (
+                branches,
+                value,
+            )

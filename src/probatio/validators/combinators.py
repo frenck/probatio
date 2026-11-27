@@ -366,8 +366,8 @@ def _type_tuple(
 
 def _float_superset(
     validators: list[typing.Any], compiled: list[typing.Any]
-) -> tuple[tuple[type, ...], bool] | None:
-    """Return ``(accept_types, allow_none)`` for an ``Any`` of types plus a float tower.
+) -> tuple[tuple[type, ...], bool, tuple[type, ...]] | None:
+    """Return ``(accept_types, allow_none, ordered)`` for types plus a float tower.
 
     Only for a branch set that is otherwise all bare types or ``None`` but for the
     float tower (ADR-017), which coerces an ``int`` and so has no ``checked_type`` to
@@ -375,11 +375,16 @@ def _float_superset(
     (a match may coerce, and branch order decides the result), so this gives the
     weaker but cheap signal ``__call__`` needs: the *superset* of types any branch
     could accept, ``float`` and ``int`` standing in for the tower. A value outside it
-    cannot match any branch, so a miss is rejected with one ``isinstance``; a value
-    inside it defers to the ordered, coercing ``_run_any``. ``None`` if a branch is
-    neither a type, ``None``, nor the float tower, or if no float tower is present.
+    cannot match any branch, so a miss is rejected with one ``isinstance``.
+
+    ``ordered`` lists the non-``None`` branches in their original order, a bare
+    ``float`` standing for the tower (a type branch is never the bare ``float``,
+    which always compiles to the tower). A value inside the superset walks it to
+    resolve a hit without raising. ``None`` if a branch is neither a type, ``None``,
+    nor the float tower, or if no float tower is present.
     """
     types: list[type] = []
+    ordered: list[type] = []
     allow_none = False
     has_float_tower = False
     for raw, branch in zip(validators, compiled, strict=True):
@@ -392,15 +397,17 @@ def _float_superset(
             # the tower itself, so let it into the ordered path to be rejected there.
             types.append(float)
             types.append(int)
+            ordered.append(float)
             continue
         checked_type = getattr(branch, "checked_type", None)
         if checked_type is None:
             return None
         types.append(checked_type)
+        ordered.append(checked_type)
 
     if not has_float_tower:
         return None
-    return tuple(types), allow_none
+    return tuple(types), allow_none, tuple(ordered)
 
 
 def _run_typed_any(
@@ -433,7 +440,7 @@ def _run_typed_any(
 
 
 def _run_float_superset_any(
-    superset: tuple[tuple[type, ...], bool],
+    superset: tuple[tuple[type, ...], bool, tuple[type, ...]],
     candidates: list[typing.Any],
     value: typing.Any,
     msg: str | None,
@@ -442,14 +449,38 @@ def _run_float_superset_any(
     """Resolve a types-plus-float-tower ``Any``, rejecting a miss with one isinstance.
 
     A value outside the accept superset cannot match any branch, so it is rejected
-    without running one (the common error path). A value inside it might match, and a
-    float branch may coerce, so it defers to the ordered ``_run_any`` which decides
-    correctly. The tower keeps its fast rejection without giving up branch order or
-    coercion on a hit.
+    without running one (the common error path). A value inside it is walked against
+    the branches in order, which resolves a hit without the raised and caught
+    ``Invalid`` every earlier rejecting branch would cost. A type branch accepts on
+    ``isinstance`` and returns the value, as its compiled check does. The tower
+    returns a ``float`` as is, coerces an ``int`` that is not a ``bool``, and skips
+    to the next branch for a ``bool`` or an ``int`` too large for a ``float``, as the
+    compiled tower rejects those. When no branch accepts, ``_run_any`` runs so the
+    error is exactly the one the generic path produces.
     """
-    accept_types, allow_none = superset
-    if (allow_none and value is None) or isinstance(value, accept_types):
+    accept_types, allow_none, ordered = superset
+    if allow_none and value is None:
+        # ``None`` matches no other branch kind, and a type branch that accepts it
+        # returns it unchanged, so the result is the same whichever branch wins.
+        return value
+
+    if isinstance(value, accept_types):
+        for branch in ordered:
+            if branch is float:
+                if isinstance(value, float):
+                    return value
+                if isinstance(value, int) and not isinstance(value, bool):
+                    try:
+                        return float(value)
+                    except OverflowError:
+                        # Too large for a float: the tower rejects it, so the next
+                        # branch gets its turn.
+                        continue
+            elif isinstance(value, branch):
+                return value
+
         return _run_any(candidates, value, msg, miss_label)
+
     if msg is not None:
         raise AnyInvalid(msg)
     if miss_label is not None:
