@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1373,10 +1374,13 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
     if keys is None:
         return merged
     min_key, max_key = keys
+    # A bound the merge already carries (an ``ExactSequence`` pins both) stands
+    # beside the one from the ``Length``: the larger minimum and the smaller
+    # maximum hold.
     if "minLength" in merged:
-        merged[min_key] = merged.pop("minLength")
+        merged[min_key] = max(merged.pop("minLength"), merged.get(min_key, 0))
     if "maxLength" in merged:
-        merged[max_key] = merged.pop("maxLength")
+        merged[max_key] = min(merged.pop("maxLength"), merged.get(max_key, math.inf))
     return merged
 
 

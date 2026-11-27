@@ -219,15 +219,21 @@ shorter array is valid and only `minItems` makes positions mandatory. When
 `minItems` and `maxItems` both equal the number of positions it decodes to an
 `ExactSequence`; otherwise it decodes to one validator that checks the length
 range and each position present, in time linear in the number of positions (a
-list only, like a plain array). Both encoders write it back as `prefixItems`
-with `items: false`, plus `minItems` and `maxItems` where they narrow the range.
+list only, like a plain array). `to_json_schema` and `to_openapi` for 3.1.0 write
+it back as `prefixItems` with `items: false`, plus `minItems` and `maxItems` where
+they narrow the range. OpenAPI 3.0 has no `prefixItems`, so there only the length
+range is written and the positions are a reported loss, which `strict=True`
+refuses.
 `uniqueItems`, `contains`, `minContains` and `maxContains` apply beside it as
 they do on a plain array.
 
 `const` and `enum` on the same node both apply: a value has to satisfy each.
 `default` is an annotation and never makes an instance invalid. A property's
 `default` fills in an absent key only when the property's own schema accepts it;
-otherwise it is left out, so the key stays optional and is not rejected.
+otherwise it is left out, so the key stays optional and is not rejected. That
+check runs the decoded schema once, so it is skipped, and the default left out,
+for a property whose schema spreads out to more than ten thousand nodes once its
+references are followed.
 
 `from_openapi` adds the OpenAPI `nullable` keyword, covered in
 [OpenAPI](/guides/openapi/).

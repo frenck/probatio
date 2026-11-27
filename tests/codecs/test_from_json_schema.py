@@ -2525,3 +2525,115 @@ def test_prefix_validator_without_a_minimum_leaves_min_items_out_of_openapi() ->
         "items": False,
         "maxItems": 2,
     }
+
+
+def _doubling_chain(levels: int) -> dict[str, Any]:
+    """A document whose definitions each name the one before them twice."""
+    definitions: dict[str, Any] = {"level0": {"type": "integer"}}
+    for level in range(1, levels + 1):
+        previous = {"$ref": f"#/$defs/level{level - 1}"}
+        definitions[f"level{level}"] = {"allOf": [previous, previous]}
+
+    return {
+        "$defs": definitions,
+        "type": "object",
+        "properties": {"n": {"$ref": f"#/$defs/level{levels}", "default": 1}},
+    }
+
+
+def test_a_default_behind_a_doubling_reference_chain_is_not_checked() -> None:
+    """A schema that is exponential to validate does not make decoding exponential."""
+    # Thirty levels would be 2**30 validator calls if the default were checked.
+    schema = from_json_schema(_doubling_chain(30))
+
+    # The default is not carried, so an absent key stays absent.
+    assert schema({}) == {}
+
+
+def test_a_default_behind_a_short_reference_chain_is_still_filled_in() -> None:
+    """A reference that stays within the budget keeps its valid default."""
+    schema = from_json_schema(_doubling_chain(3))
+
+    assert schema({}) == {"n": 1}
+
+
+def test_a_default_behind_a_dangling_reference_is_refused_by_the_decoder() -> None:
+    """A reference that resolves nowhere is still the decoder's error to raise."""
+    document = {
+        "type": "object",
+        "properties": {"n": {"$ref": "#/$defs/missing", "default": 1}},
+    }
+
+    with pytest.raises(SchemaError):
+        from_json_schema(document)
+
+
+@pytest.mark.parametrize(
+    "array",
+    [
+        pytest.param(
+            {
+                "prefixItems": [{"$ref": "#/$defs/a"}, {"$ref": "#/$defs/b"}],
+                "items": False,
+            },
+            id="prefix_items",
+        ),
+        pytest.param({"items": {"$ref": "#/$defs/a"}}, id="items"),
+    ],
+)
+def test_array_checks_judge_the_array_before_defaults_are_filled_in(
+    array: dict[str, Any],
+) -> None:
+    """``uniqueItems`` and ``contains`` see the items as they came in."""
+    definitions = {
+        "a": {"type": "object", "properties": {"x": {"type": "integer", "default": 1}}},
+        "b": {"type": "object", "properties": {"x": {"type": "integer", "default": 1}}},
+    }
+    unique = {"$defs": definitions, "type": "array", **array, "uniqueItems": True}
+    contains = {
+        "$defs": definitions,
+        "type": "array",
+        **array,
+        "contains": {"type": "object", "required": ["x"]},
+    }
+
+    # Distinct as given; alike only once the default is filled in.
+    distinct = [{}, {"x": 1}]
+    assert jsonschema.Draft202012Validator(unique).is_valid(distinct)
+    assert from_json_schema(unique)(distinct) == [{"x": 1}, {"x": 1}]
+
+    # No item has ``x`` as given, so nothing satisfies ``contains``.
+    assert not jsonschema.Draft202012Validator(contains).is_valid([{}, {}])
+    with pytest.raises(Invalid):
+        from_json_schema(contains)([{}, {}])
+
+
+def test_a_length_beside_a_decoded_prefix_keeps_the_tighter_bound() -> None:
+    """Re-encoding intersects the bounds of a ``Length`` with those the prefix has."""
+    decoded = from_json_schema(
+        {
+            "type": "array",
+            "prefixItems": [{"type": "integer"}] * 3,
+            "items": False,
+            "maxItems": 1,
+        }
+    )
+    schema = Schema(All(decoded, Length(max=2)))
+
+    with pytest.raises(Invalid):
+        schema([1, 2])
+    assert to_json_schema(schema)["maxItems"] == 1
+    assert to_openapi(schema, openapi_version="3.1.0")["maxItems"] == 1
+
+
+def test_a_default_holding_a_reference_like_key_does_not_break_decoding() -> None:
+    """Literal data with a ``$ref`` key that points nowhere is not a decode error."""
+    document = {
+        "type": "object",
+        "properties": {
+            "link": {"type": "object", "default": {"$ref": "#/nowhere"}},
+        },
+    }
+
+    # The default is data, not a reference, and a valid one: it is filled in.
+    assert from_json_schema(document)({}) == {"link": {"$ref": "#/nowhere"}}

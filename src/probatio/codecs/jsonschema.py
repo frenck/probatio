@@ -14,8 +14,10 @@ validator instead of looping.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import datetime as dt
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1068,10 +1070,13 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
         return merged
 
     min_key, max_key = keys
+    # A bound the merge already carries (an ``ExactSequence`` pins both) stands
+    # beside the one from the ``Length``: the larger minimum and the smaller
+    # maximum hold.
     if "minLength" in merged:
-        merged[min_key] = merged.pop("minLength")
+        merged[min_key] = max(merged.pop("minLength"), merged.get(min_key, 0))
     if "maxLength" in merged:
-        merged[max_key] = merged.pop("maxLength")
+        merged[max_key] = min(merged.pop("maxLength"), merged.get(max_key, math.inf))
 
     return merged
 
@@ -2590,6 +2595,7 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
             name,
             subschema,
             value_schema,
+            ctx,
             required=name in required,
         )
         mapping[key] = value_schema
@@ -2763,6 +2769,7 @@ def _from_key(
     name: str,
     subschema: Any,
     value_schema: Any,
+    ctx: _Decode,
     *,
     required: bool,
 ) -> Marker:
@@ -2786,6 +2793,7 @@ def _from_key(
         not required
         and isinstance(subschema, dict)
         and "default" in subschema
+        and _cheap_to_check(subschema, ctx)
         and _accepts(value_schema, subschema["default"])
     ):
         marker: Marker = marker_cls(
@@ -2799,6 +2807,47 @@ def _from_key(
     if isinstance(subschema, dict) and subschema.get("writeOnly") is True:
         return Secret(marker)
     return marker
+
+
+# How many schema nodes a property may spread out to, references followed, for
+# its default to be checked while decoding.
+_DEFAULT_CHECK_BUDGET = 10_000
+
+
+def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
+    """Whether validating against a property's schema is bounded work.
+
+    Checking a default runs the decoded validator once, while decoding. A
+    document can make that expensive without being large: a ``$ref`` chain in
+    which each definition names the one before it twice doubles the work per
+    level. So the schema is walked the way validation walks it, following every
+    reference each time it appears, and the check is skipped past a fixed number
+    of nodes. A default that is not checked is not carried, which costs the
+    fill-in and never rejects an input.
+    """
+    pending: list[Any] = [subschema]
+    visited = 0
+    while pending:
+        node = pending.pop()
+        visited += 1
+        if visited > _DEFAULT_CHECK_BUDGET:
+            return False
+
+        if isinstance(node, list):
+            pending.extend(node)
+        elif isinstance(node, dict):
+            pending.extend(node.values())
+            ref = node.get("$ref")
+            if isinstance(ref, str):
+                # The walk does not tell a schema from literal data, and counting
+                # data as schema only overstates the work. Data may hold a ``$ref``
+                # key that points nowhere, though. A reference in a schema position
+                # resolved when the property was decoded, so a pointer that fails
+                # here is such data and is not followed.
+                with contextlib.suppress(SchemaError):
+                    pending.append(_resolve_pointer(ref, ctx.root))
+
+    return True
 
 
 def _accepts(validator: Any, value: Any) -> bool:
@@ -2873,7 +2922,7 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
         # The prefix decode already honors ``minItems`` and ``maxItems``.
         positional = _from_prefix_items(prefix, node, ctx)
         extra = _array_constraints(node, ctx)
-        return All(positional, *extra) if extra else positional
+        return All(*extra, positional) if extra else positional
 
     items = node.get("items")
     if items is True:
@@ -2915,18 +2964,22 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     else:
         sequence = [_from_node(items, ctx)]
 
-    constraints: list[Any] = []
-    if bounded:
-        constraints.append(Length(min=min_items, max=max_items))
-    constraints.extend(_array_constraints(node, ctx))
-    if constraints:
-        return All(sequence, *constraints)
+    before = _array_constraints(node, ctx)
+    after = [Length(min=min_items, max=max_items)] if bounded else []
+    if before or after:
+        return All(*before, sequence, *after)
 
     return sequence
 
 
 def _array_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
-    """Collect the ``uniqueItems`` and ``contains`` checks an array node carries."""
+    """Collect the ``uniqueItems`` and ``contains`` checks an array node carries.
+
+    They judge the array as it came in, so they go ahead of the item schemas in
+    an ``All``: an item schema can fill in a default, and two items that differ
+    only by an absent key would then look alike. Both pass their input through
+    unchanged, and leave anything that is not an array to the check after them.
+    """
     constraints: list[Any] = []
     if node.get("uniqueItems") is True:
         constraints.append(_JsonUnique())
