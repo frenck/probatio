@@ -8,15 +8,19 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    All,
+    Coerce,
     Invalid,
     MultipleInvalid,
     Optional,
+    Range,
     Required,
     Schema,
     Self,
 )
 from probatio import Any as AnyOf
 from probatio.error import ScalarInvalid, TypeInvalid, ValueInvalid
+from probatio.schema import compile_schema
 
 
 def test_type_schema_accepts_matching_type() -> None:
@@ -281,3 +285,65 @@ def test_composed_self_referential_schema_still_recurses() -> None:
         outer({"tree": {"name": "a", "child": {"name": 1}}})
     (error,) = caught.value.errors
     assert error.path == ["tree", "child", "name"]
+
+
+def _counting_schema_builds(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Record every ``Schema`` built from here on, by what it was built from."""
+    built: list[object] = []
+    original = Schema.__init__
+
+    def recording(
+        self: Schema, schema: object, *args: object, **kwargs: object
+    ) -> None:
+        """Note the declaration, then build as usual."""
+        built.append(schema)
+        original(self, schema, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Schema, "__init__", recording)
+    return built
+
+
+def test_a_combinator_builds_no_schema_for_its_leaf_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A type, a literal and a validator branch compile without a ``Schema`` each."""
+    built = _counting_schema_builds(monkeypatch)
+
+    All(int, Range(min=0, max=9))
+    AnyOf("on", "off", None, str)
+
+    assert built == []
+
+
+def test_a_combinator_still_builds_a_schema_for_a_structured_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mapping or a sequence branch can hold a ``Self``, so it gets its ``Schema``."""
+    built = _counting_schema_builds(monkeypatch)
+    mapping = {"a": int}
+    sequence = [str]
+
+    AnyOf(mapping, sequence, int)
+
+    assert built == [mapping, sequence]
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [int, None, "on", 5, Range(min=0, max=9), Coerce(int), lambda value: value],
+    ids=["type", "none", "string", "number", "range", "coerce", "callable"],
+)
+@pytest.mark.parametrize("value", [1, "on", 5, None, 42, "x", 1.5])
+def test_a_leaf_branch_validates_like_a_schema_of_that_leaf(
+    leaf: object, value: object
+) -> None:
+    """The branch a combinator compiles agrees with ``Schema(leaf)`` on every value."""
+
+    def outcome(validate: object) -> tuple[str, object]:
+        """The result of one validation, or the error it raised."""
+        try:
+            return ("ok", validate(value))  # type: ignore[operator]
+        except Invalid as error:
+            return ("error", str(error))
+
+    assert outcome(compile_schema(leaf)) == outcome(Schema(leaf)._compiled)

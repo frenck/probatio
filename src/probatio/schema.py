@@ -45,6 +45,7 @@ from probatio.markers import (
     Marker,
     Optional,
     Required,
+    Self,
 )
 
 # ``_COMPILING_ROOT``/``_COMPILING_FOR_COMBINATOR`` (compile time) and
@@ -739,6 +740,14 @@ def compile_schema(
     combinator (also matching voluptuous); it defaults to ``PREVENT_EXTRA``, so a
     combinator built on its own keeps the strict default.
     """
+    if schema is not Self and not isinstance(schema, _STRUCTURED_BRANCHES):
+        # A leaf: a type, a literal, or a callable. Building a ``Schema`` around
+        # it would compile this same node and then be thrown away. Nothing in
+        # that compile reads what the ``Schema`` sets up: the deferral flag is
+        # for a ``Self``, the root for a mapping or a sequence that holds one,
+        # and a leaf is never armed for code generation.
+        return compile_node(schema, CompileCtx(extra, required))
+
     # Flag the compile so a ``Self`` wrapped here (``Any(Self, ...)``) is deferred
     # to validation time rather than rejected as a bare ``Schema(Self)`` would be.
     # ``_INTERNAL_BUILD`` forces the branch eager under the LAZY policy: the
@@ -751,6 +760,11 @@ def compile_schema(
         _COMPILING_FOR_COMBINATOR.reset(token)
         _INTERNAL_BUILD.reset(internal)
 
+
+# The branches of a combinator that need a ``Schema`` built around them to compile:
+# a mapping or a sequence can hold a ``Self`` and can be armed for code generation,
+# and a ``Schema`` brings its own policies. Everything else is a leaf.
+_STRUCTURED_BRANCHES = (dict, list, tuple, set, frozenset, Schema)
 
 # Register ``Schema`` with the compile walk, which lives in ``_compile`` and needs
 # the class for one ``isinstance`` check (a nested ``Schema`` reused as a value).
