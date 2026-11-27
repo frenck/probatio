@@ -140,12 +140,17 @@ _FACTORY_VALIDATORS: list[Any] = [
 ]
 
 
-def _all_subclasses(cls: type) -> set[type]:
-    """Return every (transitive) subclass of ``cls``."""
-    found: set[type] = set()
+def _all_subclasses(cls: type) -> list[type]:
+    """Return every (transitive) subclass of ``cls``.
+
+    A list, not a set: a class is hashed by its metaclass, and a test elsewhere
+    defines one that refuses. A class reached twice is listed twice, which no
+    caller minds.
+    """
+    found: list[type] = []
     for sub in cls.__subclasses__():
-        found.add(sub)
-        found |= _all_subclasses(sub)
+        found.append(sub)
+        found.extend(_all_subclasses(sub))
     return found
 
 

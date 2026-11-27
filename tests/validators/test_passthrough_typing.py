@@ -72,13 +72,16 @@ def _every_validator() -> list[type[_SafeValidator]]:
     # all of them and not just the ones another test happened to import first.
     assert probatio.Schema is not None
 
-    found: set[type[_SafeValidator]] = set()
+    # Keyed by identity: a class is hashed by its metaclass, and a test elsewhere
+    # defines one that refuses.
+    seen: dict[int, type[_SafeValidator]] = {}
     pending = [_SafeValidator]
     while pending:
         for subclass in pending.pop().__subclasses__():
-            if subclass not in found:
-                found.add(subclass)
+            if id(subclass) not in seen:
+                seen[id(subclass)] = subclass
                 pending.append(subclass)
+    found = seen.values()
 
     # Only the validators probatio ships: a subclass another test module defines is
     # a stand-in for user code, and the typing rule is not about user code.

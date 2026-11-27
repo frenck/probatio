@@ -467,6 +467,13 @@ def _emitter_for(schema: Any) -> _Emitter | None:
     emitters = _emitters()
     schema_type = type(schema)
     for cls in schema_type.__mro__:
+        # A class with a custom metaclass is never one of the table's own, and its
+        # metaclass may make it unhashable or equal to another class, so it is
+        # skipped before the lookup (``_compile_type`` guards its lookup the same
+        # way). A built-in ancestor further up the MRO is still found.
+        if type(cls) is not type:
+            continue
+
         emitter = emitters.get(cls)
         if emitter is not None:
             return emitter if schema_type.__call__ is cls.__call__ else None

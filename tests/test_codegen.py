@@ -964,6 +964,36 @@ def test_a_subclass_without_a_call_override_is_still_inlined(
     assert _outcome(Schema({"k": validator}, compile=True), {"k": -3})[0] == "err"
 
 
+class _Unhashable(type):
+    """A metaclass whose classes cannot be dictionary keys."""
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+class _UnhashableCallable(metaclass=_Unhashable):
+    """A plain callable validator whose class is unhashable."""
+
+    def __call__(self, value: object) -> object:
+        """Accept anything."""
+        return value
+
+
+class _UnhashableRange(Range, metaclass=_Unhashable):
+    """A Range subclass whose class is unhashable but whose ``__call__`` is Range's."""
+
+
+def test_a_validator_with_an_unhashable_class_still_compiles() -> None:
+    """A class that cannot be a dictionary key does not break the emitter lookup."""
+    callable_schema = Schema({"k": _UnhashableCallable()}, compile=True)
+    range_schema = Schema({"k": _UnhashableRange(min=0, max=10)}, compile=True)
+
+    assert callable_schema({"k": 3}) == {"k": 3}
+    assert range_schema({"k": 3}) == {"k": 3}
+    assert _is_compiled(callable_schema)
+    assert _is_compiled(range_schema)
+    assert _outcome(range_schema, {"k": 30})[0] == "err"
+
+
 def test_a_subclass_with_a_call_override_is_bound_as_a_closure() -> None:
     """The counterpart of the inlined case: an override is called through ``_c0``."""
     schema = Schema({"k": _override_directly(Range)(min=0, max=10)}, compile=False)
