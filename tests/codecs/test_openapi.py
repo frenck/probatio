@@ -2590,13 +2590,22 @@ def test_a_custom_and_a_built_in_length_are_not_one_part(order: str) -> None:
     assert not _validates(document, "3.0", [1, 2])
 
 
-def test_a_relaxed_one_of_keeps_apart_from_an_any_of_beside_it() -> None:
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(lambda inner: inner, id="bare"),
+        pytest.param(probatio.Maybe, id="nullable"),
+    ],
+)
+def test_a_relaxed_one_of_keeps_apart_from_an_any_of_beside_it(wrap: Any) -> None:
     """A ``oneOf`` relaxed by a null branch does not swallow a sibling ``anyOf``."""
     nullable = probatio.Maybe(probatio.All(probatio.In(["a"]), probatio.In(["a", "b"])))
     schema = Schema(
-        probatio.All(
-            probatio.Any(str, dict),
-            probatio.SomeOf([nullable, dict], min_valid=1, max_valid=1),
+        wrap(
+            probatio.All(
+                probatio.Any(str, dict),
+                probatio.SomeOf([nullable, dict], min_valid=1, max_valid=1),
+            )
         )
     )
     document = to_openapi(schema)

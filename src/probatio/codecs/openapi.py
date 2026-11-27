@@ -288,15 +288,22 @@ def _one_of_as_any_of(result: dict[str, Any]) -> dict[str, Any]:
     """Relax a ``oneOf`` to ``anyOf``, keeping the place of the keyword.
 
     Beside an ``anyOf`` the schema already has, the relaxed one cannot share the
-    key, so the two stand as separate entries of an ``allOf``.
+    key, so the two stand as separate entries of an ``allOf``. What describes the
+    schema as a whole, its ``nullable`` flag above all, stays on the outside,
+    where the rest of the pass still reads it.
     """
     if "anyOf" not in result:
         return {
             ("anyOf" if key == "oneOf" else key): value for key, value in result.items()
         }
 
-    rest = {key: value for key, value in result.items() if key != "oneOf"}
-    return {"allOf": [rest, {"anyOf": result["oneOf"]}]}
+    described = {key: value for key, value in result.items() if key in _ANNOTATIONS}
+    asserted = {
+        key: value
+        for key, value in result.items()
+        if key != "oneOf" and key not in _ANNOTATIONS
+    }
+    return {"allOf": [asserted, {"anyOf": result["oneOf"]}], **described}
 
 
 # Keywords that describe a schema without deciding what it accepts.
