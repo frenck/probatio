@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import re
+import subprocess
+import sys
 from enum import Enum, IntEnum, StrEnum
 from typing import Any, TypeVar
 
@@ -2671,3 +2674,52 @@ def test_a_union_with_null_keeps_the_annotations_on_the_property() -> None:
     assert properties["token"]["writeOnly"] is True
     assert "description" not in properties["name"]["anyOf"][0]
     assert "writeOnly" not in properties["token"]["anyOf"][0]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("schema", "expected"),
+    [
+        pytest.param(probatio.Any("c", "a", "b"), ["c", "a", "b"], id="literals"),
+        pytest.param(
+            probatio.Any(probatio.In(["x", "y"]), probatio.In(["z", "x"])),
+            ["x", "y", "z"],
+            id="merged_enums",
+        ),
+        pytest.param(
+            probatio.Any(probatio.In([3, 1]), probatio.In([2, 3])),
+            [3, 1, 2],
+            id="merged_integers",
+        ),
+    ],
+)
+def test_merged_enum_members_keep_declaration_order(
+    schema: object, expected: list[object], version: str
+) -> None:
+    """Enums merged from an ``Any`` list their members in the order they were given."""
+    document = to_openapi(Schema(schema), openapi_version=version)
+
+    assert document["enum"] == expected
+
+
+def test_merged_enum_order_does_not_depend_on_the_hash_seed() -> None:
+    """The same schema gives the same document in processes with different seeds."""
+    program = (
+        "import json; from probatio import Any, In, Schema, to_openapi; "
+        "schema = Schema({'a': Any('zeta', 'alpha', 'mu', 'beta'), "
+        "'b': Any(In(['one', 'two']), In(['three']), None)}); "
+        "print(json.dumps(to_openapi(schema)))"
+    )
+
+    documents = {
+        subprocess.run(  # noqa: S603 - a fixed program run by this interpreter
+            [sys.executable, "-c", program],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        for seed in ("1", "2", "3", "4")
+    }
+
+    assert len(documents) == 1
