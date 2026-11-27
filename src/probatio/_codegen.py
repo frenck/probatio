@@ -542,14 +542,15 @@ def _maybe_compile_nested(check_value: Any) -> Any:
     A nested dict value (``"data": {...}``) is validated by a ``_MappingValidator``
     closure; generating it turns that inner per-key loop into straight-line code as
     well, which is most of why a flat schema compiles well but a nested one barely
-    did. The compiled inner bails to its own interpreted validator, so a failure deep
-    in the tree still produces the right errors, paths, and order. Anything that does
-    not generate (a recursive ``$ref``, an unsupported shape) keeps its interpreted
-    validator unchanged.
+    did. The compiled inner passes a bail up instead of handling it, so a failure deep
+    in the tree runs the interpreted engine once, from the outermost mapping, which
+    produces the right errors, paths, and order. Anything that does not generate (a
+    recursive ``$ref``, an unsupported shape) keeps its interpreted validator
+    unchanged.
     """
     if not isinstance(check_value, _MappingValidator):
         return check_value
-    generated = compile_mapping(check_value)
+    generated = compile_mapping(check_value, nested=True)
     return generated if generated is not None else check_value
 
 
@@ -671,6 +672,7 @@ def compile_mapping(
     *,
     construct: type | None = None,
     fallback: Callable[[Any], Any] | None = None,
+    nested: bool = False,
 ) -> Callable[[Any], Any] | None:
     """Generate a fast success-path validator for ``validator``, or ``None``.
 
@@ -683,6 +685,15 @@ def compile_mapping(
     field present (each dataclass field is required or carries its default, so the
     locals are always assigned), so an ``ALLOW_EXTRA`` mapping (which keeps unknown
     keys the constructor would reject) is not generated.
+
+    ``nested`` marks a mapping generated as a value inside another generated mapping,
+    which is the only caller of the result. On a bail it re-raises instead of running
+    its own interpreted validator. When the data is invalid, the enclosing function
+    bails as well and re-validates this subtree anyway, so an interpreted run here
+    would be thrown away, once per level of nesting: a failure cost that grows with
+    the square of the depth. The price is paid by a value the generated code only
+    defers on (a float for ``Coerce(int)``, say): the engine accepts it, but the
+    whole tree now takes the interpreted run, not just this mapping.
     """
     if not _is_generatable(validator):
         return None
@@ -762,7 +773,7 @@ def compile_mapping(
         "    try:",
         *body,
         "    except _Bail:",
-        "        return _interpreted(data)",
+        "        raise" if nested else "        return _interpreted(data)",
         *tail,
     ]
 
