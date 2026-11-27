@@ -760,7 +760,7 @@ def only_string_members(members: list[Any]) -> bool:
 
 
 def members_a_json_value_can_equal(members: list[Any]) -> list[Any]:
-    """Keep the members whose JSON form still compares equal to them.
+    """Keep the members that compare to a JSON value the way their JSON form does.
 
     For the members a ``NotIn`` excludes. Rendering a tuple gives a list, a
     ``datetime`` a string, a plain ``Enum`` member its value, and none of those
@@ -768,13 +768,37 @@ def members_a_json_value_can_equal(members: list[Any]) -> list[Any]:
     exclude. Leaving such a member out of the ``not`` only widens it, which is the
     safe direction, where keeping it rejects a value that is valid.
     """
-    kept: list[Any] = []
-    for member in members:
-        rendered = json_safe(member)
-        if rendered is not UNREPRESENTABLE and bool(rendered == member):
-            kept.append(member)
+    return [member for member in members if _compares_like_its_json_form(member)]
 
-    return kept
+
+def _compares_like_its_json_form(member: Any) -> bool:
+    """Whether a JSON value equals ``member`` exactly when it equals its JSON form.
+
+    Decided from the type alone, without comparing anything, so no ``__eq__`` of a
+    member runs here. A scalar qualifies when its class still compares with the
+    builtin's own ``__eq__``: a ``StrEnum`` member does, a subclass that defines
+    its own equality does not. A list or a dict qualifies when it is exactly that
+    type and everything in it qualifies; a tuple never equals the list it renders
+    as.
+    """
+    if member is None or type(member) is bool:
+        return True
+
+    for scalar in (str, int, float):
+        if isinstance(member, scalar):
+            # A NaN equals nothing, itself included, and JSON cannot spell it.
+            return type(member).__eq__ is scalar.__eq__ and member == member  # noqa: PLR0124
+
+    if type(member) is list:
+        return all(_compares_like_its_json_form(item) for item in member)
+
+    if type(member) is dict:
+        return all(
+            type(key) is str and _compares_like_its_json_form(value)
+            for key, value in member.items()
+        )
+
+    return False
 
 
 # Flags a pattern can switch on with a group, like ``(?i)`` or ``(?s:...)``,

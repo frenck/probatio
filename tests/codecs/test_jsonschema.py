@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import enum
 import itertools
 import json
 import re
@@ -2517,3 +2518,56 @@ def test_exactly_one_of_a_single_widened_branch_stays_one_of() -> None:
     )
 
     assert document == {"oneOf": [{"type": "string"}]}
+
+
+class _IdentityInt(int):
+    """An int that only equals itself, so no JSON number ever equals it."""
+
+    __hash__ = int.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        """Compare by identity."""
+        return self is other
+
+
+class _RaisingInt(int):
+    """An int whose comparison raises."""
+
+    __hash__ = int.__hash__
+
+    def __eq__(self, other: object) -> bool:
+        """Refuse to be compared."""
+        message = "not comparable"
+        raise ValueError(message)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        pytest.param(_IdentityInt(1), id="identity_equality"),
+        pytest.param(_RaisingInt(1), id="raising_equality"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param({1: 2}, id="dict_with_a_non_string_key"),
+    ],
+)
+def test_not_in_leaves_out_a_member_that_does_not_compare_like_json(
+    member: object,
+) -> None:
+    """A member with its own idea of equality is left out without being compared."""
+    assert to_json_schema(Schema(NotIn([member]))) == {}
+    assert to_openapi(Schema(NotIn([member]))) == {}
+
+
+def test_not_in_keeps_a_str_enum_member() -> None:
+    """A ``StrEnum`` member compares like its string value, so it stays excluded."""
+
+    class Mode(enum.StrEnum):
+        """A string enum."""
+
+        AUTO = "auto"
+
+    document = to_json_schema(Schema(NotIn([Mode.AUTO, [1, {"a": [2]}]])))
+
+    assert json.loads(json.dumps(document)) == {
+        "not": {"enum": ["auto", [1, {"a": [2]}]]}
+    }
