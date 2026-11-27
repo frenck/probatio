@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import get_type_hints
 
 import pytest
@@ -99,3 +100,33 @@ def test_hex_int_custom_message() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(HexInt(msg="not a register"))("nope")
     assert caught.value.errors[0].error_message == "not a register"
+
+
+def test_json_string_reports_a_too_deeply_nested_document_as_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A RecursionError from the JSON decoder becomes JsonInvalid, not a crash."""
+
+    def too_deep(_value: object) -> object:
+        """Stand in for a decoder that ran out of stack."""
+        raise RecursionError
+
+    monkeypatch.setattr("probatio.validators.encoding.json.loads", too_deep)
+
+    for validator in (JSONString(), FromJSONString()):
+        with pytest.raises(MultipleInvalid) as caught:
+            Schema(validator)("[[[]]]")
+        error = caught.value.errors[0]
+        assert isinstance(error, JsonInvalid)
+        assert error.translation_key == "invalid_json"
+        assert isinstance(error.__cause__, RecursionError)
+
+
+def test_json_string_rejects_a_real_deeply_nested_document() -> None:
+    """A document nested far past the recursion limit is invalid, whatever the build."""
+    document = "[" * 100_000 + "]" * 100_000
+
+    # Newer interpreters may decode this without recursing; both outcomes are
+    # acceptable, a raw RecursionError is not.
+    with contextlib.suppress(MultipleInvalid):
+        Schema(JSONString())(document)

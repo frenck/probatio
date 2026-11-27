@@ -9,11 +9,13 @@ from typing import Annotated, NewType
 import pytest
 
 from probatio import (
+    ALLOW_EXTRA,
     Coerce,
     Invalid,
     Length,
     MultipleInvalid,
     Range,
+    Schema,
     SchemaError,
     probatio,
 )
@@ -505,3 +507,71 @@ def test_error_must_be_callable() -> None:
     """An ``error`` that cannot be called is refused when decorating."""
     with pytest.raises(SchemaError, match="error must be an exception class"):
         probatio(error="nope")  # type: ignore[arg-type]
+
+
+def test_a_dict_annotation_rejects_keys_that_do_not_match() -> None:
+    """The call-wide extra-key policy does not leak into a ``dict[K, V]`` parameter."""
+
+    @probatio
+    def take(mapping: dict[int, str]) -> dict[int, str]:
+        return mapping
+
+    assert take({1: "a"}) == {1: "a"}
+    with pytest.raises(MultipleInvalid):
+        take({"a": "b"})  # type: ignore[dict-item]
+
+
+def test_a_dict_constraint_rejects_unknown_keys() -> None:
+    """A raw dict constraint keeps the default extra-key policy."""
+
+    @probatio({"mapping": {"a": int}})
+    def take(mapping: dict[str, int]) -> dict[str, int]:
+        return mapping
+
+    assert take({"a": 1}) == {"a": 1}
+    with pytest.raises(MultipleInvalid):
+        take({"a": 1, "other": 2})
+
+
+def test_an_explicit_schema_constraint_keeps_its_own_extra_policy() -> None:
+    """A ``Schema`` constraint with ``ALLOW_EXTRA`` still allows extra keys."""
+
+    @probatio({"mapping": Schema({"a": int}, extra=ALLOW_EXTRA)})
+    def take(mapping: dict[str, int]) -> dict[str, int]:
+        return mapping
+
+    assert take({"a": 1, "other": 2}) == {"a": 1, "other": 2}
+
+
+def test_a_dict_result_schema_rejects_unknown_keys() -> None:
+    """The result schema is not subject to the call-wide extra-key policy."""
+
+    @probatio(returns={"a": int})
+    def make() -> dict[str, int]:
+        return {"a": 1, "other": 2}
+
+    with pytest.raises(MultipleInvalid):
+        make()
+
+
+def test_a_dict_nested_in_a_list_annotation_rejects_keys_that_do_not_match() -> None:
+    """The call-wide policy does not reach a mapping nested in a sequence either."""
+
+    @probatio
+    def take(rows: list[dict[int, str]]) -> list[dict[int, str]]:
+        return rows
+
+    assert take([{1: "a"}]) == [{1: "a"}]
+    with pytest.raises(MultipleInvalid):
+        take([{"a": "b"}])  # type: ignore[dict-item]
+
+
+def test_a_dict_constraint_next_to_an_annotation_rejects_unknown_keys() -> None:
+    """A dict constraint combined with an annotation keeps the default policy."""
+
+    @probatio({"mapping": {"a": int}})
+    def take(mapping: dict[str, object]) -> dict[str, object]:
+        return mapping
+
+    with pytest.raises(MultipleInvalid):
+        take({"a": 1, "other": 2})
