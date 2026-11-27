@@ -20,6 +20,7 @@ import jsonschema
 import pytest
 import voluptuous
 import voluptuous_openapi
+from openapi_schema_validator import OAS30Validator, OAS31Validator
 from voluptuous_openapi import OpenApiVersion
 
 import probatio
@@ -52,6 +53,7 @@ from probatio import (
 from tests.strategies import canonical_openapi
 
 _ORACLE_VERSION = {"3.0": OpenApiVersion.V3, "3.1.0": OpenApiVersion.V3_1}
+_REFERENCE_VALIDATOR = {"3.0": OAS30Validator, "3.1.0": OAS31Validator}
 
 
 class Color(Enum):
@@ -1476,14 +1478,14 @@ def test_required_alias_with_a_default_demands_no_name() -> None:
     assert result["properties"]["userName"]["default"] == "x"
 
 
-def test_alias_without_canonical_only_emits_the_alias_names() -> None:
-    """With accept_canonical=False the canonical name is not an accepted input name."""
+def test_alias_without_canonical_leaves_the_canonical_name_open() -> None:
+    """With accept_canonical=False the canonical name is dropped, so it takes any value."""
     from probatio.markers import Alias  # noqa: PLC0415
 
     result = to_openapi(
         Schema({Alias("name", "userName", accept_canonical=False): str}),
     )
-    assert result["properties"] == {"userName": {"type": "string"}}
+    assert result["properties"] == {"userName": {"type": "string"}, "name": {}}
 
 
 def test_inclusive_group_round_trips_through_openapi_3_1() -> None:
@@ -2094,3 +2096,304 @@ def test_exactly_one_with_exact_branches_stays_one_of(version: str) -> None:
     document = to_openapi(schema, openapi_version=version)
 
     assert list(document) == ["oneOf"]
+
+
+def _accepts(schema: Schema, value: object) -> bool:
+    """Whether the probatio schema accepts the value."""
+    try:
+        schema(value)
+    except probatio.Invalid:
+        return False
+    return True
+
+
+def _validates(document: dict[str, Any], version: str, value: object) -> bool:
+    """Whether the reference validator accepts the value against the document."""
+    return _REFERENCE_VALIDATOR[version](document).is_valid(value)
+
+
+_RENAMED_VALUES = [
+    {},
+    {"old": 1},
+    {"old": "x"},
+    {"new": 1},
+    {"new": "anything"},
+    {"new": None},
+    {"old": 1, "new": "x"},
+    {"other": 1},
+]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize("value", _RENAMED_VALUES)
+@pytest.mark.parametrize(
+    "options",
+    [{}, {"required": True}, {"default": 5}],
+    ids=["optional", "required", "default"],
+)
+def test_an_alias_without_canonical_lets_the_canonical_name_through(
+    version: str, value: object, options: dict[str, Any]
+) -> None:
+    """The engine drops the canonical name unvalidated, so the document accepts it."""
+    schema = Schema(
+        {probatio.Alias("new", "old", accept_canonical=False, **options): int}
+    )
+    document = to_openapi(schema, openapi_version=version, strict=True)
+
+    assert _validates(document, version, value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_required_alias_without_canonical_never_requires_the_canonical_name(
+    version: str,
+) -> None:
+    """Only the accepted alias names can satisfy the presence rule."""
+    document = to_openapi(
+        Schema(
+            {probatio.Alias("new", "old", accept_canonical=False, required=True): int}
+        ),
+        openapi_version=version,
+    )
+
+    assert document["properties"] == {"old": {"type": "integer"}, "new": {}}
+    assert document["anyOf"] == [{"required": ["old"]}]
+    assert "required" not in document
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize("extra", [probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA])
+def test_an_alias_without_canonical_under_an_open_mapping(
+    version: str, extra: int
+) -> None:
+    """An open mapping keeps the canonical name open, not typed by the alias."""
+    schema = Schema(
+        {probatio.Alias("new", "old", accept_canonical=False): int}, extra=extra
+    )
+    document = to_openapi(schema, openapi_version=version)
+
+    assert document["properties"]["new"] == {}
+    assert _validates(document, version, {"new": "x"}) is _accepts(schema, {"new": "x"})
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_several_aliases_without_canonical_each_let_their_name_through(
+    version: str,
+) -> None:
+    """Each alias claims its own canonical name, and a plain alias keeps its own."""
+    schema = Schema(
+        {
+            probatio.Alias("a", "x", accept_canonical=False): int,
+            probatio.Alias("b", "y", "z", accept_canonical=False): str,
+            probatio.Alias("c", "w"): str,
+        }
+    )
+    document = to_openapi(schema, openapi_version=version)
+
+    assert document["properties"]["a"] == {}
+    assert document["properties"]["b"] == {}
+    assert document["properties"]["c"] == {"type": "string"}
+    for value in ({"a": "q", "b": 1}, {"x": 1, "z": "s"}, {"c": 1}, {"x": "no"}):
+        assert _validates(document, version, value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_an_alias_without_canonical_is_exact_in_nested_positions(version: str) -> None:
+    """A nested mapping, a sequence element and a combinator branch agree as well."""
+    alias_mapping = {probatio.Alias("new", "old", accept_canonical=False): int}
+    schemas = [
+        Schema({"k": alias_mapping}),
+        Schema([alias_mapping]),
+        Schema(probatio.All(alias_mapping, dict)),
+        Schema(probatio.Maybe(alias_mapping)),
+    ]
+    values = [{"k": {"new": "x"}}, [{"new": "x"}], {"new": 1}, None, {"old": "x"}]
+
+    for schema in schemas:
+        document = to_openapi(schema, openapi_version=version, strict=True)
+        for value in values:
+            assert _validates(document, version, value) is _accepts(schema, value)
+
+
+def test_an_alias_with_the_canonical_accepted_keeps_its_typed_property() -> None:
+    """The default Alias accepts its canonical name, so it keeps the value schema."""
+    document = to_openapi(Schema({probatio.Alias("new", "old"): int}))
+
+    assert document["properties"] == {
+        "new": {"type": "integer"},
+        "old": {"type": "integer"},
+    }
+
+
+def test_an_alias_listing_its_canonical_name_keeps_the_typed_property() -> None:
+    """An alias that names the canonical itself accepts it, so nothing is let through."""
+    document = to_openapi(
+        Schema({probatio.Alias("new", "new", "old", accept_canonical=False): int})
+    )
+
+    assert document["properties"]["new"] == {"type": "integer"}
+
+
+_NESTED_SELF = Schema({"a": Schema({probatio.Optional("n"): [probatio.Self]})})
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_self_inside_a_nested_schema_renders_open(version: str) -> None:
+    """It refers to the nested schema, so a reference to the root would be wrong."""
+    document = to_openapi(_NESTED_SELF, openapi_version=version)
+
+    assert document["properties"]["a"]["properties"]["n"] == {
+        "type": "array",
+        "items": {},
+    }
+    for value in (
+        {"a": {"n": [{"n": []}]}},
+        {"a": {"n": [{"a": {}}]}},
+        {"a": {}},
+    ):
+        if _accepts(_NESTED_SELF, value):
+            assert _validates(document, version, value)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_self_inside_a_nested_schema_is_refused_in_strict_mode(version: str) -> None:
+    """Rendering it open widens, which strict mode refuses."""
+    with pytest.raises(probatio.SchemaError, match="nested Schema"):
+        to_openapi(_NESTED_SELF, openapi_version=version, strict=True)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "schema",
+    [
+        Schema({"a": [Schema({probatio.Optional("n"): [probatio.Self]})]}),
+        Schema(
+            {
+                probatio.Optional("k"): probatio.Any(
+                    Schema({probatio.Optional("n"): [probatio.Self]}), int
+                )
+            }
+        ),
+        Schema({"a": Schema({"b": Schema({probatio.Optional("c"): [probatio.Self]})})}),
+        Schema(
+            {"k": Schema({probatio.Optional("n"): probatio.Any(probatio.Self, int)})}
+        ),
+        Schema(
+            {
+                probatio.Optional("k"): probatio.Msg(
+                    {probatio.Optional("n"): [probatio.Self]}, "message"
+                )
+            }
+        ),
+        Schema(
+            {
+                probatio.Optional("k"): probatio.Maybe(
+                    {probatio.Optional("n"): [probatio.Self]}
+                )
+            }
+        ),
+        Schema(probatio.Maybe({probatio.Optional("n"): [probatio.Self]})),
+        Schema(
+            {
+                "k": probatio.SomeOf(
+                    [Schema({probatio.Optional("n"): [probatio.Self]}), str], 1, 1
+                )
+            }
+        ),
+    ],
+    ids=[
+        "sequence",
+        "any",
+        "two_levels",
+        "any_inside_nested",
+        "nested_msg",
+        "nested_maybe",
+        "root_maybe",
+        "some_of",
+    ],
+)
+def test_a_self_that_is_not_the_root_is_refused_wherever_it_sits(
+    version: str, schema: Schema
+) -> None:
+    """Every route to a nested scope renders its Self open, and strict mode says so."""
+    assert "$ref" not in json.dumps(to_openapi(schema, openapi_version=version))
+
+    with pytest.raises(probatio.SchemaError, match="nested Schema"):
+        to_openapi(schema, openapi_version=version, strict=True)
+
+
+def test_a_self_in_an_exact_sequence_position_renders_open_on_3_1() -> None:
+    """Each position is a schema of its own, so a Self there is not the root."""
+    schema = Schema(probatio.ExactSequence([{probatio.Optional("n"): [probatio.Self]}]))
+
+    assert "$ref" not in json.dumps(to_openapi(schema, openapi_version="3.1.0"))
+    with pytest.raises(probatio.SchemaError, match="nested Schema"):
+        to_openapi(schema, openapi_version="3.1.0", strict=True)
+
+
+def test_a_nested_self_forces_an_exactly_one_some_of_to_any_of() -> None:
+    """The open branch could match a second branch, so ``oneOf`` would reject valid input."""
+    schema = Schema(
+        {
+            "k": probatio.SomeOf(
+                [Schema({probatio.Optional("n"): [probatio.Self]}), {"z": str}], 1, 1
+            )
+        }
+    )
+
+    assert "anyOf" in to_openapi(schema)["properties"]["k"]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "schema",
+    [
+        Schema({"value": int, probatio.Optional("children"): [probatio.Self]}),
+        Schema(Schema({"value": int, probatio.Optional("children"): [probatio.Self]})),
+        Schema(
+            probatio.Msg(
+                {"value": int, probatio.Optional("children"): [probatio.Self]},
+                "message",
+            )
+        ),
+        Schema(
+            probatio.All(
+                {"value": int, probatio.Optional("children"): [probatio.Self]}, dict
+            )
+        ),
+        Schema(
+            probatio.Any(
+                {"value": int, probatio.Optional("children"): [probatio.Self]}, str
+            )
+        ),
+        {"value": int, probatio.Optional("children"): [probatio.Self]},
+    ],
+    ids=["schema", "wrapped", "msg", "all", "any", "raw_dict"],
+)
+def test_a_self_that_is_the_root_keeps_its_reference(
+    version: str, schema: object
+) -> None:
+    """These all refer to the document root, so ``$ref: "#"`` stays, strict included."""
+    document = to_openapi(schema, openapi_version=version, strict=True)
+
+    assert '"$ref": "#"' in json.dumps(document)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_an_empty_exact_sequence_is_a_valid_document(version: str) -> None:
+    """``prefixItems`` must hold a schema, so the empty sequence says it with the length."""
+    schema = Schema(ExactSequence([]))
+    document = to_openapi(schema, strict=True, openapi_version=version)
+
+    _REFERENCE_VALIDATOR[version].check_schema(document)
+    assert document == {"type": "array", "minItems": 0, "maxItems": 0}
+    for value in ([], [1], [[]], {}, None):
+        assert _validates(document, version, value) is _accepts(schema, value)
+
+
+def test_a_non_empty_exact_sequence_keeps_its_positions_on_3_1() -> None:
+    """Only the empty sequence changes; each position still renders."""
+    assert to_openapi(Schema(ExactSequence([int])), openapi_version="3.1.0") == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}],
+        "items": False,
+    }

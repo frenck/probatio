@@ -59,6 +59,7 @@ from probatio import (
     MacAddress,
     Match,
     Maybe,
+    Msg,
     MultipleOf,
     NotIn,
     Optional,
@@ -73,6 +74,7 @@ from probatio import (
     Schema,
     SchemaError,
     Secret,
+    Self,
     Slug,
     SomeOf,
     Time,
@@ -2571,4 +2573,309 @@ def test_not_in_keeps_a_str_enum_member() -> None:
 
     assert json.loads(json.dumps(document)) == {
         "not": {"enum": ["auto", [1, {"a": [2]}]]}
+    }
+
+
+def _accepts(schema: Schema, value: object) -> bool:
+    """Whether the probatio schema accepts the value."""
+    try:
+        schema(value)
+    except Invalid:
+        return False
+    return True
+
+
+def _document_validates(document: dict[str, object], value: object) -> bool:
+    """Whether a JSON Schema document accepts the value."""
+    return jsonschema.Draft202012Validator(document).is_valid(value)
+
+
+_RENAMED_VALUES = [
+    {},
+    {"old": 1},
+    {"old": "x"},
+    {"new": 1},
+    {"new": "anything"},
+    {"new": None},
+    {"old": 1, "new": "x"},
+    {"other": 1},
+]
+
+
+@pytest.mark.parametrize("value", _RENAMED_VALUES)
+def test_an_alias_without_canonical_lets_the_canonical_name_through(
+    value: object,
+) -> None:
+    """The engine drops the canonical name unvalidated, so the document accepts it."""
+    schema = Schema({Alias("new", "old", accept_canonical=False): int})
+    document = to_json_schema(schema)
+
+    assert _document_validates(document, value) is _accepts(schema, value)
+
+
+def test_an_alias_without_canonical_renders_the_canonical_name_open() -> None:
+    """The canonical name is an open property: any value, and never required."""
+    document = to_json_schema(
+        Schema({Alias("new", "old", accept_canonical=False, required=True): int})
+    )
+
+    assert document["properties"] == {"old": {"type": "integer"}, "new": {}}
+    assert document["allOf"] == [{"anyOf": [{"required": ["old"]}]}]
+    assert "required" not in document
+
+
+@pytest.mark.parametrize("value", _RENAMED_VALUES)
+def test_a_required_alias_without_canonical_still_demands_an_alias(
+    value: object,
+) -> None:
+    """The canonical name never satisfies a required alias, in the document or the schema."""
+    schema = Schema({Alias("new", "old", accept_canonical=False, required=True): int})
+    document = to_json_schema(schema)
+
+    assert _document_validates(document, value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize("value", _RENAMED_VALUES)
+def test_an_alias_without_canonical_and_a_default_agrees(value: object) -> None:
+    """A default fills the key, and the canonical name is still let through."""
+    schema = Schema({Alias("new", "old", accept_canonical=False, default=5): int})
+
+    assert _document_validates(to_json_schema(schema), value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize("extra", [ALLOW_EXTRA, REMOVE_EXTRA])
+def test_an_alias_without_canonical_under_an_open_mapping(extra: int) -> None:
+    """An open mapping keeps the canonical name open, not typed by the alias."""
+    schema = Schema({Alias("new", "old", accept_canonical=False): int}, extra=extra)
+    document = to_json_schema(schema)
+
+    assert document["properties"]["new"] == {}
+    assert document["additionalProperties"] is True
+    assert _document_validates(document, {"new": "x"}) is _accepts(schema, {"new": "x"})
+
+
+def test_several_aliases_without_canonical_each_let_their_name_through() -> None:
+    """Each alias claims its own canonical name, and a plain alias keeps its own."""
+    schema = Schema(
+        {
+            Alias("a", "x", accept_canonical=False): int,
+            Alias("b", "y", "z", accept_canonical=False): str,
+            Alias("c", "w"): str,
+        }
+    )
+    document = to_json_schema(schema)
+
+    assert document["properties"]["a"] == {}
+    assert document["properties"]["b"] == {}
+    assert document["properties"]["c"] == {"type": "string"}
+    for value in ({"a": "q", "b": 1}, {"x": 1, "z": "s"}, {"c": 1}, {"x": "no"}):
+        assert _document_validates(document, value) is _accepts(schema, value)
+
+
+def test_an_alias_without_canonical_is_exact_in_nested_positions() -> None:
+    """A nested mapping, a sequence element and a combinator branch agree as well."""
+    alias_mapping = {Alias("new", "old", accept_canonical=False): int}
+    schemas = [
+        Schema({"k": alias_mapping}),
+        Schema([alias_mapping]),
+        Schema(All(alias_mapping, dict)),
+        Schema(Maybe(alias_mapping)),
+    ]
+    values = [{"k": {"new": "x"}}, [{"new": "x"}], {"new": 1}, None, {"old": "x"}]
+
+    for schema in schemas:
+        document = to_json_schema(schema, strict=True)
+        for value in values:
+            assert _document_validates(document, value) is _accepts(schema, value)
+
+
+def test_an_alias_without_canonical_is_not_a_widening() -> None:
+    """Letting the canonical name through says what the schema says, so strict allows it."""
+    schema = Schema({Alias("new", "old", accept_canonical=False): int})
+
+    assert to_json_schema(schema, strict=True)["properties"]["new"] == {}
+
+
+def test_an_alias_with_the_canonical_accepted_keeps_its_typed_property() -> None:
+    """The default Alias accepts its canonical name, so it keeps the value schema."""
+    document = to_json_schema(Schema({Alias("new", "old"): int}))
+
+    assert document["properties"] == {
+        "new": {"type": "integer"},
+        "old": {"type": "integer"},
+    }
+
+
+def test_an_alias_listing_its_canonical_name_keeps_the_typed_property() -> None:
+    """An alias that names the canonical itself accepts it, so nothing is let through."""
+    document = to_json_schema(
+        Schema({Alias("new", "new", "old", accept_canonical=False): int})
+    )
+
+    assert document["properties"]["new"] == {"type": "integer"}
+
+
+_NESTED_SELF = Schema({"a": Schema({Optional("n"): [Self]})})
+_NESTED_SELF_VALUES = [
+    {"a": {"n": [{"n": []}]}},
+    {"a": {"n": [{"a": {}}]}},
+    {"a": {"n": []}},
+    {"a": {}},
+    {},
+]
+
+
+def test_a_self_inside_a_nested_schema_renders_open() -> None:
+    """It refers to the nested schema, so a reference to the root would be wrong."""
+    document = to_json_schema(_NESTED_SELF)
+
+    assert document["properties"]["a"]["properties"]["n"] == {
+        "type": "array",
+        "items": {},
+    }
+
+
+def test_a_self_inside_a_nested_schema_is_refused_in_strict_mode() -> None:
+    """Rendering it open widens, which strict mode refuses."""
+    with pytest.raises(SchemaError, match="nested Schema"):
+        to_json_schema(_NESTED_SELF, strict=True)
+
+
+@pytest.mark.parametrize("value", _NESTED_SELF_VALUES)
+def test_a_self_inside_a_nested_schema_never_rejects_what_the_schema_accepts(
+    value: object,
+) -> None:
+    """The open rendering is wider than the schema, never narrower."""
+    if _accepts(_NESTED_SELF, value):
+        assert _document_validates(to_json_schema(_NESTED_SELF), value)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        Schema({"a": [Schema({Optional("n"): [Self]})]}),
+        Schema({Optional("k"): Any(Schema({Optional("n"): [Self]}), int)}),
+        Schema({"a": Schema({"b": Schema({Optional("c"): [Self]})})}),
+        Schema({"k": Schema({Optional("n"): Any(Self, int)})}),
+        Schema({Optional("k"): Msg({Optional("n"): [Self]}, "message")}),
+        Schema({Optional("k"): Maybe({Optional("n"): [Self]})}),
+        Schema(Maybe({Optional("n"): [Self]})),
+        Schema(ExactSequence([{Optional("n"): [Self]}])),
+        Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), str], 1, 1)}),
+    ],
+    ids=[
+        "sequence",
+        "any",
+        "two_levels",
+        "any_inside_nested",
+        "nested_msg",
+        "nested_maybe",
+        "root_maybe",
+        "exact_sequence_position",
+        "some_of",
+    ],
+)
+def test_a_self_that_is_not_the_root_is_refused_wherever_it_sits(
+    schema: Schema,
+) -> None:
+    """Every route to a nested scope renders its Self open, and strict mode says so."""
+    assert "$ref" not in json.dumps(to_json_schema(schema))
+
+    with pytest.raises(SchemaError, match="nested Schema"):
+        to_json_schema(schema, strict=True)
+
+
+def test_a_nested_self_forces_an_exactly_one_some_of_to_any_of() -> None:
+    """The open branch could match a second branch, so ``oneOf`` would reject valid input."""
+    schema = Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), {"z": str}], 1, 1)})
+
+    assert "anyOf" in to_json_schema(schema)["properties"]["k"]
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        Schema({"value": int, Optional("children"): [Self]}),
+        Schema(Schema({"value": int, Optional("children"): [Self]})),
+        Schema(Msg({"value": int, Optional("children"): [Self]}, "message")),
+        Schema(All({"value": int, Optional("children"): [Self]}, dict)),
+        Schema(Any({"value": int, Optional("children"): [Self]}, str)),
+        Schema({"tree": {"value": int, Optional("children"): [Self]}}),
+        {"value": int, Optional("children"): [Self]},
+    ],
+    ids=["schema", "wrapped", "msg", "all", "any", "plain_nested_dict", "raw_dict"],
+)
+def test_a_self_that_is_the_root_keeps_its_reference(schema: object) -> None:
+    """These all refer to the document root, so ``$ref: "#"`` stays, strict included."""
+    document = to_json_schema(schema, strict=True)
+
+    assert '"$ref": "#"' in json.dumps(document)
+
+
+def test_a_root_self_document_follows_the_schema() -> None:
+    """The reference to the root accepts what the recursive schema accepts."""
+    schema = Schema({"value": int, Optional("children"): [Self]})
+    document = to_json_schema(schema)
+    valid = {"value": 1, "children": [{"value": 2, "children": []}]}
+    invalid = {"value": 1, "children": [{"value": "x"}]}
+
+    assert _document_validates(document, valid) is _accepts(schema, valid)
+    assert _document_validates(document, invalid) is _accepts(schema, invalid)
+
+
+def test_an_empty_exact_sequence_is_a_valid_document() -> None:
+    """``prefixItems`` must hold a schema, so the empty sequence leaves it out."""
+    document = to_json_schema(Schema(ExactSequence([])), strict=True)
+
+    jsonschema.Draft202012Validator.check_schema(document)
+    assert document == {"type": "array", "maxItems": 0}
+
+
+@pytest.mark.parametrize("value", [[], [1], [[]], {}, None, "a"])
+def test_an_empty_exact_sequence_accepts_only_the_empty_array(value: object) -> None:
+    """The document accepts the empty array and nothing else, as the schema does."""
+    schema = Schema(ExactSequence([]))
+
+    assert _document_validates(to_json_schema(schema), value) is _accepts(schema, value)
+
+
+def test_an_empty_exact_sequence_is_a_valid_document_in_every_position() -> None:
+    """A mapping value, ``Maybe``, ``All`` and an exactly-one ``SomeOf`` stay valid."""
+    for schema in (
+        Schema({"a": ExactSequence([])}),
+        Schema(Maybe(ExactSequence([]))),
+        Schema(All(ExactSequence([]), list)),
+        Schema(SomeOf([ExactSequence([]), [int]], 1, 1)),
+    ):
+        jsonschema.Draft202012Validator.check_schema(to_json_schema(schema))
+
+
+def test_an_empty_sequence_schema_has_no_prefix_items() -> None:
+    """An empty list or tuple schema renders the same valid empty array."""
+    for node in ([], ()):
+        document = to_json_schema(Schema(node))
+
+        jsonschema.Draft202012Validator.check_schema(document)
+        assert "prefixItems" not in document
+
+
+def test_an_empty_exact_sequence_decodes_to_the_empty_list() -> None:
+    """Reading the rendering back accepts the empty array and nothing else."""
+    decoded = from_json_schema(to_json_schema(Schema(ExactSequence([]))))
+
+    assert decoded([]) == []
+    with pytest.raises(Invalid):
+        decoded([1])
+
+
+def test_a_non_empty_exact_sequence_keeps_its_positions() -> None:
+    """Only the empty sequence changes; each position still renders."""
+    document = to_json_schema(Schema(ExactSequence([int])))
+
+    assert document == {
+        "type": "array",
+        "prefixItems": [{"type": "integer"}],
+        "items": False,
+        "minItems": 1,
+        "maxItems": 1,
     }

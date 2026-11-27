@@ -33,10 +33,12 @@ from probatio.codecs._shared import (
     UNSUPPORTED,
     ExclusiveGroup,
     abandoned_group_names,
+    claimed_canonical_name,
     conditional_required_constraint,
     contested_names,
     covers_every_property_name,
     custom_field,
+    encoding_root,
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
@@ -45,9 +47,11 @@ from probatio.codecs._shared import (
     literal_any_names,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    nested_self_scope,
     note_widening,
     only_string_members,
     regex_flags_change_meaning,
+    self_is_document_root,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -195,7 +199,8 @@ def to_json_schema(
     """
     token = _OPTIONS.set(_Options(strict=strict, custom=custom_serializer))
     try:
-        return _convert(schema, required_default=False, allow_extra=False)
+        with encoding_root(schema):
+            return _convert(schema, required_default=False, allow_extra=False)
     except RecursionError as exc:
         message = (
             "schema is too deeply nested or references itself; use the Self "
@@ -230,11 +235,12 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
         # ``REMOVE_EXTRA`` accepts extra keys on input (it strips them from the
         # output), so for input-side fidelity it renders open like ``ALLOW_EXTRA``,
         # not closed like the strict default.
-        return _convert(
-            node.schema,
-            required_default=node.required,
-            allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
-        )
+        with nested_self_scope(node):
+            return _convert(
+                node.schema,
+                required_default=node.required,
+                allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
+            )
 
     if isinstance(node, _WhenType):
         # The wrapper carries "applies only to this JSON type", which is what a
@@ -546,6 +552,10 @@ def _emit_named_key(  # noqa: PLR0913, PLR0917
         # becomes an object-level constraint.
         for alias_name in marker.input_names:
             properties[alias_name] = decorated
+        # A canonical name the alias does not accept is still claimed by it, so
+        # the object must let it through with any value.
+        if (claimed := claimed_canonical_name(marker, name)) is not None:
+            properties[claimed] = {}
         groups.add_alias(marker)
         return
 
@@ -825,9 +835,13 @@ def _convert_leaf(node: Any) -> dict[str, Any]:
         # ``Self`` means "the whole enclosing schema", the recursive reference
         # the decoder already reads back from ``$ref: "#"``. ``#`` targets the
         # document root, which is the top-level schema being encoded (the common
-        # recursive-schema case); a ``Self`` inside a separately nested ``Schema``
-        # would resolve against its own root, which this cannot express.
-        return {"$ref": "#"}
+        # recursive-schema case). A ``Self`` inside a nested ``Schema`` refers to
+        # that schema instead, which a reference to the root would get wrong in
+        # both directions, so it renders open.
+        if self_is_document_root():
+            return {"$ref": "#"}
+
+        return _open("a Self inside a nested Schema, which is not the document root")
 
     json_format = getattr(node, "__probatio_json_format__", None)
 
@@ -881,7 +895,8 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, Msg):
         # ``Msg`` only swaps the error message; the shape is the wrapped validator.
-        return _child(node.validator)
+        with nested_self_scope(node):
+            return _child(node.validator)
 
     # ``Union``/``Switch`` accept any branch (the discriminant is an
     # optimization), so they render as ``anyOf`` like ``Any``. Checked with
@@ -1162,7 +1177,8 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
         return _convert_match(node)
 
     if isinstance(node, Maybe):
-        return {"anyOf": [{"type": "null"}, _child(node.validator)]}
+        with nested_self_scope(node):
+            return {"anyOf": [{"type": "null"}, _child(node.validator)]}
 
     temporal = _convert_temporal_node(node)
     if temporal is not None:
@@ -1415,8 +1431,16 @@ def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     Each position becomes one entry in ``prefixItems``; ``items: false`` forbids
     extra elements and the matching ``minItems``/``maxItems`` pin the length, so
     the array must have exactly the listed positions.
+
+    An empty sequence has no position to describe, and ``prefixItems`` must hold
+    at least one schema, so it renders as the empty array alone.
     """
-    prefix = [_child(validator) for validator in node.validators]
+    if not node.validators:
+        return {"type": "array", "maxItems": 0}
+
+    with nested_self_scope(node):
+        prefix = [_child(validator) for validator in node.validators]
+
     return {
         "type": "array",
         "prefixItems": prefix,
