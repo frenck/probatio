@@ -94,11 +94,12 @@ asking every consumer to opt in by hand.
   engine with its own corner cases. Bail-safety removes that. `AUTO` does generate
   code behind the caller's back for a hot schema, but the result, errors, paths, and
   ordering are the interpreted engine's, because anything that is not the plain happy
-  path bails to it. The one seam is side effects on the failure path: the fast path
+  path bails to it. The one seam is side effects on a bail: the fast path
   runs fields optimistically, so a validator or `default` factory that already ran
   before a later field bails runs again in the interpreted re-run. The value and the
   error are still identical; only the count of side effects differs, and only when
-  validation fails. Probatio's own validators are pure, so this is invisible for them,
+  the fast path bails: on a failing validation, or on a valid input it does not
+  settle itself (a float for `Coerce(int)`, for example). Probatio's own validators are pure, so this is invisible for them,
   and a user validator that mutates state should be pure too, the same expectation the
   interpreted engine already leans on. A reader who wants to vet the `exec` finds it in
   one bounded module, not woven through the codebase, and a consumer who wants none of

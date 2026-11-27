@@ -693,7 +693,8 @@ def compile_mapping(
     would be thrown away, once per level of nesting: a failure cost that grows with
     the square of the depth. The price is paid by a value the generated code only
     defers on (a float for ``Coerce(int)``, say): the engine accepts it, but the
-    whole tree now takes the interpreted run, not just this mapping.
+    whole tree now takes the interpreted run, not just this mapping, which also
+    calls the validators of the enclosing mappings a second time.
     """
     if not _is_generatable(validator):
         return None
