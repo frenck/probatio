@@ -124,6 +124,28 @@ class SchemaError(Error):
 class Invalid(Error):
     """The data did not match the schema."""
 
+    # Reference cycles: a raised ``Invalid`` keeps its traceback, and the traceback
+    # keeps every frame the error passed through, including the frame that caught
+    # it. A frame that still holds the error (a ``last_error`` or ``best`` local, or
+    # an ``errors`` list) when it returns or raises is therefore a cycle: frame,
+    # error, traceback, frame. Everything else that frame references (the input
+    # data, the half-built output) then stays alive until the cyclic collector
+    # runs, and the collector counts objects, not bytes, so a ten-object cycle can
+    # pin a large payload. It happens on successful validations too, whenever an
+    # earlier branch was rejected.
+    #
+    # So the engine lets go of a caught error on the way out of its frame: a
+    # ``finally`` deletes the local that holds the error, or empties the list of
+    # errors. It covers the whole frame, because the frame can also be left early,
+    # by an exception from a default factory or from user code. The list is
+    # emptied, not just dropped, because the helper frames it was passed to still
+    # reference it; and it is copied into the ``MultipleInvalid`` first, which
+    # keeps what it was given as ``args[0]``.
+    # Clearing ``__traceback__`` instead does not work, because a ``__cause__``
+    # reaches the same frames through its own traceback. Code that catches an
+    # ``Invalid`` and keeps it past the ``except`` block needs the same care;
+    # ``tests/test_memory.py`` measures it.
+
     # Stable machine-readable code for this kind of error. Subclasses set it, so
     # every raise is coded without passing ``code`` at the call site. An explicit
     # ``code`` argument still wins.

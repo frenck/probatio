@@ -80,32 +80,40 @@ class ExactSequence(_SafeValidator):
 
         result = []
         errors: list[Invalid] = []
-        for index, (schema, item) in enumerate(zip(self._schemas, value, strict=True)):
-            try:
-                result.append(schema(item))
-            except MultipleInvalid as exc:
-                # A compiled Schema always reports through MultipleInvalid, so a
-                # bare Invalid never reaches here.
-                for error in exc.errors:
-                    error.prepend([index])
-                    errors.append(error)
-
-        if errors:
-            raise MultipleInvalid(errors)
-
-        # Rebuild the sequence as its own type. A namedtuple takes its fields
-        # positionally (``Point(*result)``), not as a single iterable, so detect it
-        # the way the sequence engine does rather than leak a TypeError. A list or
-        # tuple subclass whose constructor is not ``(iterable)`` (a custom
-        # ``__init__``/``__new__``) cannot be rebuilt that way, so fall back to the
-        # plain base type rather than leak the TypeError its constructor raises.
-        out_type = type(value)
         try:
-            if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-                return out_type(*result)
-            return out_type(result)
-        except TypeError:
-            return list(result) if issubclass(out_type, list) else tuple(result)
+            for index, (schema, item) in enumerate(
+                zip(self._schemas, value, strict=True)
+            ):
+                try:
+                    result.append(schema(item))
+                except MultipleInvalid as exc:
+                    # A compiled Schema always reports through MultipleInvalid, so a
+                    # bare Invalid never reaches here.
+                    # ``prepend`` reaches every wrapped error, and no loop variable is
+                    # left pointing at the last one when this frame is done.
+                    exc.prepend([index])
+                    errors.extend(exc.errors)
+
+            if errors:
+                # A copy, so emptying the list below leaves ``args`` intact.
+                raise MultipleInvalid(list(errors))
+
+            # Rebuild the sequence as its own type. A namedtuple takes its fields
+            # positionally (``Point(*result)``), not as a single iterable, so detect it
+            # the way the sequence engine does rather than leak a TypeError. A list or
+            # tuple subclass whose constructor is not ``(iterable)`` (a custom
+            # ``__init__``/``__new__``) cannot be rebuilt that way, so fall back to the
+            # plain base type rather than leak the TypeError its constructor raises.
+            out_type = type(value)
+            try:
+                if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
+                    return out_type(*result)
+                return out_type(result)
+            except TypeError:
+                return list(result) if issubclass(out_type, list) else tuple(result)
+        finally:
+            # On every way out; see ``Invalid``.
+            errors.clear()
 
 
 class Unique(_SafeValidator):

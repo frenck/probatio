@@ -174,26 +174,30 @@ def _run_any(
     """
     best: Invalid | None = None
     best_depth = -1
-    for compiled in candidates:
-        try:
-            return compiled(value)
-        except Invalid as exc:
-            depth = len(exc.path)
-            if depth > best_depth:
-                best, best_depth = exc, depth
+    try:
+        for compiled in candidates:
+            try:
+                return compiled(value)
+            except Invalid as exc:
+                depth = len(exc.path)
+                if depth > best_depth:
+                    best, best_depth = exc, depth
 
-    if msg is not None:
-        raise AnyInvalid(msg)
-    if miss_label is not None:
-        raise AnyInvalid(
-            translation_key="expected_type",
-            placeholders={"expected": miss_label},
-        )
-    if best is None:
-        raise AnyInvalid(translation_key="no_valid_value")
-    if isinstance(best, MultipleInvalid):
-        raise best
-    raise MultipleInvalid([best])
+        if msg is not None:
+            raise AnyInvalid(msg)
+        if miss_label is not None:
+            raise AnyInvalid(
+                translation_key="expected_type",
+                placeholders={"expected": miss_label},
+            )
+        if best is None:
+            raise AnyInvalid(translation_key="no_valid_value")
+        if isinstance(best, MultipleInvalid):
+            raise best
+        raise MultipleInvalid([best])
+    finally:
+        # A rejected branch's error is held on every way out; see ``Invalid``.
+        del best
 
 
 def _combinator_repr(combinator: typing.Any) -> str:
@@ -775,28 +779,32 @@ class SomeOf(_Combinator):
         is the last branch's result, not necessarily the value that went in.
         """
         errors: list[Invalid] = []
-        for compiled in self._compiled:
-            try:
-                value = compiled(value)
-            except Invalid as exc:
-                errors.append(exc)
+        try:
+            for compiled in self._compiled:
+                try:
+                    value = compiled(value)
+                except Invalid as exc:
+                    errors.append(exc)
 
-        passed = len(self._compiled) - len(errors)
-        if self.min_valid <= passed <= self.max_valid:
-            return value
+            passed = len(self._compiled) - len(errors)
+            if self.min_valid <= passed <= self.max_valid:
+                return value
 
-        message = self.msg or ", ".join(str(error) for error in errors)
-        if passed > self.max_valid:
-            # Joining branch errors matches voluptuous, but when every branch
-            # passed there are no errors and the message would be empty ("");
-            # say what actually went wrong: too many alternatives matched.
-            if not message:
-                raise TooManyValid(
-                    translation_key="too_many_valid",
-                    placeholders={"passed": passed, "max": self.max_valid},
-                )
-            raise TooManyValid(message)
-        raise NotEnoughValid(message)
+            message = self.msg or ", ".join(str(error) for error in errors)
+            if passed > self.max_valid:
+                # Joining branch errors matches voluptuous, but when every branch
+                # passed there are no errors and the message would be empty ("");
+                # say what actually went wrong: too many alternatives matched.
+                if not message:
+                    raise TooManyValid(
+                        translation_key="too_many_valid",
+                        placeholders={"passed": passed, "max": self.max_valid},
+                    )
+                raise TooManyValid(message)
+            raise NotEnoughValid(message)
+        finally:
+            # On every way out; see ``Invalid``.
+            errors.clear()
 
 
 And = All
