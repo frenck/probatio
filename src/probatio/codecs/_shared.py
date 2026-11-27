@@ -176,17 +176,31 @@ def claimed_canonical_name(marker: Alias, name: Any) -> str | None:
     required. So a document has to let that name through with any value, which
     a closed object only does when the name is declared as an open property.
 
-    Compared as plain strings, so no member of a user-built alias is asked
-    anything.
+    An alias that spells the canonical name accepts it after all, so nothing is
+    claimed. Names are compared with ``str``'s own equality, which also reads a
+    ``StrEnum`` member by its value and runs no code of a subclass.
     """
-    if marker.accept_canonical or type(name) is not str:
+    if marker.accept_canonical or not isinstance(name, str):
         return None
 
     for alias in marker.input_names:
-        if type(alias) is str and alias == name:
+        if isinstance(alias, str) and str.__eq__(alias, name) is True:
             return None
 
     return name
+
+
+def claimed_canonical_names(node: dict[Any, Any]) -> frozenset[str]:
+    """Collect the canonical names the ``Alias`` keys of a mapping claim unaccepted."""
+    claimed: set[str] = set()
+    for key in node:
+        facets = resolve_key(key)
+        if isinstance(facets.marker, Alias):
+            name = claimed_canonical_name(facets.marker, facets.key)
+            if name is not None:
+                claimed.add(name)
+
+    return frozenset(claimed)
 
 
 def constraint_names(key: Any) -> list[str] | None:
@@ -789,7 +803,9 @@ def root_wrappers(schema: Any) -> frozenset[int]:
     asking one anything would run user code.
     """
     wrappers: set[int] = set()
-    while type(schema) in (Schema, Msg):
+    # A wrapper that holds itself would never end; the encoder reports that cycle
+    # once it recurses into it.
+    while type(schema) in (Schema, Msg) and id(schema) not in wrappers:
         wrappers.add(id(schema))
         schema = schema.schema if type(schema) is Schema else schema.validator
 

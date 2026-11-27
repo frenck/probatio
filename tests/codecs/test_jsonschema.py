@@ -2879,3 +2879,67 @@ def test_a_non_empty_exact_sequence_keeps_its_positions() -> None:
         "minItems": 1,
         "maxItems": 1,
     }
+
+
+class _Name(enum.StrEnum):
+    """A string enum whose member spells a canonical alias name."""
+
+    NEW = "new"
+
+
+def test_alias_that_lists_its_canonical_as_a_str_enum_keeps_it_typed() -> None:
+    """A ``StrEnum`` alias equal to the canonical name accepts it, so it stays typed."""
+    schema = Schema({Alias("new", _Name.NEW, "old", accept_canonical=False): int})
+
+    document = to_json_schema(schema)
+
+    assert document["properties"]["new"] == {"type": "integer"}
+    assert to_openapi(schema)["properties"]["new"] == {"type": "integer"}
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        pytest.param(("alias", "any"), id="alias_first"),
+        pytest.param(("any", "alias"), id="any_first"),
+    ],
+)
+def test_claimed_canonical_name_stays_open_beside_an_any_key(
+    keys: tuple[str, str],
+) -> None:
+    """An ``Any`` key listing the claimed name cannot type it, in either key order."""
+    parts = {
+        "alias": (Alias("new", "old", accept_canonical=False), int),
+        "any": (Any("new", "other"), str),
+    }
+    schema = Schema(dict(parts[key] for key in keys))
+
+    # The alias drops ``new`` before the ``Any`` key could match it.
+    assert schema({"new": 1}) == {}
+    for document in (to_json_schema(schema), to_openapi(schema)):
+        assert document["properties"]["new"] == {}
+        assert document["properties"]["other"] == {"type": "string"}
+
+
+def test_a_schema_that_wraps_itself_is_reported_not_looped_on() -> None:
+    """A ``Schema`` holding itself ends in a ``SchemaError`` in both encoders."""
+    schema = Schema({})
+    schema.schema = schema
+
+    with pytest.raises(SchemaError, match="references itself"):
+        to_json_schema(schema)
+    with pytest.raises(SchemaError, match="references itself"):
+        to_openapi(schema)
+
+
+def test_an_alias_that_accepts_its_canonical_claims_nothing_beside_an_any_key() -> None:
+    """A default ``Alias`` leaves an ``Any`` key free to type every name it lists."""
+    schema = Schema({Alias("new", "old"): int, Any("first", "second"): str})
+
+    for document in (to_json_schema(schema), to_openapi(schema)):
+        assert document["properties"] == {
+            "new": {"type": "integer"},
+            "old": {"type": "integer"},
+            "first": {"type": "string"},
+            "second": {"type": "string"},
+        }

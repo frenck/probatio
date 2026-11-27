@@ -31,6 +31,7 @@ from probatio.codecs._shared import (
     ExclusiveGroup,
     abandoned_group_names,
     claimed_canonical_name,
+    claimed_canonical_names,
     conditional_required_constraint,
     constraint_names,
     contested_names,
@@ -585,7 +586,15 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
                 required=_demands_presence(marker, required_default=required_default),
                 wildcard=value is object,
             )
-            properties.update(props)
+            # A name an alias claims is dropped before this key could match it,
+            # so it stays the open property the alias declares.
+            properties.update(
+                {
+                    name: prop
+                    for name, prop in props.items()
+                    if name not in claimed_canonical_names(node)
+                }
+            )
             # The properties stand either way; only the at-least-one rule needs
             # this key to own every name it lists.
             if any_group is not None:
