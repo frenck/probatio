@@ -1093,3 +1093,46 @@ def test_a_nested_bail_that_the_engine_accepts_still_succeeds() -> None:
     assert compiled(data) == {"outer": {"n": 1}, "name": "x"}
     assert _is_compiled(compiled)
     assert _outcome(compiled, data) == _outcome(interpreted, data)
+
+
+def test_a_nested_value_that_is_not_a_dict_runs_the_engine_once() -> None:
+    """A failing nested dict subclass is validated once, by the outermost mapping."""
+    calls: list[object] = []
+
+    def reject(value: object) -> object:
+        """Record the call, then fail the way a user callable does."""
+        calls.append(value)
+        message = "no"
+        raise ValueError(message)
+
+    class Settings(dict[str, object]):
+        """A dict subclass, which the generated code leaves to the engine."""
+
+    spec = {"child": {"leaf": reject}}
+    compiled = Schema(spec, compile=True)
+    interpreted = Schema(spec, compile=False)
+    data = {"child": Settings(leaf=1)}
+
+    assert _outcome(compiled, data)[0] == "err"
+    assert _is_compiled(compiled)
+    calls.clear()
+
+    compiled_outcome = _outcome(compiled, data)
+    assert len(calls) == 1
+
+    assert compiled_outcome == _outcome(interpreted, data)
+    assert _outcome(compiled, {"child": None}) == _outcome(interpreted, {"child": None})
+
+
+def test_a_nested_dict_subclass_keeps_its_type() -> None:
+    """A valid nested dict subclass comes back as that subclass."""
+
+    class Settings(dict[str, object]):
+        """A dict subclass, which the generated code leaves to the engine."""
+
+    compiled = Schema({"child": {"leaf": int}}, compile=True)
+
+    result = compiled({"child": Settings(leaf=1)})
+
+    assert _is_compiled(compiled)
+    assert type(result["child"]) is Settings

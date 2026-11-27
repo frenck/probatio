@@ -687,8 +687,8 @@ def compile_mapping(
     keys the constructor would reject) is not generated.
 
     ``nested`` marks a mapping generated as a value inside another generated mapping,
-    which is the only caller of the result. On a bail it re-raises instead of running
-    its own interpreted validator. When the data is invalid, the enclosing function
+    which is the only caller of the result. On a bail, or on data that is not an
+    exact dict, it raises ``_Bail`` instead of running its own interpreted validator. When the data is invalid, the enclosing function
     bails as well and re-validates this subtree anyway, so an interpreted run here
     would be thrown away, once per level of nesting: a failure cost that grows with
     the square of the depth. The price is paid by a value the generated code only
@@ -717,9 +717,10 @@ def compile_mapping(
         # does a foreign Mapping or a wrong type (the engine accepts the Mapping
         # superset and raises the right type error). Neither is something the seeded
         # copy below reproduces, and neither is a hot path worth generating for.
+        # A nested mapping leaves that to the enclosing function too, like any bail.
         prologue = [
             "    if type(data) is not dict:",
-            "        return _interpreted(data)",
+            "        raise _Bail" if nested else "        return _interpreted(data)",
             *_emit_seed(validator._extra, allowed, namespace),  # noqa: SLF001
         ]
     else:
