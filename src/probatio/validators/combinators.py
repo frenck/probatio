@@ -366,8 +366,8 @@ def _type_tuple(
 
 def _float_superset(
     validators: list[typing.Any], compiled: list[typing.Any]
-) -> tuple[tuple[type, ...], bool] | None:
-    """Return ``(accept_types, allow_none)`` for an ``Any`` of types plus a float tower.
+) -> tuple[tuple[type, ...], bool, dict[type, bool]] | None:
+    """Return ``(accept_types, allow_none, exact)`` for types plus a float tower.
 
     Only for a branch set that is otherwise all bare types or ``None`` but for the
     float tower (ADR-017), which coerces an ``int`` and so has no ``checked_type`` to
@@ -376,15 +376,18 @@ def _float_superset(
     weaker but cheap signal ``__call__`` needs: the *superset* of types any branch
     could accept, ``float`` and ``int`` standing in for the tower. A value outside it
     cannot match any branch, so a miss is rejected with one ``isinstance``; a value
-    inside it defers to the ordered, coercing ``_run_any``. ``None`` if a branch is
-    neither a type, ``None``, nor the float tower, or if no float tower is present.
+    inside it defers to the ordered, coercing ``_run_any``. ``exact`` is the shortcut
+    for the values that are worth it, see ``_exact_outcomes``. ``None`` if a branch
+    is neither a type, ``None``, nor the float tower, or if no float tower is present.
     """
     types: list[type] = []
+    ordered: list[type | None] = []
     allow_none = False
     has_float_tower = False
     for raw, branch in zip(validators, compiled, strict=True):
         if raw is None:
             allow_none = True
+            ordered.append(None)
             continue
         if getattr(branch, "is_float_tower", False):
             has_float_tower = True
@@ -392,15 +395,74 @@ def _float_superset(
             # the tower itself, so let it into the ordered path to be rejected there.
             types.append(float)
             types.append(int)
+            ordered.append(float)
             continue
         checked_type = getattr(branch, "checked_type", None)
         if checked_type is None:
             return None
         types.append(checked_type)
+        ordered.append(checked_type)
 
     if not has_float_tower:
         return None
-    return tuple(types), allow_none
+    return tuple(types), allow_none, _exact_outcomes(ordered)
+
+
+# The value types ``_exact_outcomes`` settles ahead of time. An instance of exactly
+# one of these runs no code of its own when it is type-checked or converted.
+_EXACT_BUILTINS = (
+    bool,
+    int,
+    float,
+    complex,
+    str,
+    bytes,
+    bytearray,
+    list,
+    tuple,
+    dict,
+    set,
+    frozenset,
+    type(None),
+)
+
+
+def _exact_outcomes(ordered: list[type | None]) -> dict[type, bool]:
+    """Map an exact builtin value type to what the first accepting branch does.
+
+    ``ordered`` holds the branches of a types-plus-float-tower ``Any`` in their
+    original order: a type, ``None``, or a bare ``float`` standing for the tower (a
+    type branch is never the bare ``float``, which always compiles to the tower).
+    For a value that is exactly a builtin, which branch accepts it is known when the
+    ``Any`` is built, so a hit needs no branch to run and none to raise: the result
+    maps its type to ``True`` when the tower accepts it and coerces it to ``float``
+    (an ``int``), and to ``False`` when a branch returns it unchanged.
+
+    A type is left out when no branch accepts it, and when a branch that comes
+    first is a class with its own metaclass: whether that one accepts is decided by
+    its ``__instancecheck__``, which is code to run on every call. A subclass of a
+    builtin is never in the result, since checking or converting it can run its own
+    code. All of those take the generic path.
+    """
+    outcomes: dict[type, bool] = {}
+    for exact in _EXACT_BUILTINS:
+        for branch in ordered:
+            if branch is float:
+                # The tower: a float as is, an int coerced, a bool never.
+                if exact is float or exact is int:
+                    outcomes[exact] = exact is int
+                    break
+            elif branch is None:
+                if exact is type(None):
+                    outcomes[exact] = False
+                    break
+            elif type(branch) is not type:
+                break
+            elif branch in exact.__mro__:
+                outcomes[exact] = False
+                break
+
+    return outcomes
 
 
 def _run_typed_any(
@@ -433,7 +495,7 @@ def _run_typed_any(
 
 
 def _run_float_superset_any(
-    superset: tuple[tuple[type, ...], bool],
+    superset: tuple[tuple[type, ...], bool, dict[type, bool]],
     candidates: list[typing.Any],
     value: typing.Any,
     msg: str | None,
@@ -446,8 +508,28 @@ def _run_float_superset_any(
     float branch may coerce, so it defers to the ordered ``_run_any`` which decides
     correctly. The tower keeps its fast rejection without giving up branch order or
     coercion on a hit.
+
+    Before either, a value that is exactly a builtin is settled from ``exact``, the
+    outcomes precomputed by ``_exact_outcomes``. That is the common hit, and it would
+    otherwise pay for the ``Invalid`` every earlier branch raises to reject it.
     """
-    accept_types, allow_none = superset
+    accept_types, allow_none, exact = superset
+
+    # A class with a plain metaclass hashes by identity; any other may define its
+    # own ``__hash__``, and the lookup must not run it.
+    value_type = type(value)
+    if type(value_type) is type:
+        coerce = exact.get(value_type)
+        if coerce is False:
+            return value
+        if coerce:
+            try:
+                return float(value)
+            except OverflowError:
+                # Too large for a float: the tower rejects it, and what the other
+                # branches make of it is for the generic path to decide.
+                pass
+
     if (allow_none and value is None) or isinstance(value, accept_types):
         return _run_any(candidates, value, msg, miss_label)
     if msg is not None:
