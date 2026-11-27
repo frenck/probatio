@@ -253,9 +253,26 @@ def _admit_null(node: Any, version: str) -> Any:
     null is in the enum (the flag admits the null *type*, not a value outside the
     enumerated set), so null is added to such an enum. On 3.1 there is no
     ``nullable`` keyword at all, so it is rewritten as ``"null"`` on the type.
+
+    Admitting null can widen a branch (see ``_oa_null``), and a ``oneOf`` chosen
+    while rendering did not know that yet. One with a branch that widened here is
+    relaxed to ``anyOf``, the way ``_oa_some_of`` does it for a widening it saw.
+    Only its own branches count: a widening elsewhere in the schema, in a
+    property say, leaves a ``oneOf`` beside it exact.
     """
     if isinstance(node, dict):
-        result = {key: _admit_null(value, version) for key, value in node.items()}
+        result: dict[str, Any] = {}
+        relax = False
+        for key, value in node.items():
+            before = widenings()
+            result[key] = _admit_null(value, version)
+            # The keyword holds a list of branches; a property that happens to be
+            # named ``oneOf`` holds a schema.
+            if key == "oneOf" and isinstance(value, list):
+                relax = widenings() != before
+
+        if relax:
+            result = _one_of_as_any_of(result)
         if result.get("nullable") is True:
             _mark_nullable(result, version)
         return result
@@ -265,6 +282,45 @@ def _admit_null(node: Any, version: str) -> Any:
 
 
 _COMBINATORS = ("anyOf", "oneOf", "allOf")
+
+
+def _one_of_as_any_of(result: dict[str, Any]) -> dict[str, Any]:
+    """Relax a ``oneOf`` to ``anyOf``, keeping the place of the keyword.
+
+    Beside an ``anyOf`` the schema already has, the relaxed one cannot share the
+    key, so the two stand as separate entries of an ``allOf``. What describes the
+    schema as a whole, its ``nullable`` flag above all, stays on the outside,
+    where the rest of the pass still reads it.
+    """
+    if "anyOf" not in result:
+        return {
+            ("anyOf" if key == "oneOf" else key): value for key, value in result.items()
+        }
+
+    described = {key: value for key, value in result.items() if key in _ANNOTATIONS}
+    asserted = {
+        key: value
+        for key, value in result.items()
+        if key != "oneOf" and key not in _ANNOTATIONS
+    }
+    return {"allOf": [asserted, {"anyOf": result["oneOf"]}], **described}
+
+
+# Keywords that describe a schema without deciding what it accepts.
+_ANNOTATIONS = frozenset({"nullable", "description", "title", "default", "writeOnly"})
+
+
+def _takes_a_null_branch(result: dict[str, Any]) -> bool:
+    """Whether a null branch can simply join the schema's ``anyOf``.
+
+    Only when the schema is nothing but that ``anyOf``: a branch added there is
+    an alternative for the whole schema. Beside anything else that asserts (a
+    ``type``, an ``enum``, a second combinator, a ``not``) the new branch would be
+    an alternative within that one keyword, and the others would go on refusing
+    null. In an ``allOf`` it would be one more thing every value has to satisfy,
+    and in a ``oneOf`` a second match for a null another branch takes already.
+    """
+    return "anyOf" in result and result.keys() <= _ANNOTATIONS | {"anyOf"}
 
 
 def _mark_nullable(result: dict[str, Any], version: str) -> None:
@@ -279,27 +335,33 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
     if isinstance(enum, list) and None not in enum:
         result["enum"] = [*enum, None]
 
-    if "not" in result:
-        # A negation has no type to carry null either, and 3.0 ignores the flag
-        # beside one, so ``Maybe(NotIn([None]))`` came out rejecting the null it
-        # exists to accept. Everything the schema asserted moves into one branch
-        # of a union with null, which keeps the siblings honest: "all of this, or
-        # null" rather than "all of this, and separately maybe null".
-        #
-        # Checked before the combinator below, and not instead of it: a result can
-        # carry both (``All(NotIn(...), Any(...))`` renders sibling ``not`` and
-        # ``anyOf`` keys), and adding a branch to the combinator leaves the
-        # negation still excluding null. Rewriting the whole thing covers both.
-        asserted = {key: value for key, value in result.items() if key != "nullable"}
-        result.clear()
-        result["anyOf"] = [asserted, _oa_null(version)]
+    if _takes_a_null_branch(result):
+        # A combinator has no type to carry null, so admit it with a branch.
+        result["anyOf"] = [*result["anyOf"], _oa_null(version)]
+        result.pop("nullable", None)
         return
 
-    combinator = next((key for key in _COMBINATORS if key in result), None)
-    if combinator is not None:
-        # A combinator has no type to carry null, so admit it with a branch.
-        result[combinator] = [*result[combinator], _oa_null(version)]
-        result.pop("nullable", None)
+    if "not" in result or any(key in result for key in _COMBINATORS):
+        # A negation has no type to carry null either, and 3.0 ignores the flag
+        # beside one, so ``Maybe(NotIn([None]))`` came out rejecting the null it
+        # exists to accept. A combinator that cannot simply take a null branch is
+        # in the same position. Everything the schema asserted moves into one
+        # branch of a union with null, which keeps the siblings honest: "all of
+        # this, or null" rather than "all of this, and separately maybe null".
+        #
+        # What describes the schema (its description, its default, ``writeOnly``)
+        # stays on the outside, where a reader of the property looks for it.
+        described = {
+            key: value
+            for key, value in result.items()
+            if key in _ANNOTATIONS and key != "nullable"
+        }
+        asserted = {
+            key: value for key, value in result.items() if key not in _ANNOTATIONS
+        }
+        result.clear()
+        result["anyOf"] = [asserted, _oa_null(version)]
+        result.update(described)
         return
 
     if version == _V3_1:
@@ -1141,6 +1203,23 @@ def _oa_typed(node: Any) -> dict[str, Any] | None:
     return None
 
 
+def _listed(part: dict[str, Any], parts: list[dict[str, Any]]) -> bool:
+    """Whether an equal part of the same kind is among ``parts`` already.
+
+    The kind counts: the built-in bounds of a ``Length`` and a
+    ``custom_serializer`` answer can look alike and still render differently.
+    """
+    return any(type(other) is type(part) and other == part for other in parts)
+
+
+class _RawLength(dict[str, Any]):
+    """The string-length bounds a ``Length`` renders as one part of an ``All``.
+
+    A type of its own so the merge can tell them from a ``custom_serializer``
+    override of the same shape, which is the caller's answer and stays as it is.
+    """
+
+
 def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     """Merge an All's parts, falling back to allOf when keys conflict."""
     merged: dict[str, Any] = {}
@@ -1164,7 +1243,7 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     for part in ([claimed] if claimed is not None else []) + [
         _oa_all_part(validator, custom, version) for validator in rest
     ]:
-        if not part or part in all_of or part == _OPEN_OBJECT:
+        if not part or _listed(part, all_of) or part == _OPEN_OBJECT:
             continue
         if any(part[key] != merged[key] for key in part.keys() & merged.keys()):
             fallback = True
@@ -1172,7 +1251,21 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
         if not fallback:
             merged.update(part)
 
+    # ``nullable`` says "this part, or null", about the part as a whole. Merged
+    # into one schema it would speak for the other parts too, which may not take
+    # null, or leave their keywords shutting null out again. Kept apart under
+    # ``allOf``, each part admits null on its own terms.
+    if len(all_of) > 1 and any("nullable" in part for part in all_of):
+        fallback = True
+
     if fallback:
+        # A ``Length`` part is raw string-length bounds, waiting for a sibling to
+        # type them. With no merge there is no sibling, so it takes the form it
+        # has on its own: one typed branch per sized type.
+        all_of = [
+            _oa_length_branches(part) if isinstance(part, _RawLength) else part
+            for part in all_of
+        ]
         return _widen_for_ensure_list({"allOf": all_of}, version, leading=leading)
     merged = _retarget_length(merged)
 
@@ -1311,7 +1404,7 @@ def _oa_all_part(validator: Any, custom: Any, version: str) -> dict[str, Any]:
     if isinstance(validator, Length):
         override = custom(validator) if custom is not None else UNSUPPORTED
         if override is UNSUPPORTED:
-            return _oa_length(validator)
+            return _RawLength(_oa_length(validator))
         return cast("dict[str, Any]", override)
     return _oa(validator, custom, version)
 
@@ -1453,9 +1546,16 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
 
 
 def _oa_null(version: str) -> dict[str, Any]:
-    """Render ``None`` per the OpenAPI version."""
+    """Render ``None`` per the OpenAPI version.
+
+    3.0 has no null type. Its spelling is a nullable object, which lets every
+    object through as well, so it is recorded as a widening: a ``oneOf`` around it
+    would otherwise count an object twice.
+    """
     if version == _V3_1:
         return {"type": "null"}
+
+    note_widening()
     return {"type": "object", "nullable": True, "description": "Must be null"}
 
 
