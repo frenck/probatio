@@ -284,7 +284,11 @@ class _MappingValidator:
         if errors:
             if self._secret_keys:
                 self._redact_secrets(errors)
-            raise MultipleInvalid(errors)
+            try:
+                raise MultipleInvalid(errors)
+            finally:
+                # The exception keeps its own copy; see ``Invalid`` for the cycle.
+                errors.clear()
 
         return out
 
@@ -342,31 +346,37 @@ class _MappingValidator:
         # reports why its key was rejected, the way voluptuous does, instead of a
         # generic extra-key error.
         key_error: Invalid | None = None
-        for index, candidate in self._validators:
-            key_type = candidate.key_type
-            if key_type is not None:
-                # Inlined type key (``{str: int}``): isinstance, no key-check call.
-                if isinstance(key, key_type):
-                    if self._apply(
-                        key, key, value, index, candidate, out, errors, seen
-                    ):
-                        return
-                    # A Remove key matched but its value did not validate: keep
-                    # trying the remaining candidates (a ``str: str`` may take it).
+        try:
+            for index, candidate in self._validators:
+                key_type = candidate.key_type
+                if key_type is not None:
+                    # Inlined type key (``{str: int}``): isinstance, no key-check call.
+                    if isinstance(key, key_type):
+                        if self._apply(
+                            key, key, value, index, candidate, out, errors, seen
+                        ):
+                            return
+                        # A Remove key matched but its value did not validate: keep
+                        # trying the remaining candidates (a ``str: str`` may take it).
+                        continue
+                    if key_error is None:
+                        key_error = _type_error(key_type.__name__, [], None)
                     continue
-                if key_error is None:
-                    key_error = _type_error(key_type.__name__, [], None)
-                continue
-            try:
-                new_key = candidate.check_key(key)
-            except Invalid as exc:
-                if key_error is None or len(exc.path) > len(key_error.path):
-                    key_error = exc
-                continue
-            if self._apply(key, new_key, value, index, candidate, out, errors, seen):
-                return
+                try:
+                    new_key = candidate.check_key(key)
+                except Invalid as exc:
+                    if key_error is None or len(exc.path) > len(key_error.path):
+                        key_error = exc
+                    continue
+                if self._apply(
+                    key, new_key, value, index, candidate, out, errors, seen
+                ):
+                    return
 
-        self._unmatched(key, value, key_error, out, errors)
+            self._unmatched(key, value, key_error, out, errors)
+        finally:
+            # A rejected key check leaves its error here; see ``Invalid``.
+            del key_error
 
     def _apply(  # noqa: PLR0913, PLR0917
         self,
@@ -771,7 +781,10 @@ class _SequenceValidator:
                 self._validate_item(index, item, result, errors)
 
         if errors:
-            raise MultipleInvalid(errors)
+            try:
+                raise MultipleInvalid(errors)
+            finally:
+                errors.clear()
 
         # A plain list is the hot case: ``result`` is already a fresh list of the
         # validated items, so return it directly rather than copying it into a new
@@ -815,6 +828,7 @@ class _SequenceValidator:
             else:
                 if not is_remove:
                     result.append(validated)
+                del last_error
                 return
 
         if last_error is None:
@@ -827,3 +841,4 @@ class _SequenceValidator:
             errors.extend(last_error.errors)
         else:
             errors.append(last_error)
+        del last_error

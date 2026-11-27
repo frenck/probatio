@@ -86,12 +86,17 @@ class ExactSequence(_SafeValidator):
             except MultipleInvalid as exc:
                 # A compiled Schema always reports through MultipleInvalid, so a
                 # bare Invalid never reaches here.
-                for error in exc.errors:
-                    error.prepend([index])
-                    errors.append(error)
+                # ``prepend`` reaches every wrapped error, and no loop variable is
+                # left pointing at the last one when this frame is done.
+                exc.prepend([index])
+                errors.extend(exc.errors)
 
         if errors:
-            raise MultipleInvalid(errors)
+            try:
+                raise MultipleInvalid(errors)
+            finally:
+                # The exception keeps its own copy; see ``Invalid`` for the cycle.
+                errors.clear()
 
         # Rebuild the sequence as its own type. A namedtuple takes its fields
         # positionally (``Point(*result)``), not as a single iterable, so detect it

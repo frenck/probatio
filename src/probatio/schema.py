@@ -346,7 +346,11 @@ class Schema:
             error = exc
         # Raised outside the except block so the single error is reported on its
         # own, not chained as "during handling of the above exception".
-        raise MultipleInvalid([error])
+        try:
+            raise MultipleInvalid([error])
+        finally:
+            # Drop the error so this frame does not form a cycle (see ``Invalid``).
+            del error
 
     def __str__(self) -> str:
         """Render as the wrapped schema, matching voluptuous.
@@ -544,7 +548,10 @@ class Schema:
         finally:
             _ACTIVE_ROOT.reset(token)
 
-        raise MultipleInvalid([error])
+        try:
+            raise MultipleInvalid([error])
+        finally:
+            del error
 
     def __eq__(self, other: object) -> bool:
         """Two schemas are equal when their definitions match (voluptuous semantics).
