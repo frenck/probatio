@@ -453,10 +453,11 @@ def _run_float_superset_any(
     the branches in order, which resolves a hit without the raised and caught
     ``Invalid`` every earlier rejecting branch would cost. A type branch accepts on
     ``isinstance`` and returns the value, as its compiled check does. The tower
-    returns a ``float`` as is, coerces an ``int`` that is not a ``bool``, and skips
-    to the next branch for a ``bool`` or an ``int`` too large for a ``float``, as the
-    compiled tower rejects those. When no branch accepts, ``_run_any`` runs so the
-    error is exactly the one the generic path produces.
+    returns a ``float`` as is, coerces an exact ``int``, and skips to the next branch
+    for an ``int`` too large for a ``float``, as the compiled tower rejects it. A
+    ``bool`` or another ``int`` subclass reaching the tower ends the walk. When the
+    walk settles nothing, ``_run_any`` runs, so every error and every conversion
+    that calls into the value is exactly what the generic path produces.
     """
     accept_types, allow_none, ordered = superset
     if allow_none and value is None:
@@ -465,19 +466,29 @@ def _run_float_superset_any(
         return value
 
     if isinstance(value, accept_types):
-        for branch in ordered:
-            if branch is float:
-                if isinstance(value, float):
+        # The walk only settles what it can without running code of the value: an
+        # ``int`` subclass may define ``__float__``, and what that raises is for the
+        # generic path to judge, as is an ``Invalid`` from a metaclass
+        # ``__instancecheck__``.
+        try:
+            for branch in ordered:
+                if branch is float:
+                    if isinstance(value, float):
+                        return value
+                    if type(value) is int:
+                        try:
+                            return float(value)
+                        except OverflowError:
+                            # Too large for a float: the tower rejects it, so the
+                            # next branch gets its turn.
+                            continue
+                    if isinstance(value, int):
+                        # A ``bool`` or another ``int`` subclass.
+                        break
+                elif isinstance(value, branch):
                     return value
-                if isinstance(value, int) and not isinstance(value, bool):
-                    try:
-                        return float(value)
-                    except OverflowError:
-                        # Too large for a float: the tower rejects it, so the next
-                        # branch gets its turn.
-                        continue
-            elif isinstance(value, branch):
-                return value
+        except Invalid:
+            pass
 
         return _run_any(candidates, value, msg, miss_label)
 

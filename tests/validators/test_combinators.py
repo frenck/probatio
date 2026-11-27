@@ -622,3 +622,44 @@ def test_any_float_walk_agrees_with_running_every_branch(size: int) -> None:
                 branches,
                 value,
             )
+
+
+def test_any_float_walk_leaves_a_failing_int_conversion_to_the_next_branch() -> None:
+    """An ``Invalid`` from an int subclass's ``__float__`` rejects only the float branch."""
+
+    class Stubborn(int):
+        """An int that refuses to become a float."""
+
+        def __float__(self) -> float:
+            """Refuse the conversion the float branch attempts."""
+            message = "not as a float"
+            raise Invalid(message)
+
+    value = Stubborn(7)
+
+    assert Schema(Any(float, int))(value) is value
+    assert _any_outcome(Schema(Any(float, str)), value) == _any_outcome(
+        Schema(Union(float, str)), value
+    )
+
+
+def test_any_float_walk_survives_a_type_check_that_raises_invalid() -> None:
+    """An ``Invalid`` from a metaclass ``__instancecheck__`` rejects only that branch."""
+
+    class Refusing(type):
+        """A metaclass whose instance check raises instead of answering."""
+
+        def __instancecheck__(cls, instance: object) -> bool:
+            """Reject every instance check with an ``Invalid``."""
+            message = "no instances"
+            raise Invalid(message)
+
+    class Odd(metaclass=Refusing):
+        """A type no value can be checked against."""
+
+    # An int too large for a float passes the float branch by, so the walk reaches
+    # the refusing type before the int branch accepts.
+    huge = 10**400
+
+    assert Schema(Any(float, Odd, int))(huge) == huge
+    assert Schema(Any(float, Odd, int))(True) is True
