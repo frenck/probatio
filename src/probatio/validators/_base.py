@@ -48,17 +48,12 @@ class _SafeValidator:
         # Walk the MRO by hand: ``getattr(cls, "__call__")`` falls back to
         # ``type.__call__`` on a class without one (the abstract bases), which is not
         # a validator ``__call__`` at all.
-        call = next(
-            (
-                vars(base)["__call__"]
-                for base in cls.__mro__
-                if "__call__" in vars(base)
-            ),
-            None,
-        )
-        if call is None:
+        owner = next((base for base in cls.__mro__ if "__call__" in vars(base)), None)
+        if owner is None:
             return
 
-        module = getattr(call, "__module__", None) or ""
-        if not module.startswith("probatio."):
+        # Judge by the class that defines ``__call__``, not by the function: an
+        # override decorated with ``functools.wraps(Range.__call__)`` carries the
+        # wrapped function's ``__module__`` and would pass for probatio's own.
+        if not owner.__module__.startswith("probatio."):
             cls.__probatio_safe__ = False

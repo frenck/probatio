@@ -15,6 +15,7 @@ with hostile generated input, asserting nothing but ``Invalid`` ever escapes.
 from __future__ import annotations
 
 import contextlib
+import functools
 from decimal import Decimal
 from typing import Any, NoReturn, Self
 
@@ -362,6 +363,16 @@ class _MixedIn(_ValueErrorMixin, Range):
     """A user subclass whose ``__call__`` comes from a mixin, not its own body."""
 
 
+class _WrappedLeak(Range):
+    """A user subclass whose override borrows the built-in's metadata."""
+
+    @functools.wraps(Range.__call__)
+    def __call__(self, _value: Any) -> Any:
+        """Always reject with a ``ValueError``."""
+        message = "wrapped says no"
+        raise ValueError(message)
+
+
 class _KeepsCall(Range):
     """A user subclass that leaves the built-in ``__call__`` alone."""
 
@@ -373,6 +384,7 @@ class _LeakyEvenChild(_LeakyEven):
 _LEAKING_VALIDATORS = {
     "own call": _LeakyEven(min=0),
     "mixin call": _MixedIn(min=0),
+    "wrapped call": _WrappedLeak(min=0),
 }
 
 
@@ -408,4 +420,5 @@ def test_the_safe_flag_follows_whose_call_the_class_runs() -> None:
     assert _KeepsCall.__probatio_safe__
     assert not _LeakyEven.__probatio_safe__
     assert not _MixedIn.__probatio_safe__
+    assert not _WrappedLeak.__probatio_safe__
     assert not _LeakyEvenChild.__probatio_safe__
