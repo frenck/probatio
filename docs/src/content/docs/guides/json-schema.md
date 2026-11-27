@@ -127,29 +127,31 @@ direction.
 
 The named validators map to JSON Schema like this, and decode back into the
 matching validator (a `writeOnly` property decodes to a `Secret` key), so they
-round-trip:
+round-trip. The one exception is an empty `ExactSequence`: without `prefixItems`
+its document is a plain empty array, which decodes to a list schema with a
+`Length` that accepts the same values:
 
-| Probatio construct            | JSON Schema output                                                                                                                |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `ExactSequence`               | `prefixItems` (with `items: false`, matching `minItems`/`maxItems`)                                                               |
-| `Unique`                      | `uniqueItems`                                                                                                                     |
-| `Contains`                    | `contains`                                                                                                                        |
-| `Equal` / `Literal`           | `const` (`type: null` for a `None` target)                                                                                        |
-| `NotIn`                       | `not` over an `enum`                                                                                                              |
-| `In` (`fold_case`, `space`)   | `type: string` when every member is a string, else open; `strict=True` refuses                                                    |
-| `Match` with flags            | a plain string when a flag like `re.IGNORECASE` changes what it matches                                                           |
-| `Email` / `Email()`           | `format: email`                                                                                                                   |
-| `Url` / `Url()` / `FqdnUrl()` | `format: uri`                                                                                                                     |
-| `Datetime` / `Date` / `Time`  | `format: date-time` / `date` / `time` (a custom `strptime` format has no JSON Schema equivalent, so it exports as a plain string) |
-| `IPv4Address` / `IPv6Address` | `format: ipv4` / `ipv6`                                                                                                           |
-| `UUID`                        | `format: uuid`                                                                                                                    |
-| `Hostname` / `Fqdn`           | `format: hostname`                                                                                                                |
-| `Port`                        | a bounded integer                                                                                                                 |
-| `MultipleOf`                  | `multipleOf`                                                                                                                      |
-| `Secret` key                  | its property with `writeOnly: true`                                                                                               |
-| `Base64`                      | `contentEncoding: base64`                                                                                                         |
-| `Inclusive` group             | `dependentRequired` (all-or-none); the symmetric map decodes back to an `Inclusive` group                                         |
-| Variable key validator        | `propertyNames`, for a mapping that declares no properties (a plain `str` key emits nothing: it accepts every JSON key)           |
+| Probatio construct            | JSON Schema output                                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `ExactSequence`               | `prefixItems` (with `items: false`, matching `minItems`/`maxItems`); an empty one leaves `prefixItems` out, since it cannot be empty |
+| `Unique`                      | `uniqueItems`                                                                                                                        |
+| `Contains`                    | `contains`                                                                                                                           |
+| `Equal` / `Literal`           | `const` (`type: null` for a `None` target)                                                                                           |
+| `NotIn`                       | `not` over an `enum`                                                                                                                 |
+| `In` (`fold_case`, `space`)   | `type: string` when every member is a string, else open; `strict=True` refuses                                                       |
+| `Match` with flags            | a plain string when a flag like `re.IGNORECASE` changes what it matches                                                              |
+| `Email` / `Email()`           | `format: email`                                                                                                                      |
+| `Url` / `Url()` / `FqdnUrl()` | `format: uri`                                                                                                                        |
+| `Datetime` / `Date` / `Time`  | `format: date-time` / `date` / `time` (a custom `strptime` format has no JSON Schema equivalent, so it exports as a plain string)    |
+| `IPv4Address` / `IPv6Address` | `format: ipv4` / `ipv6`                                                                                                              |
+| `UUID`                        | `format: uuid`                                                                                                                       |
+| `Hostname` / `Fqdn`           | `format: hostname`                                                                                                                   |
+| `Port`                        | a bounded integer                                                                                                                    |
+| `MultipleOf`                  | `multipleOf`                                                                                                                         |
+| `Secret` key                  | its property with `writeOnly: true`                                                                                                  |
+| `Base64`                      | `contentEncoding: base64`                                                                                                            |
+| `Inclusive` group             | `dependentRequired` (all-or-none); the symmetric map decodes back to an `Inclusive` group                                            |
+| Variable key validator        | `propertyNames`, for a mapping that declares no properties (a plain `str` key emits nothing: it accepts every JSON key)              |
 
 Combinators and a few more constructs also render, though most have no inverse
 so they do not round-trip:
@@ -164,8 +166,8 @@ so they do not round-trip:
 | A leading `EnsureList`           | `anyOf` of whichever unwrapped forms it reaches, beside the list. The scalar branch needs room for one item and an item a lone value can be, and takes on a `contains` as well; the `null` branch needs room for an empty list, which `contains` never leaves. Anything the branches cannot be read off, a keyword asserting about the list as a whole among it, widens instead, which `strict=True` reports |
 | `Msg`                            | the wrapped validator's shape (the message has no JSON Schema equivalent)                                                                                                                                                                                                                                                                                                                                    |
 | An `enum.Enum` class             | `enum` of the member values                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Self`                           | `{"$ref": "#"}` (a recursive reference to the document root)                                                                                                                                                                                                                                                                                                                                                 |
-| `Alias`                          | one property per accepted name (plus `anyOf` of `required` when required)                                                                                                                                                                                                                                                                                                                                    |
+| `Self`                           | `{"$ref": "#"}` (a recursive reference to the document root); one inside a nested `Schema` refers to that schema, so it renders open and `strict=True` refuses it                                                                                                                                                                                                                                            |
+| `Alias`                          | one property per accepted name (plus `anyOf` of `required` when required); with `accept_canonical=False` the canonical name is an open property, since the engine drops it without validating                                                                                                                                                                                                                |
 | `Any` key of literal names       | one property per name (plus `anyOf` of `required` when the key is required)                                                                                                                                                                                                                                                                                                                                  |
 | A group keyed on an `Any`        | one member satisfied by any of its names, so the group renders under `allOf` rather than `dependentRequired`; a name another key can also match carries no rule at all                                                                                                                                                                                                                                       |
 | `Exclusive` group                | at-most-one (`not` over the pairs), or `oneOf` when the group is required                                                                                                                                                                                                                                                                                                                                    |

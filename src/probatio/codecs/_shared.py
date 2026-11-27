@@ -8,13 +8,14 @@ import math
 import re
 from collections import Counter
 from collections.abc import Hashable
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Container, Iterable
+    from collections.abc import Callable, Container, Generator, Iterable
 
 from probatio.markers import Alias, Extra, resolve_key
 from probatio.schema import Schema
@@ -165,6 +166,43 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
     if variable_key:
         contested.update(listed_by_any)
     return frozenset(contested)
+
+
+def claimed_canonical_name(marker: Alias, name: Any) -> str | None:
+    """Return the canonical name an ``Alias`` claims without accepting, or None.
+
+    With ``accept_canonical=False`` the engine still reserves the canonical name
+    for the alias: input under it is dropped, never validated and never
+    required. So a document has to let that name through with any value, which
+    a closed object only does when the name is declared as an open property.
+
+    An alias that spells the canonical name accepts it after all, so nothing is
+    claimed. Names are compared with ``str``'s own equality, which also reads a
+    ``StrEnum`` member by its value and runs no code of a subclass.
+    """
+    if marker.accept_canonical or not isinstance(name, str):
+        return None
+
+    for alias in marker.input_names:
+        # An alias may be wrapped in a marker, which the engine reads by its key.
+        spelling = resolve_key(alias).key
+        if isinstance(spelling, str) and str.__eq__(spelling, name) is True:
+            return None
+
+    return name
+
+
+def claimed_canonical_names(node: dict[Any, Any]) -> frozenset[str]:
+    """Collect the canonical names the ``Alias`` keys of a mapping claim unaccepted."""
+    claimed: set[str] = set()
+    for key in node:
+        facets = resolve_key(key)
+        if isinstance(facets.marker, Alias):
+            name = claimed_canonical_name(facets.marker, facets.key)
+            if name is not None:
+                claimed.add(name)
+
+    return frozenset(claimed)
 
 
 def constraint_names(key: Any) -> list[str] | None:
@@ -736,6 +774,81 @@ def note_widening() -> None:
 def widenings() -> int:
     """Return the number of widenings recorded so far, to compare across a render."""
     return _WIDENINGS.get()
+
+
+@dataclass(frozen=True)
+class _SelfScope:
+    """Where the encoder stands relative to the schema a ``Self`` would refer to.
+
+    ``root_wrappers`` are the objects around the document's schema that add no
+    scope of their own (see ``root_wrappers``). ``depth`` counts the scopes
+    entered since, so a ``Self`` is only the document root at depth zero.
+    """
+
+    root_wrappers: frozenset[int] = frozenset()
+    depth: int = 0
+
+
+# ``None`` outside an encoding call, which reads as the document root.
+_SELF_SCOPE: contextvars.ContextVar[_SelfScope | None] = contextvars.ContextVar(
+    "_SELF_SCOPE", default=None
+)
+
+
+def root_wrappers(schema: Any) -> frozenset[int]:
+    """Identify the wrappers around the encoded schema that share its ``Self``.
+
+    ``Schema(Schema({...}))`` and ``Msg({...}, "text")`` each build their own
+    inner schema, and that inner schema is what a ``Self`` below refers to. It
+    validates the same document as the outer one, so for the document root they
+    are one scope. A subclass counts, the way the encoders unwrap it: a
+    ``Schema`` subclass at the top is still the document root.
+    """
+    wrappers: set[int] = set()
+    # A wrapper that holds itself would never end; the encoder reports that cycle
+    # once it recurses into it.
+    while isinstance(schema, Schema | Msg) and id(schema) not in wrappers:
+        wrappers.add(id(schema))
+        schema = schema.schema if isinstance(schema, Schema) else schema.validator
+
+    return frozenset(wrappers)
+
+
+@contextmanager
+def encoding_root(schema: Any) -> Generator[None]:
+    """Mark ``schema`` as the document root for the ``Self`` it contains."""
+    token = _SELF_SCOPE.set(_SelfScope(root_wrappers(schema)))
+    try:
+        yield
+    finally:
+        _SELF_SCOPE.reset(token)
+
+
+@contextmanager
+def nested_self_scope(node: Any) -> Generator[None]:
+    """Enter a node that builds its own schema, which a ``Self`` inside refers to.
+
+    A nested ``Schema``, ``Maybe``, ``Msg`` and the positions of an
+    ``ExactSequence`` each validate their contents as a schema of their own, so
+    a ``Self`` below them is that schema, not the document root. Entering one of
+    the root's own wrappers changes nothing.
+    """
+    scope = _SELF_SCOPE.get() or _SelfScope()
+    if scope.depth == 0 and id(node) in scope.root_wrappers:
+        yield
+        return
+
+    token = _SELF_SCOPE.set(replace(scope, depth=scope.depth + 1))
+    try:
+        yield
+    finally:
+        _SELF_SCOPE.reset(token)
+
+
+def self_is_document_root() -> bool:
+    """Whether a ``Self`` here refers to the document root, where ``$ref: "#"`` points."""
+    scope = _SELF_SCOPE.get()
+    return scope is None or scope.depth == 0
 
 
 def membership_normalizes_strings(node: In, members: list[Any]) -> bool:

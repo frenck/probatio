@@ -30,11 +30,14 @@ from probatio.codecs._shared import (
     UNSUPPORTED,
     ExclusiveGroup,
     abandoned_group_names,
+    claimed_canonical_name,
+    claimed_canonical_names,
     conditional_required_constraint,
     constraint_names,
     contested_names,
     covers_every_property_name,
     custom_field,
+    encoding_root,
     ensure_list_branches,
     exclusive_constraint,
     inclusive_constraints,
@@ -44,9 +47,11 @@ from probatio.codecs._shared import (
     member_present,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    nested_self_scope,
     note_widening,
     only_string_members,
     regex_flags_change_meaning,
+    self_is_document_root,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -228,7 +233,8 @@ def to_openapi(
 
     token = _STRICT.set(strict)
     try:
-        rendered = _oa(schema, custom_serializer, openapi_version)
+        with encoding_root(schema):
+            rendered = _oa(schema, custom_serializer, openapi_version)
     except RecursionError as exc:
         message = (
             "schema is too deeply nested or references itself; use the Self "
@@ -329,8 +335,14 @@ def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _oa(
-    node: Any, custom: Any, version: str, *, required_default: bool = False
+def _oa(  # noqa: PLR0913 - the node and each of the policies it inherits
+    node: Any,
+    custom: Any,
+    version: str,
+    *,
+    required_default: bool = False,
+    closed: bool = True,
+    additional: Any = None,
 ) -> dict[str, Any]:
     """Convert one schema node into an OpenAPI Schema object.
 
@@ -340,18 +352,21 @@ def _oa(
     its own setting overrides the outer), carried into mapping values and sequence
     items, and, matching ``to_json_schema``, not into leaf validators.
     """
-    additional: Any = None
-    # The strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
+    # A ``Schema`` value is itself a valid validator, so schemas can nest. Unwrap
+    # every layer: the innermost one does the validation, so its policy wins. The
+    # strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
     # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
     # has no policy of its own and defaults to closed.
-    closed = True
-    # A ``Schema`` value is itself a valid validator, so schemas can nest. Unwrap
-    # every layer: the innermost one does the validation, so its extra policy wins.
-    while isinstance(node, Schema):
-        closed = node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA)
-        additional = True if node.extra == ALLOW_EXTRA else None
-        required_default = node.required
-        node = node.schema
+    if isinstance(node, Schema):
+        with nested_self_scope(node):
+            return _oa(
+                node.schema,
+                custom,
+                version,
+                required_default=node.required,
+                closed=node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA),
+                additional=True if node.extra == ALLOW_EXTRA else None,
+            )
 
     if custom is not None:
         result = custom(node)
@@ -360,8 +375,13 @@ def _oa(
 
     if node is Self:
         # ``Self`` is the recursive reference to the whole enclosing schema; ``#``
-        # targets the document root, the common top-level recursive-schema case.
-        return {"$ref": "#"}
+        # targets the document root, the common top-level recursive-schema case. A
+        # ``Self`` inside a nested ``Schema`` refers to that schema instead, which a
+        # reference to the root would get wrong in both directions.
+        if self_is_document_root():
+            return {"$ref": "#"}
+
+        return _open("a Self inside a nested Schema, which is not the document root")
 
     if isinstance(node, dict):
         return _oa_mapping(
@@ -503,6 +523,9 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     # A group with an unrenderable member is not rendered at all: the rest would
     # say something the mapping does not.
     abandoned = abandoned_group_names(node, contested)
+    # Canonical names an ``Alias`` claims without accepting, which no other key gets
+    # to declare; collected up front because the alias may come later.
+    claimed_names = claimed_canonical_names(node)
     for key, value in node.items():
         facets = resolve_key(key)
         marker = facets.marker
@@ -551,15 +574,7 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
         )
 
         if isinstance(marker, Alias):
-            # Each accepted name renders as a property (the value is the same), and
-            # a required Alias with no default demands at least one of them, an
-            # object-level constraint like a required ``Any`` key. A default fills
-            # the empty case, so a required Alias carrying one demands no name.
-            names = [str(alias_name) for alias_name in marker.input_names]
-            for alias_name in names:
-                properties[alias_name] = pval.copy()
-            if marker.required and isinstance(marker.default, Undefined):
-                constraint_groups.append(names)
+            _declare_alias(marker, pkey, pval, properties, constraint_groups)
         elif (any_names := literal_any_names(pkey)) is not None:
             props, any_group = _expand_any_key(
                 any_names,
@@ -567,7 +582,15 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
                 required=_demands_presence(marker, required_default=required_default),
                 wildcard=value is object,
             )
-            properties.update(props)
+            # A name an alias claims is dropped before this key could match it,
+            # so it stays the open property the alias declares.
+            properties.update(
+                {
+                    name: prop
+                    for name, prop in props.items()
+                    if name not in claimed_names
+                }
+            )
             # The properties stand either way; only the at-least-one rule needs
             # this key to own every name it lists.
             if any_group is not None:
@@ -597,6 +620,32 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     return _assemble_object(
         properties, required, additional, constraints, closed=closed
     )
+
+
+def _declare_alias(
+    marker: Alias,
+    canonical: Any,
+    value: dict[str, Any],
+    properties: dict[str, Any],
+    constraint_groups: list[list[str]],
+) -> None:
+    """Add the properties and the presence rule an ``Alias`` key stands for.
+
+    Each accepted name renders as a property carrying the value schema. A
+    canonical name the alias does not accept is still claimed by it, so the object
+    has to let it through with any value. A required alias with no default demands
+    at least one of its names, an object-level constraint like a required ``Any``
+    key; a default fills the empty case, so with one it demands no name.
+    """
+    names = [str(alias_name) for alias_name in marker.input_names]
+    for name in names:
+        properties[name] = value.copy()
+
+    if (claimed := claimed_canonical_name(marker, canonical)) is not None:
+        properties[claimed] = {}
+
+    if marker.required and isinstance(marker.default, Undefined):
+        constraint_groups.append(names)
 
 
 @dataclass
@@ -975,9 +1024,11 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
 
     if isinstance(node, Msg):
         # ``Msg`` only swaps the error message; the shape is the wrapped validator.
-        return _oa(node.validator, custom, version)
+        with nested_self_scope(node):
+            return _oa(node.validator, custom, version)
     if isinstance(node, Maybe):
-        return _oa_any([None, node.validator], custom, version)
+        with nested_self_scope(node):
+            return _oa_any([None, node.validator], custom, version)
     # ``Union``/``Switch`` accept any branch (the discriminant is an optimization),
     # so they render like ``Any``, sharing its version-aware nullable handling.
     if isinstance(node, AnyValidator | UnionValidator):
@@ -1039,13 +1090,20 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         _open("a Contains on OpenAPI 3.0, which has no contains keyword")
         return {"type": "array"}
     if isinstance(node, ExactSequence):
+        # An empty sequence has no position to describe, and ``prefixItems`` must
+        # hold at least one schema. On 3.1 ``items: false`` closes the array, also
+        # when a ``Length`` beside it in an ``All`` rewrites the length keywords.
+        count = len(node.validators)
+        if not count and version == _V3_1:
+            return {"type": "array", "items": False, "minItems": 0, "maxItems": 0}
         if version == _V3_1:
-            prefix = [_ensure_default(_oa(v, custom, version)) for v in node.validators]
+            with nested_self_scope(node):
+                prefix = [
+                    _ensure_default(_oa(v, custom, version)) for v in node.validators
+                ]
             return {"type": "array", "prefixItems": prefix, "items": False}
         # The per-position types need prefixItems, but the length the sequence
-        # pins is plain minItems/maxItems, so that much survives. An empty
-        # sequence has no position to lose: the length says all of it.
-        count = len(node.validators)
+        # pins is plain minItems/maxItems, so that much survives.
         if count:
             _open("the per-position types of an ExactSequence on OpenAPI 3.0")
         return {"type": "array", "minItems": count, "maxItems": count}
