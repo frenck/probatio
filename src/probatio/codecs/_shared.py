@@ -752,7 +752,8 @@ def covers_every_property_name(key: Any) -> bool:
 
 
 # How many renderings so far came out wider than the validator they describe. Only
-# ever compared with an earlier reading of itself, so it is never reset.
+# ever compared with an earlier reading of itself. It never drops below a reading
+# taken before the scope that adjusts it (see ``hoisted_scope``).
 _WIDENINGS: contextvars.ContextVar[int] = contextvars.ContextVar(
     "_WIDENINGS", default=0
 )
@@ -781,10 +782,13 @@ class _SelfFrame:
     """One scope a ``Self`` can be bound to, and the definition it was given.
 
     ``name`` stays empty until a ``Self`` below the scope asks for a reference,
-    which is how a scope nobody refers to renders inline, untouched.
+    which is how a scope nobody refers to renders inline, untouched. ``pending``
+    counts those references, each reported as a possible widening until the
+    scope is finished (see ``render_self``).
     """
 
     name: str | None = None
+    pending: int = 0
 
 
 @dataclass
@@ -919,12 +923,22 @@ def render_self() -> dict[str, Any]:
 
     At the document root that is ``#``. Inside a scope it is the definition that
     scope is hoisted into, which the scope gets the first time a ``Self`` asks.
+
+    The schema referred to is still being rendered, so whether it comes out exact
+    is not known here: something later in it may widen. A construct that needs
+    exact branches, an exactly-one ``SomeOf``, has to decide now, so the reference
+    is reported as a possible widening. ``hoisted_scope`` takes that back for
+    everything outside the scope once the scope is finished and its real answer
+    is known. The root is never finished while anything is rendered, so there
+    the report stands.
     """
+    note_widening()
     state = _SELF_SCOPE.get()
     if state is None or not state.frames:
         return {"$ref": "#"}
 
     frame = state.frames[-1]
+    frame.pending += 1
     if frame.name is None:
         frame.name = _definition_name(state)
 
@@ -967,9 +981,15 @@ def hoisted_scope(
     if frame.name is None:
         return body
 
+    # The references to this scope were counted as possible widenings while it
+    # was open. It is finished, so what is left once they are set aside is what
+    # really widened, and that is what anything around the scope gets to see.
+    widened = widenings() - before > frame.pending
+    _WIDENINGS.set(before + int(widened))
+
     state.definitions[frame.name] = body
     if isinstance(node, Schema):
-        state.by_schema[id(node)] = (frame.name, widenings() != before)
+        state.by_schema[id(node)] = (frame.name, widened)
 
     return definition_reference(frame.name)
 

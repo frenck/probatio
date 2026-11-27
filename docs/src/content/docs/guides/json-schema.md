@@ -235,15 +235,21 @@ to_json_schema(config)["$defs"]["schema1"]
 #             "additionalProperties": {"$ref": "#/$defs/schema1"}}]}
 ```
 
-The definitions are named `schema1`, `schema2` and so on, in the order the
-recursive scopes are met, so the same schema always gives the same document. A
-scope nothing refers to stays inline, and a document without a nested `Self` has
+The definitions are named `schema1`, `schema2` and so on, in the order a `Self`
+first refers to each scope, so the same schema always gives the same document. A
+scope nothing refers to stays inline, and without a nested `Self` the encoder adds
 no `$defs`. The same `Schema` instance used in several places is one definition.
 For a `Maybe` the definition is the wrapped schema alone: a nested `Self` does not
-accept `None`, and the `null` stays beside the reference. Because the definition
-is exact, `strict=True` has nothing to refuse. When a custom serializer already
-put a `$defs` in the document, the definitions are added to it. If it already
-uses one of the generated names, the conversion raises `SchemaError`.
+take on the `null` the `Maybe` adds, which stays beside the reference. Because the
+definition is exact, `strict=True` has nothing to refuse. When a custom serializer
+already put a `$defs` in the document, the definitions are added to it. If it
+already uses one of the generated names, the conversion raises `SchemaError`.
+
+One construct gives up some precision next to a `Self`. A `SomeOf` that wants
+exactly one branch renders as `oneOf` only when every branch is known to be exact,
+and a `Self` refers to a schema that is still being rendered at that point. Such a
+`SomeOf` with a `Self` among its branches renders as `anyOf`, which never rejects
+a value the schema accepts.
 
 `prefixItems` is honored in its closed form (`items: false`) and refused with an
 open tail. As in JSON Schema it validates the positions that are present, so a

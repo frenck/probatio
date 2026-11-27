@@ -3351,3 +3351,75 @@ def test_a_length_beside_a_reference_to_the_root_keeps_its_string_keyword() -> N
     document = to_json_schema(schema)
 
     assert document["properties"]["n"] == {"$ref": "#", "minLength": 1}
+
+
+@pytest.mark.parametrize(
+    ("schema", "value"),
+    [
+        pytest.param(
+            Schema(
+                {
+                    "k": Schema(
+                        Any(
+                            [SomeOf([Self, In(["b"])], 1, 1)],
+                            Match(re.compile("a", re.IGNORECASE)),
+                        )
+                    )
+                }
+            ),
+            {"k": ["b"]},
+            id="widening_in_a_later_branch",
+        ),
+        pytest.param(
+            Schema(
+                {
+                    "a": Schema(
+                        {
+                            Optional("n"): SomeOf([Self, {"x": str}], 1, 1),
+                            Optional("x"): Match(re.compile("^ok$", re.IGNORECASE)),
+                        }
+                    )
+                }
+            ),
+            {"a": {"n": {"x": "zzz"}}},
+            id="widening_in_a_later_key",
+        ),
+        pytest.param(
+            Schema(
+                {
+                    Optional("n"): SomeOf([Self, {"x": str}], 1, 1),
+                    Optional("x"): Match(re.compile("^ok$", re.IGNORECASE)),
+                }
+            ),
+            {"n": {"x": "zzz"}},
+            id="at_the_root",
+        ),
+    ],
+)
+def test_exactly_one_beside_a_self_does_not_wait_for_a_later_widening(
+    schema: Schema, value: object
+) -> None:
+    """A ``Self`` branch may still widen, so the ``SomeOf`` does not claim ``oneOf``."""
+    document = to_json_schema(schema)
+
+    assert "oneOf" not in json.dumps(document)
+    assert schema(value) == value
+    jsonschema.validate(value, document)
+
+
+def test_exactly_one_beside_a_finished_recursive_scope_keeps_one_of() -> None:
+    """A scope that is complete and exact is a branch ``oneOf`` can rely on."""
+    schema = Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), str], 1, 1)})
+
+    assert "oneOf" in to_json_schema(schema)["properties"]["k"]
+
+
+def test_a_finished_scope_that_widened_is_seen_by_an_exactly_one_around_it() -> None:
+    """A recursive scope that did widen makes the ``SomeOf`` around it use ``anyOf``."""
+    widened = Schema(
+        {Optional("n"): [Self], Optional("x"): Match(re.compile("^ok$", re.IGNORECASE))}
+    )
+    schema = Schema({"k": SomeOf([widened, {"x": int}], 1, 1)})
+    document = to_json_schema(schema)
+
+    assert "oneOf" not in document["properties"]["k"]
