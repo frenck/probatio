@@ -257,14 +257,24 @@ def _admit_null(node: Any, version: str) -> Any:
     Admitting null can widen a branch (see ``_oa_null``), and a ``oneOf`` chosen
     while rendering did not know that yet. One with a branch that widened here is
     relaxed to ``anyOf``, the way ``_oa_some_of`` does it for a widening it saw.
+    Only its own branches count: a widening elsewhere in the schema, in a
+    property say, leaves a ``oneOf`` beside it exact.
     """
     if isinstance(node, dict):
-        before = widenings()
-        result = {key: _admit_null(value, version) for key, value in node.items()}
+        result: dict[str, Any] = {}
+        relax = False
+        for key, value in node.items():
+            before = widenings()
+            result[key] = _admit_null(value, version)
+            # The keyword holds a list of branches; a property that happens to be
+            # named ``oneOf`` holds a schema.
+            if key == "oneOf" and isinstance(value, list):
+                relax = widenings() != before
+
+        if relax:
+            result = _one_of_as_any_of(result)
         if result.get("nullable") is True:
             _mark_nullable(result, version)
-        if "oneOf" in result and widenings() != before:
-            result = _one_of_as_any_of(result)
         return result
     if isinstance(node, list):
         return [_admit_null(item, version) for item in node]

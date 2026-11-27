@@ -2605,3 +2605,38 @@ def test_a_relaxed_one_of_keeps_apart_from_an_any_of_beside_it() -> None:
     for value in ("a", "b", {}, {"k": 1}, 1, None):
         if _accepts(schema, value):
             assert _validates(document, "3.0", value), value
+
+
+def test_a_property_named_like_a_keyword_keeps_its_name() -> None:
+    """Resolving null inside a property called ``oneOf`` does not rename it."""
+    schema = Schema({"oneOf": probatio.Maybe(probatio.Any(str, int))})
+    document = to_openapi(schema)
+
+    assert list(document["properties"]) == ["oneOf"]
+    for value in ({"oneOf": "a"}, {"oneOf": None}, {"oneOf": 1.5}, {"anyOf": "a"}):
+        assert _validates(document, "3.0", value) is _accepts(schema, value), value
+
+
+def test_a_nullable_property_leaves_a_presence_rule_beside_it_exact() -> None:
+    """A widening inside one property does not relax an unrelated ``oneOf``."""
+    schema = Schema(
+        probatio.All(
+            probatio.ExactlyOne("a", "b"),
+            {
+                probatio.Optional("a"): int,
+                probatio.Optional("b"): int,
+                probatio.Optional("x"): probatio.Maybe(probatio.Any(str, int)),
+            },
+        )
+    )
+    document = to_openapi(schema)
+
+    assert "oneOf" in json.dumps(document)
+    for value in (
+        {"a": 1},
+        {"b": 1},
+        {"a": 1, "b": 2},
+        {"x": None},
+        {"a": 1, "x": None},
+    ):
+        assert _validates(document, "3.0", value) is _accepts(schema, value), value
