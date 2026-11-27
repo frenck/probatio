@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import types
 
 import pytest
@@ -23,6 +24,7 @@ from probatio import (
     Required,
     Schema,
 )
+from probatio._compile import _literal_key_is_looked_up
 from probatio.error import DictInvalid
 
 
@@ -426,3 +428,44 @@ def test_required_marker_uses_its_custom_message() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         schema({})
     assert caught.value.errors[0].error_message == "name is required"
+
+
+def test_literal_string_keys_share_one_key_check() -> None:
+    """No closure is built per literal key, since the engine looks those keys up."""
+    schema = Schema({"a": int, Required("b"): str, Optional("c"): int, str: int})
+    schema({"a": 1, "b": "x"})
+
+    candidates = schema._compiled._candidates
+    literal_checks = {
+        id(candidate.check_key) for candidate in candidates if candidate.is_literal
+    }
+    assert len(literal_checks) == 1
+    assert candidates[0].check_key is _literal_key_is_looked_up
+    # The type key is matched by its check, so it keeps one of its own.
+    assert candidates[-1].check_key is not _literal_key_is_looked_up
+
+
+def test_the_shared_literal_key_check_refuses_to_be_called() -> None:
+    """Calling the stand-in is a bug in the engine, and says so."""
+    with pytest.raises(RuntimeError, match="matched by lookup"):
+        _literal_key_is_looked_up("a")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"a": 1},
+        {"a": 1, "b": "x"},
+        {"a": "wrong"},
+        {"unknown": 1},
+        {"a": 1, 5: "not a string key"},
+        {},
+    ],
+)
+def test_validation_never_reaches_the_shared_literal_key_check(data: object) -> None:
+    """Matching, missing, wrong and unknown keys all resolve without the key check."""
+    schema = Schema({Required("a"): int, Optional("b"): str}, compile=False)
+
+    # A ``RuntimeError`` from the stand-in would not be suppressed here.
+    with contextlib.suppress(Invalid):
+        schema(data)
