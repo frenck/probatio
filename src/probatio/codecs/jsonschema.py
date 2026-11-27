@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import contextvars
 import datetime as dt
+import itertools
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -57,7 +59,15 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
-from probatio.error import ContainsInvalid, Invalid, MatchInvalid, SchemaError
+from probatio.error import (
+    ContainsInvalid,
+    Invalid,
+    LengthInvalid,
+    MatchInvalid,
+    MultipleInvalid,
+    SchemaError,
+    SequenceTypeInvalid,
+)
 from probatio.markers import (
     Alias,
     Exclusive,
@@ -1060,10 +1070,13 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
         return merged
 
     min_key, max_key = keys
+    # A bound the merge already carries (an ``ExactSequence`` pins both) stands
+    # beside the one from the ``Length``: the larger minimum and the smaller
+    # maximum hold.
     if "minLength" in merged:
-        merged[min_key] = merged.pop("minLength")
+        merged[min_key] = max(merged.pop("minLength"), merged.get(min_key, 0))
     if "maxLength" in merged:
-        merged[max_key] = merged.pop("maxLength")
+        merged[max_key] = min(merged.pop("maxLength"), merged.get(max_key, math.inf))
 
     return merged
 
@@ -1238,6 +1251,9 @@ def _convert_misc(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, _ContainsCount):
         return _convert_contains_count(node)
+
+    if isinstance(node, _JsonPrefixItems):
+        return _convert_prefix_items(node)
 
     if isinstance(node, Duration | AsTimedelta):
         # ``duration`` is the standard JSON Schema format for an ISO 8601 duration
@@ -1449,6 +1465,29 @@ def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     }
     if not prefix:
         del document["prefixItems"]
+
+    return document
+
+
+def _convert_prefix_items(node: _JsonPrefixItems) -> dict[str, Any]:
+    """Render a decoded closed ``prefixItems`` back to its keywords.
+
+    ``minItems`` is emitted when the shortest length is above zero and
+    ``maxItems`` when the longest is below the number of positions, so the
+    document decodes to the same range. ``prefixItems`` must hold a schema, so an
+    empty prefix (only reachable with an impossible range, ``minItems`` above
+    zero) leaves it out; ``items: false`` still closes the array.
+    """
+    with nested_self_scope(node):
+        prefix = [_child(validator) for validator in node.validators]
+
+    document: dict[str, Any] = {"type": "array", "items": False}
+    if prefix:
+        document["prefixItems"] = prefix
+    if node.shortest > 0:
+        document["minItems"] = node.shortest
+    if node.longest < len(prefix):
+        document["maxItems"] = node.longest
 
     return document
 
@@ -1743,7 +1782,7 @@ def _collect_facets(node: dict[str, Any], ctx: _Decode) -> list[Any]:
         facets.append(_from_ref(node["$ref"], ctx))
     if "const" in node:
         facets.append(_from_const(node["const"]))
-    elif "enum" in node:
+    if "enum" in node:
         facets.append(_from_enum(node["enum"]))
     if "not" in node:
         facets.append(_Not(_from_node(node["not"], ctx)))
@@ -2042,6 +2081,75 @@ class _JsonUnique:
                 placeholders={"items": duplicates},
             )
         return value
+
+
+class _JsonPrefixItems:
+    """Decode of a closed ``prefixItems``: the positions present, within a length range.
+
+    ``prefixItems`` validates the positions an array has and ``items: false``
+    forbids any beyond them, so every length from ``shortest`` up to ``longest``
+    (never more than the number of positions) is valid. One validator holds each
+    position's schema, compiled once, so decoding costs time linear in the number
+    of positions however the bounds fall. Like the plain array decode it takes a
+    list only, not a tuple.
+    """
+
+    def __init__(self, validators: list[Any], shortest: int, longest: int) -> None:
+        """Compile one schema per position and store the allowed length range."""
+        # Kept raw (unwrapped) so the encoder can re-emit ``prefixItems``.
+        self.validators = validators
+        self.shortest = shortest
+        self.longest = longest
+        self._schemas = [Schema(validator) for validator in validators]
+
+    def __repr__(self) -> str:
+        """Render readably for error paths."""
+        return (
+            f"JsonPrefixItems({self.validators!r}, "
+            f"shortest={self.shortest}, longest={self.longest})"
+        )
+
+    def __call__(self, value: Any) -> Any:
+        """Return the list if its length is in range and each position is valid."""
+        if not isinstance(value, list):
+            raise SequenceTypeInvalid(
+                translation_key="expected_sequence",
+                placeholders={"expected": "list"},
+            )
+
+        if len(value) < self.shortest:
+            raise LengthInvalid(
+                translation_key="length_min",
+                placeholders={"min": self.shortest},
+            )
+        if len(value) > self.longest:
+            raise LengthInvalid(
+                translation_key="length_max",
+                placeholders={"max": self.longest},
+            )
+
+        result = []
+        errors: list[Invalid] = []
+        try:
+            for index, (schema, item) in enumerate(
+                zip(self._schemas, value, strict=False)
+            ):
+                try:
+                    result.append(schema(item))
+                except MultipleInvalid as exc:
+                    # ``prepend`` reaches every wrapped error, so the index lands
+                    # on each of them.
+                    exc.prepend([index])
+                    errors.extend(exc.errors)
+
+            if errors:
+                # A copy, so emptying the list below leaves ``args`` intact.
+                raise MultipleInvalid(list(errors))
+
+            return result
+        finally:
+            # On every way out; see ``Invalid``.
+            errors.clear()
 
 
 def _from_enum(values: Any) -> Any:
@@ -2482,8 +2590,15 @@ def _from_object(node: dict[str, Any], ctx: _Decode) -> Any:
         if subschema is False or not allowed(name):
             mapping[Forbidden(name)] = object
             continue
-        key = _from_key(name, subschema, required=name in required)
-        mapping[key] = _from_node(subschema, ctx)
+        value_schema = _from_node(subschema, ctx)
+        key = _from_key(
+            name,
+            subschema,
+            value_schema,
+            ctx,
+            required=name in required,
+        )
+        mapping[key] = value_schema
 
     additional = node.get("additionalProperties")
     additional_schema = (
@@ -2650,7 +2765,14 @@ def _object_base(
     return mapping
 
 
-def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
+def _from_key(
+    name: str,
+    subschema: Any,
+    value_schema: Any,
+    ctx: _Decode,
+    *,
+    required: bool,
+) -> Marker:
     """Build the Required/Optional marker for one object property.
 
     A ``writeOnly`` property is a secret, so the key is wrapped in ``Secret`` (its
@@ -2661,11 +2783,19 @@ def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
     probatio ``Required`` marker with a default does (it fills the value in), so a
     required property keeps presence enforcement and drops the default. On an
     optional property the default only fills the output, leaving the accept set
-    unchanged, so there it is applied.
+    unchanged, so there it is applied, provided the property's own schema accepts
+    it. The engine validates a filled-in default like any other value, so one the
+    schema rejects would turn an absent key into an invalid one.
     """
     marker_cls = Required if required else Optional
     description = subschema.get("description") if isinstance(subschema, dict) else None
-    if not required and isinstance(subschema, dict) and "default" in subschema:
+    if (
+        not required
+        and isinstance(subschema, dict)
+        and "default" in subschema
+        and _cheap_to_check(subschema, ctx)
+        and _accepts(value_schema, subschema["default"])
+    ):
         marker: Marker = marker_cls(
             name,
             default=subschema["default"],
@@ -2679,14 +2809,143 @@ def _from_key(name: str, subschema: Any, *, required: bool) -> Marker:
     return marker
 
 
+# How many schema nodes a property may spread out to, references followed, for
+# its default to be checked while decoding.
+_DEFAULT_CHECK_BUDGET = 10_000
+
+# How large a default may be to be checked, counting its containers, their
+# members and the characters of its strings. A ``pattern`` can take time
+# quadratic in the string it is matched against.
+_DEFAULT_SIZE_LIMIT = 256
+
+# The schema budget shrinks as the default grows: the two multiply.
+_DEFAULT_CHECK_WORK = 100_000
+
+
+def _cheap_to_check(subschema: dict[str, Any], ctx: _Decode) -> bool:
+    """Whether validating against a property's schema is bounded work.
+
+    Checking a default runs the decoded validator once, while decoding. A
+    document can make that expensive without being large: a ``$ref`` chain in
+    which each definition names the one before it twice doubles the work per
+    level. So the schema is walked the way validation walks it, following every
+    reference each time it appears, and the check is skipped past a fixed number
+    of nodes. A default that is not checked is not carried, which costs the
+    fill-in and never rejects an input.
+
+    The default counts too. Every node may look at all of it, and a ``pattern``
+    takes up to quadratic time in a string, so a large default is not checked at
+    all and a larger one leaves a smaller budget for the schema.
+    """
+    size = _json_size(subschema["default"], _DEFAULT_SIZE_LIMIT)
+    if size > _DEFAULT_SIZE_LIMIT:
+        return False
+
+    budget = min(_DEFAULT_CHECK_BUDGET, _DEFAULT_CHECK_WORK // size)
+    pending: list[Any] = [subschema]
+    # Each pointer is resolved once: splitting a long one again for every
+    # appearance would be work the budget does not see. ``None`` marks one that
+    # does not resolve.
+    targets: dict[str, Any] = {}
+    spent = 0
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            children: list[Any] = node
+        elif isinstance(node, dict):
+            children = list(node.values())
+            ref = node.get("$ref")
+            if isinstance(ref, str):
+                children.append(_reference_target(ref, ctx, targets))
+        else:
+            continue
+
+        # Charged before the children are queued, so a wide node reached through
+        # many references cannot grow the queue past the budget either.
+        spent += 1 + len(children)
+        if spent > budget:
+            return False
+
+        pending.extend(children)
+
+    return True
+
+
+def _json_size(value: Any, limit: int) -> int:
+    """Measure a JSON value, stopping once it is known to be past ``limit``.
+
+    A scalar counts one, a string its characters, a container itself plus what
+    it holds (keys included). Never less than one.
+    """
+    pending: list[Any] = [value]
+    size = 0
+    while pending and size <= limit:
+        item = pending.pop()
+        if isinstance(item, str):
+            size += max(len(item), 1)
+        elif isinstance(item, list):
+            size += 1
+            pending.extend(item[: limit + 1])
+        elif isinstance(item, dict):
+            size += 1
+            for key, member in itertools.islice(item.items(), limit + 1):
+                pending.extend((key, member))
+        else:
+            size += 1
+
+    return size
+
+
+def _reference_target(ref: str, ctx: _Decode, targets: dict[str, Any]) -> Any:
+    """Resolve a pointer for the budget walk, remembering the answer.
+
+    The walk does not tell a schema from literal data, and counting data as schema
+    only overstates the work. Data may hold a ``$ref`` key that points nowhere,
+    though. A reference in a schema position resolved when the property was
+    decoded, so a pointer that fails here is such data: it resolves to ``None``,
+    which the walk passes over.
+    """
+    if ref not in targets:
+        try:
+            targets[ref] = _resolve_pointer(ref, ctx.root)
+        except SchemaError:
+            targets[ref] = None
+
+    return targets[ref]
+
+
+def _accepts(validator: Any, value: Any) -> bool:
+    """Whether a decoded validator accepts a value from the document.
+
+    The validator is one this module just built, so running it is not running
+    user code. A recursive ``$ref`` that is still being built cannot answer yet;
+    that counts as not accepted, which only costs the fill-in of a default and
+    never rejects an input.
+    """
+    try:
+        Schema(validator)(value)
+    except (Invalid, RuntimeError):
+        return False
+
+    return True
+
+
 def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:
-    """Decode a closed positional ``prefixItems`` array into an ``ExactSequence``.
+    """Decode a closed positional ``prefixItems`` array into exact sequences.
 
     Only the closed form (``items: false``, what ``to_json_schema`` emits for an
     ``ExactSequence``) maps cleanly. With ``items`` absent or a schema, JSON Schema
     allows additional items beyond the prefix, which ``ExactSequence`` (a
     fixed-length tuple) cannot represent, so the open tail is refused rather than
     silently rejecting valid arrays that carry extra items.
+
+    ``prefixItems`` only describes the positions that are present: a shorter array
+    is valid, and ``minItems`` is what makes positions mandatory. So the array may
+    have any length that ``minItems``, ``maxItems`` and the number of positions
+    allow. When they pin the length to the full prefix (the form
+    ``to_json_schema`` emits) that is an ``ExactSequence``; otherwise one
+    ``_JsonPrefixItems`` carries the range, which is empty (no array is valid)
+    when ``minItems`` lies beyond the positions or above ``maxItems``.
     """
     if not isinstance(prefix, list):
         message = (
@@ -2702,7 +2961,16 @@ def _from_prefix_items(prefix: Any, node: dict[str, Any], ctx: _Decode) -> Any:
         )
         raise SchemaError(message)
 
-    return ExactSequence([_from_node(element, ctx) for element in prefix])
+    positions = [_from_node(element, ctx) for element in prefix]
+    min_items = _item_count(node, "minItems")
+    max_items = _item_count(node, "maxItems")
+    shortest = 0 if min_items is None else min_items
+    longest = len(positions) if max_items is None else min(max_items, len(positions))
+
+    if shortest == longest == len(positions):
+        return ExactSequence(positions)
+
+    return _JsonPrefixItems(positions, shortest, longest)
 
 
 def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
@@ -2715,7 +2983,10 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     """
     prefix = node.get("prefixItems")
     if prefix is not None:
-        return _from_prefix_items(prefix, node, ctx)
+        # The prefix decode already honors ``minItems`` and ``maxItems``.
+        positional = _from_prefix_items(prefix, node, ctx)
+        extra = _array_constraints(node, ctx)
+        return All(*extra, positional) if extra else positional
 
     items = node.get("items")
     if items is True:
@@ -2757,17 +3028,29 @@ def _from_array(node: dict[str, Any], ctx: _Decode) -> Any:
     else:
         sequence = [_from_node(items, ctx)]
 
-    constraints: list[Any] = []
-    if bounded:
-        constraints.append(Length(min=min_items, max=max_items))
-    if has_unique:
-        constraints.append(_JsonUnique())
-    if has_contains:
-        constraints.append(_from_contains(node, ctx))
-    if constraints:
-        return All(sequence, *constraints)
+    before = _array_constraints(node, ctx)
+    after = [Length(min=min_items, max=max_items)] if bounded else []
+    if before or after:
+        return All(*before, sequence, *after)
 
     return sequence
+
+
+def _array_constraints(node: dict[str, Any], ctx: _Decode) -> list[Any]:
+    """Collect the ``uniqueItems`` and ``contains`` checks an array node carries.
+
+    They judge the array as it came in, so they go ahead of the item schemas in
+    an ``All``: an item schema can fill in a default, and two items that differ
+    only by an absent key would then look alike. Both pass their input through
+    unchanged, and leave anything that is not an array to the check after them.
+    """
+    constraints: list[Any] = []
+    if node.get("uniqueItems") is True:
+        constraints.append(_JsonUnique())
+    if "contains" in node:
+        constraints.append(_from_contains(node, ctx))
+
+    return constraints
 
 
 def _from_contains(node: dict[str, Any], ctx: _Decode) -> Any:

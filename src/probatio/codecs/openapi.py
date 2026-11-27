@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -57,7 +58,7 @@ from probatio.codecs._shared import (
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
 from probatio.codecs._shared import ordered_values as _ordered
-from probatio.codecs.jsonschema import _JsonNumberType, _JsonPattern
+from probatio.codecs.jsonschema import _JsonNumberType, _JsonPattern, _JsonPrefixItems
 from probatio.error import SchemaError
 from probatio.markers import (
     Alias,
@@ -1169,9 +1170,37 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         if count:
             _open("the per-position types of an ExactSequence on OpenAPI 3.0")
         return {"type": "array", "minItems": count, "maxItems": count}
+    if isinstance(node, _JsonPrefixItems):
+        return _oa_prefix_items(node, custom, version)
     if isinstance(node, Duration | AsTimedelta):
         return {"type": "string", "format": "duration"}
     return None
+
+
+def _oa_prefix_items(
+    node: _JsonPrefixItems, custom: Any, version: str
+) -> dict[str, Any]:
+    """Render a decoded closed ``prefixItems`` with the length range it allows.
+
+    A prefix is only empty beside an impossible range, and ``prefixItems`` must hold
+    a schema, so it is left out then. On 3.0 only the length range survives, and
+    the per-position types are reported as a loss, the way an ``ExactSequence``
+    does.
+    """
+    document: dict[str, Any] = {"type": "array"}
+    if version == _V3_1:
+        with nested_self_scope(node):
+            prefix = [_ensure_default(_oa(v, custom, version)) for v in node.validators]
+        if prefix:
+            document["prefixItems"] = prefix
+        document["items"] = False
+    elif node.validators:
+        _open("the per-position types of a closed prefixItems on OpenAPI 3.0")
+    if node.shortest > 0:
+        document["minItems"] = node.shortest
+    document["maxItems"] = node.longest
+
+    return document
 
 
 def _oa_typed(node: Any) -> dict[str, Any] | None:
@@ -1345,10 +1374,13 @@ def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
     if keys is None:
         return merged
     min_key, max_key = keys
+    # A bound the merge already carries (an ``ExactSequence`` pins both) stands
+    # beside the one from the ``Length``: the larger minimum and the smaller
+    # maximum hold.
     if "minLength" in merged:
-        merged[min_key] = merged.pop("minLength")
+        merged[min_key] = max(merged.pop("minLength"), merged.get(min_key, 0))
     if "maxLength" in merged:
-        merged[max_key] = merged.pop("maxLength")
+        merged[max_key] = min(merged.pop("maxLength"), merged.get(max_key, math.inf))
     return merged
 
 
