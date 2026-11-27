@@ -135,7 +135,7 @@ only**. The moment anything is off (a missing required key, a type mismatch, a
 validator that raises, an unexpected key) it hands the value back to the interpreted
 engine, which produces every error, path, code, and ordering. So there is one set of
 validation semantics, not two, and the compiled path differs only by speed (with one
-caveat for side-effecting validators on a failing validation, noted below).
+caveat for side-effecting validators, noted below).
 
 :::note
 Because failures run through the interpreted engine, an error-heavy workload sees
@@ -144,13 +144,15 @@ is the one that runs in a steady system.
 :::
 
 :::caution[Keep validators pure]
-The fast path runs fields optimistically. When a validation fails, a validator or a
-`default` factory that already ran before a later field bailed runs a second time in
-the interpreted re-run. The returned value and the raised error are always identical;
-only the count of side effects differs, and only on a failing validation. So a
-validator or default factory that mutates state (a counter, a log line, an external
-call) can fire more than once for input that is then rejected. Keep them pure, which
-is the right shape for a validator regardless of compilation.
+The fast path runs fields optimistically. When it hands the value back to the
+interpreted engine, a validator or a `default` factory that already ran before that
+point runs a second time in the interpreted re-run. That happens on every failing
+validation, and on the few valid inputs the generated code does not settle itself,
+like a float for `Coerce(int)`, anywhere in the schema, nested mappings included. With
+pure validators the returned value and the raised error are always identical; only
+the number of calls differs. So a validator or default factory that mutates state (a counter, a
+log line, an external call) can fire more than once for a single validation. Keep them
+pure, which is the right shape for a validator regardless of compilation.
 :::
 
 ## The one time to turn it off

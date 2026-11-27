@@ -10,16 +10,16 @@ It is deliberately *safe by construction*. The generated function is a fast
 a type mismatch, a value validator raising, an unexpected key, a declining
 default), it raises ``_Bail`` and the caller re-runs the original interpreted
 ``_MappingValidator``, which produces the exact errors, paths, codes, and order.
-Validation of valid data, the overwhelming common case, never leaves the fast
-path; only a failure pays the interpreted re-run, and failures are not the hot
-path. So the compiled and interpreted schemas return the same value and raise the
+Valid data, the overwhelming common case, stays on the fast path, bar the few
+values the generated code defers on (a float for ``Coerce(int)``, say). Only a
+bail pays the interpreted re-run, and bails are not the hot path. So the compiled and interpreted schemas return the same value and raise the
 same error, and the generator only has to get the *happy* path right.
 
-The one observable seam is side effects on the failure path. The fast path runs
-fields optimistically, so a validator or ``default`` factory that already ran
-before some later field bails runs a second time in the interpreted re-run. The
-value and the error are still identical; only the count of side effects differs,
-and only when validation fails. Probatio's own validators are pure, so this is
+The one observable seam is side effects on a bail. The fast path runs fields
+optimistically, so a validator or ``default`` factory that already ran before some
+later field bails runs a second time in the interpreted re-run. For pure validators
+the value and the error are still identical; only the count of calls differs, and
+only when the fast path bails. Probatio's own validators are pure, so this is
 invisible for them; a user validator or default factory that mutates state should
 be pure too, the same expectation the interpreted engine already leans on.
 
@@ -542,14 +542,15 @@ def _maybe_compile_nested(check_value: Any) -> Any:
     A nested dict value (``"data": {...}``) is validated by a ``_MappingValidator``
     closure; generating it turns that inner per-key loop into straight-line code as
     well, which is most of why a flat schema compiles well but a nested one barely
-    did. The compiled inner bails to its own interpreted validator, so a failure deep
-    in the tree still produces the right errors, paths, and order. Anything that does
-    not generate (a recursive ``$ref``, an unsupported shape) keeps its interpreted
-    validator unchanged.
+    did. The compiled inner passes a bail up instead of handling it, so a failure deep
+    in the tree runs the interpreted engine once, from the outermost mapping, which
+    produces the right errors, paths, and order. Anything that does not generate (a
+    recursive ``$ref``, an unsupported shape) keeps its interpreted validator
+    unchanged.
     """
     if not isinstance(check_value, _MappingValidator):
         return check_value
-    generated = compile_mapping(check_value)
+    generated = compile_mapping(check_value, nested=True)
     return generated if generated is not None else check_value
 
 
@@ -671,6 +672,7 @@ def compile_mapping(
     *,
     construct: type | None = None,
     fallback: Callable[[Any], Any] | None = None,
+    nested: bool = False,
 ) -> Callable[[Any], Any] | None:
     """Generate a fast success-path validator for ``validator``, or ``None``.
 
@@ -683,6 +685,16 @@ def compile_mapping(
     field present (each dataclass field is required or carries its default, so the
     locals are always assigned), so an ``ALLOW_EXTRA`` mapping (which keeps unknown
     keys the constructor would reject) is not generated.
+
+    ``nested`` marks a mapping generated as a value inside another generated mapping,
+    which is the only caller of the result. On a bail, or on data that is not an
+    exact dict, it raises ``_Bail`` instead of running its own interpreted validator. When the data is invalid, the enclosing function
+    bails as well and re-validates this subtree anyway, so an interpreted run here
+    would be thrown away, once per level of nesting: a failure cost that grows with
+    the square of the depth. The price is paid by a value the generated code only
+    defers on (a float for ``Coerce(int)``, say): the engine accepts it, but the
+    whole tree now takes the interpreted run, not just this mapping, which also
+    calls the validators of the enclosing mappings a second time.
     """
     if not _is_generatable(validator):
         return None
@@ -706,9 +718,10 @@ def compile_mapping(
         # does a foreign Mapping or a wrong type (the engine accepts the Mapping
         # superset and raises the right type error). Neither is something the seeded
         # copy below reproduces, and neither is a hot path worth generating for.
+        # A nested mapping leaves that to the enclosing function too, like any bail.
         prologue = [
             "    if type(data) is not dict:",
-            "        return _interpreted(data)",
+            "        raise _Bail" if nested else "        return _interpreted(data)",
             *_emit_seed(validator._extra, allowed, namespace),  # noqa: SLF001
         ]
     else:
@@ -762,7 +775,7 @@ def compile_mapping(
         "    try:",
         *body,
         "    except _Bail:",
-        "        return _interpreted(data)",
+        "        raise" if nested else "        return _interpreted(data)",
         *tail,
     ]
 

@@ -1040,3 +1040,99 @@ def test_compiled_matches_interpreted_for_every_inlinable_validator(
     # Compared by repr: a coerced ``nan`` is a fresh object on each side, and
     # ``nan != nan`` would report a difference that is not one.
     assert repr(_outcome(compiled, data)) == repr(_outcome(interpreted, data))
+
+
+def _nested(depth: int, leaf: object) -> dict[str, object]:
+    """A mapping nested ``depth`` levels deep, with ``leaf`` at the bottom."""
+    spec: dict[str, object] = {"leaf": leaf}
+    for _ in range(depth):
+        spec = {"child": spec}
+    return spec
+
+
+def _nested_data(depth: int, value: object) -> dict[str, object]:
+    """Input matching ``_nested(depth, ...)``, with ``value`` at the bottom."""
+    data: dict[str, object] = {"leaf": value}
+    for _ in range(depth):
+        data = {"child": data}
+    return data
+
+
+@pytest.mark.parametrize("depth", [1, 4, 16])
+def test_a_deep_failure_runs_the_interpreted_engine_once(depth: int) -> None:
+    """A failing leaf is validated twice whatever the depth: compiled, then interpreted."""
+    calls: list[object] = []
+
+    def reject(value: object) -> object:
+        """Record the call, then fail the way a user callable does."""
+        calls.append(value)
+        message = "no"
+        raise ValueError(message)
+
+    compiled = Schema(_nested(depth, reject), compile=True)
+    interpreted = Schema(_nested(depth, reject), compile=False)
+    data = _nested_data(depth, 1)
+
+    assert _outcome(compiled, data)[0] == "err"
+    assert _is_compiled(compiled)
+    calls.clear()
+
+    compiled_outcome = _outcome(compiled, data)
+    assert len(calls) == 2
+
+    assert compiled_outcome == _outcome(interpreted, data)
+
+
+def test_a_nested_bail_that_the_engine_accepts_still_succeeds() -> None:
+    """A nested value the generated code defers on is settled by the engine."""
+    spec = {"outer": {"n": Coerce(int)}, "name": str}
+    compiled = Schema(spec, compile=True)
+    interpreted = Schema(spec, compile=False)
+    data = {"outer": {"n": 1.9}, "name": "x"}
+
+    assert compiled(data) == {"outer": {"n": 1}, "name": "x"}
+    assert _is_compiled(compiled)
+    assert _outcome(compiled, data) == _outcome(interpreted, data)
+
+
+def test_a_nested_value_that_is_not_a_dict_runs_the_engine_once() -> None:
+    """A failing nested dict subclass is validated once, by the outermost mapping."""
+    calls: list[object] = []
+
+    def reject(value: object) -> object:
+        """Record the call, then fail the way a user callable does."""
+        calls.append(value)
+        message = "no"
+        raise ValueError(message)
+
+    class Settings(dict[str, object]):
+        """A dict subclass, which the generated code leaves to the engine."""
+
+    spec = {"child": {"leaf": reject}}
+    compiled = Schema(spec, compile=True)
+    interpreted = Schema(spec, compile=False)
+    data = {"child": Settings(leaf=1)}
+
+    assert _outcome(compiled, data)[0] == "err"
+    assert _is_compiled(compiled)
+    calls.clear()
+
+    compiled_outcome = _outcome(compiled, data)
+    assert len(calls) == 1
+
+    assert compiled_outcome == _outcome(interpreted, data)
+    assert _outcome(compiled, {"child": None}) == _outcome(interpreted, {"child": None})
+
+
+def test_a_nested_dict_subclass_keeps_its_type() -> None:
+    """A valid nested dict subclass comes back as that subclass."""
+
+    class Settings(dict[str, object]):
+        """A dict subclass, which the generated code leaves to the engine."""
+
+    compiled = Schema({"child": {"leaf": int}}, compile=True)
+
+    result = compiled({"child": Settings(leaf=1)})
+
+    assert _is_compiled(compiled)
+    assert type(result["child"]) is Settings
