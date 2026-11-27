@@ -441,8 +441,10 @@ def _emitters() -> dict[type, _Emitter]:
         from probatio.validators.combinators import Any as AnyValidator  # noqa: PLC0415
         from probatio.validators.comparison import In, Length, Range  # noqa: PLC0415
         from probatio.validators.strings import Match  # noqa: PLC0415
+        from probatio.validators.structural import Maybe  # noqa: PLC0415
 
         _EMITTERS = {
+            Maybe: _inline_maybe,
             Coerce: _inline_coerce,
             Range: _inline_range,
             In: _inline_in,
@@ -478,6 +480,46 @@ def _emitter_for(schema: Any) -> _Emitter | None:
         if emitter is not None:
             return emitter if schema_type.__call__ is cls.__call__ else None
     return None
+
+
+def _inline_twin(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | None:
+    """Inline a call to a nested schema's generated twin, or ``None``.
+
+    A schema that can be generated on the side says so with ``__probatio_twin__``
+    (a nested dataclass schema does): it returns one function that validates and
+    builds the value, bailing to the schema's own interpreted engine. Calling the
+    twin here, instead of the schema, keeps generated code calling generated code
+    all the way down while the schema itself stays interpreted. That split is what
+    bounds a failure: this function's own bail-out reruns the interpreted engine,
+    which calls the nested *schema*, so the rerun never re-enters generated code.
+    The protocol is read from the type, so an object that answers any attribute
+    lookup (a mock) is not mistaken for one.
+    """
+    make_twin = getattr(type(schema), "__probatio_twin__", None)
+    twin = None if make_twin is None else make_twin(schema)
+    if twin is None:
+        return None
+    namespace[f"_g{tag}"] = twin
+    namespace["_Invalid"] = Invalid
+    return [
+        "        try:",
+        f"            _v = _g{tag}(_v)",
+        "        except _Invalid:",
+        "            raise _Bail",
+    ]
+
+
+def _inline_maybe(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | None:
+    """Inline ``Maybe(X)`` where ``X`` has a generated twin; ``None`` passes through.
+
+    This is the shape an optional nested dataclass field (``Inner | None``) builds.
+    A failure inside bails, so the interpreted ``Maybe`` reports it, its ``msg``
+    included. Any other ``Maybe`` stays a call to the validator.
+    """
+    inner = _inline_twin(schema.validator, namespace, tag)
+    if inner is None:
+        return None
+    return ["        if _v is not None:", *["    " + line for line in inner]]
 
 
 def _inline_validator(
@@ -533,6 +575,9 @@ def _inline_value(schema: Any, namespace: dict[str, Any], tag: str) -> list[str]
         return _inline_type(schema, namespace, tag)
     if isinstance(schema, list):
         return _inline_sequence(schema, namespace, tag)
+    twin = _inline_twin(schema, namespace, tag)
+    if twin is not None:
+        return twin
     return _inline_validator(schema, namespace, tag)
 
 

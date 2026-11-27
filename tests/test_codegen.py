@@ -9,7 +9,7 @@ generate.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, make_dataclass
 from enum import Enum, IntEnum, StrEnum
 from math import inf, nan
 from types import MappingProxyType
@@ -33,6 +33,7 @@ from probatio import (
     Forbidden,
     In,
     Invalid,
+    Key,
     Latitude,
     Length,
     Longitude,
@@ -50,13 +51,13 @@ from probatio import (
     Self,
     SmallFloat,
     TypedDictSchema,
+    create_dataclass_schema,
     from_json_schema,
     set_compile_policy,
 )
 from probatio._codegen import _emitters, compile_mapping
 from probatio._engine import _MappingValidator
 from probatio.codecs.jsonschema import _DeferredRef
-from probatio.dataclass_schema import _built_dataclass_schemas
 from probatio.schema import _AUTO_COMPILE_THRESHOLD
 from tests import strategies
 
@@ -809,7 +810,7 @@ def test_a_call_arriving_during_generation_does_not_recurse(
     assert arrived, "the re-entrant call never happened, so nothing was proven"
 
 
-# --- nested dataclass schemas compile with the schema that holds them ---
+# --- nested dataclass schemas run generated through their twins ---
 
 
 @dataclass
@@ -821,7 +822,7 @@ class _Unit:
 
 
 def _pass_through(unit: _Unit) -> _Unit:
-    """A plain callable constraint: no child-schema protocol, nothing to walk."""
+    """A plain callable constraint, which the generator does not inline."""
     return unit
 
 
@@ -830,10 +831,12 @@ _OWN_UNIT = DataclassSchema(_Unit, compile=False)
 
 @dataclass
 class _Reading:
-    """A dataclass tree holding ``_Unit`` through every shape the compile walk enters.
+    """A dataclass tree holding ``_Unit`` in every shape a field annotation builds.
 
-    ``own`` carries a ``DataclassSchema`` the user built with its own flag; the walk
-    must leave that one alone.
+    The first three are the shapes generated code reaches a twin through. The rest
+    stay calls to the interpreted validator: a type-keyed mapping, an ``All`` with
+    a constraint the generator cannot inline, and a ``DataclassSchema`` the user
+    built with its own flag.
     """
 
     direct: _Unit
@@ -855,14 +858,11 @@ _READING = {
 }
 
 
-def _nested_schemas(schema: DataclassSchema[object]) -> list[Schema]:
-    """The builder-made dataclass schemas under a ``DataclassSchema``'s fields."""
+def _field_schema(schema: Schema, name: str) -> Schema:
+    """The value schema of field ``name`` in a dataclass schema's inner mapping."""
     mapping = schema.schema.validators[0].schema
-    return [
-        nested
-        for value in mapping.values()
-        for nested in _built_dataclass_schemas(value)
-    ]
+    (value,) = (value for key, value in mapping.items() if key == name)
+    return value
 
 
 @pytest.mark.parametrize(
@@ -871,37 +871,45 @@ def _nested_schemas(schema: DataclassSchema[object]) -> list[Schema]:
         _READING,
         {**_READING, "maybe": _UNIT},
         {**_READING, "direct": {"unit": "W", "value": "x"}},
+        {**_READING, "maybe": {"unit": 1, "value": 1.5}},
         {**_READING, "items": [_UNIT, {"unit": 1, "value": 1.0}]},
         {**_READING, "by_name": {"a": {"unit": "W"}}},
         {**_READING, "own": {"unit": "W", "value": 1.5, "extra": 1}},
     ],
 )
-def test_nested_dataclass_schemas_compile_with_the_outer(
+def test_compiled_dataclass_calls_the_twins_of_its_nested_dataclasses(
     data: dict[str, object],
 ) -> None:
-    """Compiling a dataclass compiles the nested dataclass schemas under its fields.
+    """A compiled dataclass runs its nested dataclasses through generated twins.
 
-    Six nested schemas sit under ``_Reading``: a direct field, a ``Maybe``, a list,
-    a dict, an ``Annotated`` with a constraint, and the base of the ``own`` field.
-    Every one generates; the ``DataclassSchema`` the user placed in ``own`` keeps
-    its ``compile=False``. Results and errors match the interpreted tree.
+    A direct field, an optional one, and a list of them each bind a twin (``_g``)
+    in the generated code; the three shapes the generator does not inline bind the
+    interpreted validator (``_c``). The nested schema's own engine is untouched,
+    which is what keeps a failure's interpreted rerun out of generated code. The
+    ``DataclassSchema`` the user placed in ``own`` offers no twin and keeps its
+    ``compile=False``. Results and errors match the interpreted tree.
     """
     interpreted = DataclassSchema(_Reading, compile=False)
     compiled = DataclassSchema(_Reading, compile=True).compile()
     assert _is_compiled(compiled)
-    nested = _nested_schemas(compiled)
-    assert len(nested) == 6
-    assert all(_is_compiled(schema) for schema in nested)
+
+    bound = compiled._compiled.__globals__
+    assert {"_g0", "_g1", "_g2s", "_c3", "_c4", "_c5"} <= set(bound)
+    direct = _field_schema(compiled, "direct")
+    assert direct.__probatio_twin__() is bound["_g0"]
+    assert direct._compiled is direct._fused_engine
+    assert _OWN_UNIT.__probatio_twin__() is None
     assert not _is_compiled(_OWN_UNIT)
+
     assert _outcome(interpreted, data) == _outcome(compiled, data)
 
 
 def test_compile_false_keeps_the_nested_dataclass_schemas_interpreted() -> None:
-    """``compile=False`` on the outer dataclass pins the whole tree interpreted.
+    """``compile=False`` on the outer dataclass keeps the whole tree interpreted.
 
-    The flag is threaded into every nested schema the builder makes, so under the
-    ON policy none of them arms or generates; the interpreted benchmark baseline
-    for a dataclass tree stays an interpreted baseline.
+    A nested schema never arms on its own, under any policy; only a compiling
+    outer schema asks for its twin. So a pinned outer leaves no twin behind, and
+    the interpreted benchmark baseline for a dataclass tree stays interpreted.
     """
     set_compile_policy(CompilePolicy.ON)
     try:
@@ -909,33 +917,105 @@ def test_compile_false_keeps_the_nested_dataclass_schemas_interpreted() -> None:
         for _ in range(3):
             assert schema(_READING).direct == _Unit("W", 1.5)
         assert not _is_compiled(schema)
-        for nested in _nested_schemas(schema):
-            assert not _is_compiled(nested)
-            assert "_interpreted" not in nested.__dict__
+        direct = _field_schema(schema, "direct")
+        assert direct._compiled is direct._fused_engine
+        assert "_twin" not in direct.__dict__
     finally:
         set_compile_policy(CompilePolicy.OFF)
 
 
 def test_dataclass_compile_is_idempotent() -> None:
-    """A second ``compile()`` keeps the generated tree instead of stacking a new one."""
+    """A second ``compile()`` keeps the generated validator instead of stacking one."""
     schema = DataclassSchema(_Reading).compile()
-    before = [schema._compiled, *(n._compiled for n in _nested_schemas(schema))]
+    first = schema._compiled
     schema.compile()
-    after = [schema._compiled, *(n._compiled for n in _nested_schemas(schema))]
-    assert after == before
+    assert schema._compiled is first
 
 
 def test_auto_compiles_a_hot_dataclass_tree() -> None:
-    """Under AUTO a dataclass that goes hot compiles its nested schemas with it."""
+    """Under AUTO a dataclass that goes hot generates its nested twins with it."""
     set_compile_policy(CompilePolicy.AUTO)
     try:
         schema = DataclassSchema(_Reading)
         for _ in range(_AUTO_COMPILE_THRESHOLD):
             assert schema(_READING).items[1] == _Unit("W", 1.5)
         assert _is_compiled(schema)
-        assert all(_is_compiled(nested) for nested in _nested_schemas(schema))
+        assert "_g0" in schema._compiled.__globals__
     finally:
         set_compile_policy(CompilePolicy.OFF)
+
+
+def test_top_level_list_of_dataclasses_calls_the_twin() -> None:
+    """A compiled ``Schema([dataclass schema])`` validates each item through the twin."""
+    element = create_dataclass_schema(_Unit)
+    interpreted = Schema([create_dataclass_schema(_Unit)], compile=False)
+    compiled = Schema([element], compile=True).compile()
+    assert _is_compiled(compiled)
+    assert compiled._compiled.__globals__["_g0s"] is element.__probatio_twin__()
+
+    for data in ([_UNIT, _UNIT], [_UNIT, {"unit": "W", "value": "x"}], []):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+@dataclass
+class _Aliased:
+    """A dataclass the generator does not handle: its key is an alias."""
+
+    unit: Annotated[str, Key(alias="Unit")]
+
+
+@dataclass
+class _HoldsAliased:
+    """A generatable dataclass holding one that is not."""
+
+    inner: _Aliased
+
+
+def test_nested_dataclass_the_generator_cannot_handle_stays_a_schema_call() -> None:
+    """A nested dataclass with no twin is called as a schema, and decided once."""
+    interpreted = DataclassSchema(_HoldsAliased, compile=False)
+    compiled = DataclassSchema(_HoldsAliased, compile=True).compile()
+    assert _is_compiled(compiled)
+
+    bound = compiled._compiled.__globals__
+    assert "_c0" in bound
+    assert "_g0" not in bound
+    inner = _field_schema(compiled, "inner")
+    assert inner.__dict__["_twin"] is None
+    assert inner.__probatio_twin__() is None
+
+    for data in ({"inner": {"Unit": "W"}}, {"inner": {"Unit": 1}}):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+@dataclass
+class _SelfChild:
+    """A nested dataclass whose field uses ``Self``, so it has no fused engine."""
+
+    name: str
+    child: Annotated[object, Any(Self, None)] = None
+
+
+@dataclass
+class _HoldsSelfChild:
+    """A dataclass holding a ``Self``-using one."""
+
+    node: _SelfChild
+
+
+def test_self_using_nested_dataclass_has_no_twin() -> None:
+    """A ``Self``-using nested dataclass keeps its tower: no fused engine, no twin."""
+    interpreted = DataclassSchema(_HoldsSelfChild, compile=False)
+    compiled = DataclassSchema(_HoldsSelfChild, compile=True).compile()
+
+    node = _field_schema(compiled, "node")
+    assert "_fused_engine" not in node.__dict__
+    assert node.__probatio_twin__() is None
+
+    good = {"node": {"name": "a", "child": {"name": "b", "child": None}}}
+    bad = {"node": {"name": "a", "child": {"name": 1, "child": None}}}
+    for data in (good, bad):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
 
 
 @dataclass
@@ -952,19 +1032,17 @@ class _Pong:
     ping: _Ping | None = None
 
 
-def test_recursion_cycle_stays_interpreted_while_the_top_compiles() -> None:
-    """The schemas on a recursion cycle never compile; the schema above it does.
+def test_recursive_dataclasses_compile_above_the_reference() -> None:
+    """A recursive pair compiles down to the reference, which stays interpreted.
 
-    ``_Ping``'s nested ``_Pong`` refers back to ``_Ping``, so both are on the cycle
-    and are pinned interpreted even when the outer ``compile()`` walks into them.
-    The top-level ``DataclassSchema`` sits above the cycle and still generates.
+    ``_Ping`` and its nested ``_Pong`` run generated; ``_Pong``'s reference back to
+    ``_Ping`` lands on ``_Ping``'s schema, whose engine is never swapped, so the
+    data below it validates interpreted.
     """
     interpreted = DataclassSchema(_Ping, compile=False)
     compiled = DataclassSchema(_Ping, compile=True).compile()
     assert _is_compiled(compiled)
-    (pong,) = _nested_schemas(compiled)
-    assert pong._on_cycle
-    assert not _is_compiled(pong)
+    assert "_g0" in compiled._compiled.__globals__
 
     data: dict[str, object] = {"pong": {"ping": {"pong": {"ping": None}}}}
     assert _outcome(interpreted, data) == _outcome(compiled, data)
@@ -981,13 +1059,13 @@ class _Chain:
 
 
 def test_failing_deep_recursion_costs_linear_time() -> None:
-    """A failure deep in a recursive tree is validated once per level, not 2**depth.
+    """A failure deep in a recursive tree is not validated 2**depth times.
 
-    A generated validator bails to its interpreted twin on a failure, and the twin
-    re-enters the generated code below it. If the schemas on a recursion cycle
-    compiled, each level of data would double the work, and a failure 24 levels
-    down would take minutes; pinning the cycle interpreted keeps it linear. Under
-    the ON policy with everything that may compile compiled.
+    A generated validator bails to its interpreted engine on a failure. If the
+    schema a recursive reference lands on ran generated code, that rerun would
+    re-enter it at every level of data and each level would double the work: a
+    failure 24 levels down would take minutes. Under the ON policy, with
+    everything that may compile compiled.
     """
     set_compile_policy(CompilePolicy.ON)
     try:
@@ -1004,6 +1082,36 @@ def test_failing_deep_recursion_costs_linear_time() -> None:
         set_compile_policy(CompilePolicy.OFF)
 
 
+def test_failing_deep_acyclic_tree_does_not_cost_exponential_time() -> None:
+    """A failure at the bottom of 24 distinct nested dataclasses is rejected fast.
+
+    No cycle is involved: each level is its own dataclass holding the next as a
+    required field, and every level compiles. A level's bail-out reruns its
+    interpreted engine, which must call the nested *schema* (interpreted), not
+    its generated twin. If it re-entered generated code, each level would double
+    the work and this rejection would take over a minute; it has to stay well
+    under a second, and report exactly what the interpreted tree reports.
+    """
+    depth = 24
+    cls = make_dataclass("Level0", [("value", int)])
+    for index in range(1, depth):
+        cls = make_dataclass(f"Level{index}", [("name", str), ("child", cls)])
+    data: dict[str, object] = {"value": "bottom"}
+    for _ in range(1, depth):
+        data = {"name": "n", "child": data}
+
+    interpreted = DataclassSchema(cls, compile=False)
+    compiled = DataclassSchema(cls, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert "_g1" in compiled._compiled.__globals__
+
+    start = time.perf_counter()
+    outcome = _outcome(compiled, data)
+    assert time.perf_counter() - start < 1.0
+    assert outcome[0] == "err"
+    assert outcome == _outcome(interpreted, data)
+
+
 class _Link(TypedDict):
     """A self-referential TypedDict, for the deep-failure regression test."""
 
@@ -1014,10 +1122,11 @@ class _Link(TypedDict):
 def test_recursive_typeddict_keeps_the_cycle_interpreted() -> None:
     """A TypedDict on a recursion cycle never compiles; the schema above it does.
 
-    The inner schema the builder makes for ``_Link`` refers back to itself, so it
-    is pinned interpreted under the ``compile=True`` flag and the ON policy alike.
-    The top-level ``TypedDictSchema`` sits above the cycle and still generates, so
-    a failure deep in the data is validated once per level, not 2**depth.
+    The inner schema the builder makes for ``_Link`` refers back to itself. It is a
+    plain mapping schema that would arm by policy and swap in generated code, so
+    it is pinned interpreted. The top-level ``TypedDictSchema`` sits above the
+    cycle and still generates, and a failure deep in the data is validated once
+    per level, not 2**depth.
     """
     set_compile_policy(CompilePolicy.ON)
     try:
@@ -1061,6 +1170,13 @@ _INLINABLE = {
     "All": (All, All, lambda cls: cls(Range(min=0, max=10)), 3, 3),
     "Length": (Length, Length, lambda cls: cls(min=1, max=3), "ab", None),
     "Match": (Match, Match, lambda cls: cls("^a"), "ab", None),
+    "Maybe of a nested dataclass": (
+        Maybe,
+        Maybe,
+        lambda cls: cls(create_dataclass_schema(_Unit)),
+        {"unit": "W", "value": 1.5},
+        None,
+    ),
 }
 
 _OVERRIDDEN = object()

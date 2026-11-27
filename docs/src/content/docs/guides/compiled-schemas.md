@@ -128,8 +128,8 @@ validated value), and `All`/`Any` chains of those. A subclass of one of these th
 overrides `__call__` is not inlined: its override always runs, compiled or not.
 
 Anything it does not handle is simply left interpreted. A recursive schema (`Self`,
-a recursive JSON Schema `$ref`, or a dataclass or TypedDict on a recursion cycle:
-one that holds itself, or two that hold each other), an exclusive or inclusive group, a multi-element
+a recursive JSON Schema `$ref`, or the part of a dataclass or TypedDict reached
+through a reference back to itself), an exclusive or inclusive group, a multi-element
 list (an "each item matches one of these" union), a list whose element does not
 inline, an exotic key: the schema works exactly as before, just without the speedup.
 You never lose correctness by compiling; at worst you do not gain speed.
