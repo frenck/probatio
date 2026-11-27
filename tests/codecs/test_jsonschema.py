@@ -73,6 +73,7 @@ from probatio import (
     SchemaError,
     Secret,
     Slug,
+    SomeOf,
     Time,
     TimeZone,
     TimeZoneInfo,
@@ -2478,3 +2479,41 @@ def test_strict_refuses_a_not_in_member_no_json_value_equals() -> None:
     """Leaving a member out of the ``not`` widens, which strict mode reports."""
     with pytest.raises(SchemaError, match="NotIn member"):
         to_json_schema(Schema(NotIn([(1, 2)])), strict=True)
+
+
+@pytest.mark.parametrize(
+    "widened",
+    [
+        pytest.param(In(["A"], fold_case=True), id="in_with_fold_case"),
+        pytest.param(Match(re.compile("a", re.IGNORECASE)), id="match_with_flag"),
+        pytest.param(Match("(?P<name>a)"), id="match_with_python_only_syntax"),
+    ],
+)
+def test_exactly_one_with_a_widened_branch_renders_as_any_of(widened: object) -> None:
+    """A branch that renders wider must not make ``oneOf`` reject a valid value."""
+    schema = Schema(SomeOf([widened, In(["b"])], min_valid=1, max_valid=1))
+    document = to_json_schema(schema)
+
+    assert "oneOf" not in document
+    assert len(document["anyOf"]) == 2
+    # Only the second validator accepts "b", yet both rendered branches match it.
+    assert schema("b") == "b"
+    jsonschema.validate("b", document)
+
+
+def test_exactly_one_with_exact_branches_stays_one_of() -> None:
+    """Branches that render exactly keep the exact ``oneOf``."""
+    document = to_json_schema(
+        Schema(SomeOf([In(["a"]), In(["b"])], min_valid=1, max_valid=1))
+    )
+
+    assert document == {"oneOf": [{"enum": ["a"]}, {"enum": ["b"]}]}
+
+
+def test_exactly_one_of_a_single_widened_branch_stays_one_of() -> None:
+    """One branch cannot overlap another, so its ``oneOf`` is kept."""
+    document = to_json_schema(
+        Schema(SomeOf([In(["A"], fold_case=True)], min_valid=1, max_valid=1))
+    )
+
+    assert document == {"oneOf": [{"type": "string"}]}

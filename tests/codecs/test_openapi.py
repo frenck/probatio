@@ -2054,3 +2054,43 @@ def test_strict_refuses_a_not_in_member_no_json_value_equals() -> None:
     """Leaving a member out of the ``not`` widens, which strict mode reports."""
     with pytest.raises(probatio.SchemaError, match="NotIn member"):
         to_openapi(Schema(probatio.NotIn([(1, 2)])), strict=True)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "widened",
+    [
+        pytest.param(probatio.In(["A"], fold_case=True), id="in_with_fold_case"),
+        pytest.param(
+            probatio.Match(re.compile("a", re.IGNORECASE)), id="match_with_flag"
+        ),
+    ],
+)
+def test_exactly_one_with_a_widened_branch_renders_as_any_of(
+    widened: object, version: str
+) -> None:
+    """A branch that renders wider must not make ``oneOf`` reject a valid value."""
+    schema = Schema(
+        probatio.SomeOf([widened, probatio.In(["b"])], min_valid=1, max_valid=1)
+    )
+    document = to_openapi(schema, openapi_version=version)
+
+    assert "oneOf" not in document
+    assert document["anyOf"] == [
+        {"type": "string"},
+        {"type": "string", "enum": ["b"]},
+    ]
+    assert schema("b") == "b"
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_exactly_one_with_exact_branches_stays_one_of(version: str) -> None:
+    """Branches that render exactly keep the exact ``oneOf``."""
+    schema = Schema(
+        probatio.SomeOf(
+            [probatio.In(["a"]), probatio.In(["b"])], min_valid=1, max_valid=1
+        )
+    )
+    document = to_openapi(schema, openapi_version=version)
+
+    assert list(document) == ["oneOf"]

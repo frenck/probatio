@@ -44,8 +44,10 @@ from probatio.codecs._shared import (
     member_present,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    note_widening,
     only_string_members,
     regex_flags_change_meaning,
+    widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -167,6 +169,8 @@ def _open(reason: str) -> dict[str, Any]:
             "schema (pass strict=False to allow it)"
         )
         raise SchemaError(message)
+
+    note_widening()
     return {}
 
 
@@ -179,6 +183,7 @@ def _imprecise(reason: str) -> None:
     the document to be exact.
     """
     if not _STRICT.get():
+        note_widening()
         return
 
     message = (
@@ -954,6 +959,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
             or regex_flags_change_meaning(node.pattern)
             or _INLINE_REGEX_FLAGS.search(source)
         ):
+            note_widening()
             return {"type": "string"}
         # ``Match`` rejects anything but a string, and ``pattern`` on its own
         # constrains only strings, so the type has to travel with it.
@@ -992,10 +998,19 @@ def _oa_some_of(node: SomeOf, custom: Any, version: str) -> dict[str, Any]:
     Exactly one branch (``min == max == 1``) is ``oneOf``, at least one
     (``min == 1``, ``max`` the branch count) is ``anyOf``, and every branch
     (``min == max == count``) is ``allOf``; any other count widens to open.
+
+    ``oneOf`` is only right when every branch rendered exactly. A branch that came
+    out wider than its validator can match a value another branch matches too, and
+    ``oneOf`` would then reject a value exactly one validator accepts. Exactly one
+    then renders as ``anyOf``, which is wider and never rejects such a value.
     """
+    before = widenings()
     branches = [_oa(validator, custom, version) for validator in node.validators]
     count = len(branches)
     if node.min_valid == node.max_valid == 1:
+        if count > 1 and widenings() != before:
+            return {"anyOf": branches}
+
         return {"oneOf": branches}
     if node.min_valid == 1 and node.max_valid == count:
         return {"anyOf": branches}

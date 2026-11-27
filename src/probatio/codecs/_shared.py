@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import re
 from collections import Counter
@@ -709,6 +710,31 @@ def covers_every_property_name(key: Any) -> bool:
         key = key.validator if type(key) is Msg else key.schema
 
     return key is Extra or key is str or key is object
+
+
+# How many renderings so far came out wider than the validator they describe. Only
+# ever compared with an earlier reading of itself, so it is never reset.
+_WIDENINGS: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "_WIDENINGS", default=0
+)
+
+
+def note_widening() -> None:
+    """Record that a rendering accepts more than its validator does.
+
+    A wider document is the allowed direction on its own, but not everywhere:
+    ``oneOf`` passes a value only when exactly one branch matches, so a branch
+    that got wider can make a second branch match and the whole reject a valid
+    value. The renderer of such a construct reads ``widenings`` before and after
+    its children to learn whether one of them widened. A renderer that widens
+    without calling this is not seen.
+    """
+    _WIDENINGS.set(_WIDENINGS.get() + 1)
+
+
+def widenings() -> int:
+    """Return the number of widenings recorded so far, to compare across a render."""
+    return _WIDENINGS.get()
 
 
 def membership_normalizes_strings(node: In, members: list[Any]) -> bool:

@@ -45,8 +45,10 @@ from probatio.codecs._shared import (
     literal_any_names,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    note_widening,
     only_string_members,
     regex_flags_change_meaning,
+    widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -217,6 +219,8 @@ def _open(reason: str) -> dict[str, Any]:
             "open schema (pass strict=False to allow it)"
         )
         raise SchemaError(message)
+
+    note_widening()
     return {}
 
 
@@ -926,10 +930,19 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     (``min == 1``, ``max`` the branch count) is ``anyOf``; every branch
     (``min == max == count``) is ``allOf``. Any other count has no clean JSON
     Schema form, so it widens to an open schema.
+
+    ``oneOf`` is only right when every branch rendered exactly. A branch that came
+    out wider than its validator can match a value another branch matches too, and
+    ``oneOf`` would then reject a value exactly one validator accepts. Exactly one
+    then renders as ``anyOf``, which is wider and never rejects such a value.
     """
+    before = widenings()
     branches = [_child(validator) for validator in node.validators]
     count = len(branches)
     if node.min_valid == node.max_valid == 1:
+        if count > 1 and widenings() != before:
+            return {"anyOf": branches}
+
         return {"oneOf": branches}
     if node.min_valid == 1 and node.max_valid == count:
         return {"anyOf": branches}
@@ -1317,6 +1330,7 @@ def _convert_match(node: Match | _JsonPattern) -> dict[str, Any]:
         or _PYTHON_ONLY_REGEX.search(source)
         or regex_flags_change_meaning(node.pattern)
     ):
+        note_widening()
         return {"type": "string"}
 
     # A decoded ``pattern`` already carries the spec's search semantics, so it
