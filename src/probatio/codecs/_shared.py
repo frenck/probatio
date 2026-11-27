@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from collections.abc import Hashable
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
@@ -776,23 +776,47 @@ def widenings() -> int:
     return _WIDENINGS.get()
 
 
-@dataclass(frozen=True)
-class _SelfScope:
-    """Where the encoder stands relative to the schema a ``Self`` would refer to.
+@dataclass
+class _SelfFrame:
+    """One scope a ``Self`` can be bound to, and the definition it was given.
+
+    ``name`` stays empty until a ``Self`` below the scope asks for a reference,
+    which is how a scope nobody refers to renders inline, untouched.
+    """
+
+    name: str | None = None
+
+
+@dataclass
+class _EncodingState:
+    """What one encoding call tracks about the schemas a ``Self`` refers to.
 
     ``root_wrappers`` are the objects around the document's schema that add no
-    scope of their own (see ``root_wrappers``). ``depth`` counts the scopes
-    entered since, so a ``Self`` is only the document root at depth zero.
+    scope of their own (see ``root_wrappers``). ``frames`` is the stack of scopes
+    entered since, innermost last, so a ``Self`` is only the document root while
+    the stack is empty. The remaining fields serve the ``$defs`` rendering: the
+    hoisted ``definitions`` by name, the name a ``Schema`` instance was given
+    (``by_schema``, keyed on identity so one instance is one definition), the
+    names ``reserved`` by something already in the document, and how many names
+    were handed out.
     """
 
     root_wrappers: frozenset[int] = frozenset()
-    depth: int = 0
+    reserved: frozenset[str] = frozenset()
+    frames: list[_SelfFrame] = field(default_factory=list)
+    definitions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    by_schema: dict[int, str] = field(default_factory=dict)
+    issued: int = 0
 
 
 # ``None`` outside an encoding call, which reads as the document root.
-_SELF_SCOPE: contextvars.ContextVar[_SelfScope | None] = contextvars.ContextVar(
+_SELF_SCOPE: contextvars.ContextVar[_EncodingState | None] = contextvars.ContextVar(
     "_SELF_SCOPE", default=None
 )
+
+# The prefix of the generated definition names: ``schema1``, ``schema2``, in the
+# order a ``Self`` first asked for one.
+_DEFINITION_PREFIX = "schema"
 
 
 def root_wrappers(schema: Any) -> frozenset[int]:
@@ -815,13 +839,26 @@ def root_wrappers(schema: Any) -> frozenset[int]:
 
 
 @contextmanager
-def encoding_root(schema: Any) -> Generator[None]:
-    """Mark ``schema`` as the document root for the ``Self`` it contains."""
-    token = _SELF_SCOPE.set(_SelfScope(root_wrappers(schema)))
+def encoding_root(
+    schema: Any, reserved: frozenset[str] = frozenset()
+) -> Generator[_EncodingState]:
+    """Mark ``schema`` as the document root for the ``Self`` it contains.
+
+    Each call gets a state of its own, so an encoding started from inside a
+    custom serializer neither sees nor disturbs the definitions of the call
+    around it. ``reserved`` are names the generated ones must avoid.
+    """
+    state = _EncodingState(root_wrappers(schema), reserved)
+    token = _SELF_SCOPE.set(state)
     try:
-        yield
+        yield state
     finally:
         _SELF_SCOPE.reset(token)
+
+
+def _is_root_wrapper(state: _EncodingState, node: Any) -> bool:
+    """Whether this node is one of the root's own wrappers, entered at the root."""
+    return not state.frames and id(node) in state.root_wrappers
 
 
 @contextmanager
@@ -833,22 +870,89 @@ def nested_self_scope(node: Any) -> Generator[None]:
     a ``Self`` below them is that schema, not the document root. Entering one of
     the root's own wrappers changes nothing.
     """
-    scope = _SELF_SCOPE.get() or _SelfScope()
-    if scope.depth == 0 and id(node) in scope.root_wrappers:
+    state = _SELF_SCOPE.get() or _EncodingState()
+    if _is_root_wrapper(state, node):
         yield
         return
 
-    token = _SELF_SCOPE.set(replace(scope, depth=scope.depth + 1))
+    state.frames.append(_SelfFrame())
     try:
         yield
     finally:
-        _SELF_SCOPE.reset(token)
+        state.frames.pop()
 
 
 def self_is_document_root() -> bool:
     """Whether a ``Self`` here refers to the document root, where ``$ref: "#"`` points."""
-    scope = _SELF_SCOPE.get()
-    return scope is None or scope.depth == 0
+    state = _SELF_SCOPE.get()
+    return state is None or not state.frames
+
+
+def _definition_name(state: _EncodingState) -> str:
+    """Hand out the next definition name, skipping the ones the document uses."""
+    while True:
+        state.issued += 1
+        name = f"{_DEFINITION_PREFIX}{state.issued}"
+        if name not in state.reserved:
+            return name
+
+
+def definition_reference(name: str) -> dict[str, Any]:
+    """Return the reference to a hoisted definition."""
+    return {"$ref": f"#/$defs/{name}"}
+
+
+def render_self() -> dict[str, Any]:
+    """Render a ``Self`` as a reference to the schema it is bound to.
+
+    At the document root that is ``#``. Inside a scope it is the definition that
+    scope is hoisted into, which the scope gets the first time a ``Self`` asks.
+    """
+    state = _SELF_SCOPE.get()
+    if state is None or not state.frames:
+        return {"$ref": "#"}
+
+    frame = state.frames[-1]
+    if frame.name is None:
+        frame.name = _definition_name(state)
+
+    return definition_reference(frame.name)
+
+
+def hoisted_scope(
+    render: Callable[[], dict[str, Any]], node: Any = None
+) -> dict[str, Any]:
+    """Run the body of a scope, hoisting it into a definition when a ``Self`` uses it.
+
+    A scope nobody refers to is just its body. One a ``Self`` was bound to moves
+    into the definitions and renders in place as a reference to it. ``node`` is
+    the scope's own object when it has one: a ``Schema`` renders the same wherever
+    it stands, so one instance that already holds a definition is referenced again
+    rather than rendered and stored a second time. Other kinds of scope depend on
+    what surrounds them, so each occurrence gets a definition of its own.
+    """
+    state = _SELF_SCOPE.get() or _EncodingState()
+    if node is not None and _is_root_wrapper(state, node):
+        return render()
+
+    if isinstance(node, Schema) and id(node) in state.by_schema:
+        return definition_reference(state.by_schema[id(node)])
+
+    frame = _SelfFrame()
+    state.frames.append(frame)
+    try:
+        body = render()
+    finally:
+        state.frames.pop()
+
+    if frame.name is None:
+        return body
+
+    state.definitions[frame.name] = body
+    if isinstance(node, Schema):
+        state.by_schema[id(node)] = frame.name
+
+    return definition_reference(frame.name)
 
 
 def membership_normalizes_strings(node: In, members: list[Any]) -> bool:

@@ -166,7 +166,7 @@ so they do not round-trip:
 | A leading `EnsureList`           | `anyOf` of whichever unwrapped forms it reaches, beside the list. The scalar branch needs room for one item and an item a lone value can be, and takes on a `contains` as well; the `null` branch needs room for an empty list, which `contains` never leaves. Anything the branches cannot be read off, a keyword asserting about the list as a whole among it, widens instead, which `strict=True` reports |
 | `Msg`                            | the wrapped validator's shape (the message has no JSON Schema equivalent)                                                                                                                                                                                                                                                                                                                                    |
 | An `enum.Enum` class             | `enum` of the member values                                                                                                                                                                                                                                                                                                                                                                                  |
-| `Self`                           | `{"$ref": "#"}` (a recursive reference to the document root); one inside a nested `Schema` refers to that schema, so it renders open and `strict=True` refuses it                                                                                                                                                                                                                                            |
+| `Self`                           | `{"$ref": "#"}` (a recursive reference to the document root); one bound to a nested scope refers to that scope, which moves into `$defs` and is referenced by name (see below)                                                                                                                                                                                                                               |
 | `Alias`                          | one property per accepted name (plus `anyOf` of `required` when required); with `accept_canonical=False` the canonical name is an open property, since the engine drops it without validating                                                                                                                                                                                                                |
 | `Any` key of literal names       | one property per name (plus `anyOf` of `required` when the key is required)                                                                                                                                                                                                                                                                                                                                  |
 | A group keyed on an `Any`        | one member satisfied by any of its names, so the group renders under `allOf` rather than `dependentRequired`; a name another key can also match carries no rule at all                                                                                                                                                                                                                                       |
@@ -212,6 +212,38 @@ common in machine-generated schemas such as MCP tool definitions.
 
 `oneOf` decodes with its exact semantics (a value must match exactly one branch,
 so one matching two or more is rejected), unlike the looser `anyOf`.
+
+A `Self` means "the nearest schema of its own around me". At the top level that is
+the whole document, `{"$ref": "#"}`. It can also be bound to something nested: a
+nested `Schema`, a `Maybe`, a `Msg`, or one position of an `ExactSequence` (`Any`,
+`All`, `SomeOf` and plain dicts and lists share the scope around them). Such a
+scope is rendered once, under `$defs` at the root, and every `Self` bound to it is
+a reference to that definition:
+
+```python
+from probatio import Any, Match, Schema, Self, to_json_schema
+
+element = Schema(Any(Match(r"^str$"), {str: Self}))
+config = Schema({"name": str, "schema": {str: element}})
+
+to_json_schema(config)["properties"]["schema"]["additionalProperties"]
+# {"$ref": "#/$defs/schema1"}
+
+to_json_schema(config)["$defs"]["schema1"]
+# {"anyOf": [{"type": "string", "pattern": "^str$"},
+#            {"type": "object", "properties": {},
+#             "additionalProperties": {"$ref": "#/$defs/schema1"}}]}
+```
+
+The definitions are named `schema1`, `schema2` and so on, in the order the
+recursive scopes are met, so the same schema always gives the same document. A
+scope nothing refers to stays inline, and a document without a nested `Self` has
+no `$defs`. The same `Schema` instance used in several places is one definition.
+For a `Maybe` the definition is the wrapped schema alone: a nested `Self` does not
+accept `None`, and the `null` stays beside the reference. Because the definition
+is exact, `strict=True` has nothing to refuse. When a custom serializer already
+put a `$defs` in the document, the definitions are added to it, and a generated
+name that is taken moves to the next free one.
 
 `prefixItems` is honored in its closed form (`items: false`) and refused with an
 open tail. As in JSON Schema it validates the positions that are present, so a

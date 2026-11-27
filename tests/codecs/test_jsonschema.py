@@ -2723,31 +2723,358 @@ _NESTED_SELF_VALUES = [
     {"a": {}},
     {},
 ]
+_REFERENCE = {"$ref": "#/$defs/schema1"}
 
 
-def test_a_self_inside_a_nested_schema_renders_open() -> None:
-    """It refers to the nested schema, so a reference to the root would be wrong."""
-    document = to_json_schema(_NESTED_SELF)
+def _nested_values(keys: tuple[str, ...]) -> list[object]:
+    """Build values three levels deep: chains of mappings, lists and pairs over the keys."""
+    values: list[object] = [None, "s", 1, {}, []]
+    for _ in range(3):
+        values = [
+            *values,
+            *({key: value} for key in keys for value in values),
+            *([value] for value in values),
+            *([value, 1] for value in values),
+            *([1, value] for value in values),
+        ]
+    return values
 
-    assert document["properties"]["a"]["properties"]["n"] == {
-        "type": "array",
-        "items": {},
+
+def _scope() -> dict[object, object]:
+    """Build a scope body with a Self in a mapping value, under an ``Any``."""
+    return {Optional("n"): Any(int, Self)}
+
+
+def test_the_motivating_case_hoists_the_recursive_element() -> None:
+    """A Self bound to a nested Schema is one definition, referenced where it stands."""
+    element = Schema(Any(Match(r"^str$"), {str: Self}))
+    config = Schema({"name": str, "schema": {str: element}})
+
+    assert to_json_schema(config, strict=True) == {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": _REFERENCE,
+            },
+        },
+        "additionalProperties": False,
+        "$defs": {
+            "schema1": {
+                "anyOf": [
+                    {"type": "string", "pattern": "^str$"},
+                    {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": _REFERENCE,
+                    },
+                ]
+            }
+        },
     }
 
 
-def test_a_self_inside_a_nested_schema_is_refused_in_strict_mode() -> None:
-    """Rendering it open widens, which strict mode refuses."""
-    with pytest.raises(SchemaError, match="nested Schema"):
-        to_json_schema(_NESTED_SELF, strict=True)
+def test_a_self_inside_a_nested_schema_refers_to_its_definition() -> None:
+    """The nested schema renders in place as a reference to what its Self refers to."""
+    document = to_json_schema(_NESTED_SELF)
+
+    assert document["properties"]["a"] == _REFERENCE
+    assert document["$defs"] == {
+        "schema1": {
+            "type": "object",
+            "properties": {"n": {"type": "array", "items": _REFERENCE}},
+            "additionalProperties": False,
+        }
+    }
+
+
+def test_a_self_inside_a_nested_schema_is_fine_in_strict_mode() -> None:
+    """The definition is exact, so there is nothing for strict mode to refuse."""
+    assert to_json_schema(_NESTED_SELF, strict=True) == to_json_schema(_NESTED_SELF)
 
 
 @pytest.mark.parametrize("value", _NESTED_SELF_VALUES)
-def test_a_self_inside_a_nested_schema_never_rejects_what_the_schema_accepts(
-    value: object,
+def test_a_self_inside_a_nested_schema_agrees_with_the_schema(value: object) -> None:
+    """The document accepts what the schema accepts and rejects what it rejects."""
+    assert _document_validates(to_json_schema(_NESTED_SELF), value) is _accepts(
+        _NESTED_SELF, value
+    )
+
+
+def test_a_scope_without_a_self_stays_inline() -> None:
+    """Nothing is hoisted for a nested Schema nobody refers to, so there is no ``$defs``."""
+    document = to_json_schema(Schema({"a": Schema({"n": int})}))
+
+    assert document["properties"]["a"] == {
+        "type": "object",
+        "properties": {"n": {"type": "integer"}},
+        "additionalProperties": False,
+    }
+    assert "$defs" not in document
+
+
+_HOISTED_SCHEMAS = {
+    "mapping_value": Schema({Optional("a"): Schema(_scope())}),
+    "sequence_element": Schema({Optional("a"): [Schema(_scope())]}),
+    "any": Schema({Optional("a"): Any(Schema(_scope()), int)}),
+    "all": Schema({Optional("a"): All(Schema(_scope()), dict)}),
+    "some_of": Schema({Optional("a"): SomeOf([Schema(_scope()), str], 1, 1)}),
+    "extra_allowed": Schema({Optional("a"): Schema(_scope(), extra=ALLOW_EXTRA)}),
+    "extra_removed": Schema({Optional("a"): Schema(_scope(), extra=REMOVE_EXTRA)}),
+    "required": Schema({Optional("a"): Schema({"n": Any(int, Self)}, required=True)}),
+    "maybe": Schema({Optional("a"): Maybe(_scope())}),
+    "msg": Schema({Optional("a"): Msg(_scope(), "message")}),
+    "exact_sequence_position": Schema({Optional("a"): ExactSequence([_scope(), int])}),
+    "root_maybe": Schema(Maybe(_scope())),
+    "two_levels": Schema(
+        {
+            Optional("a"): Schema(
+                {
+                    Optional("n"): Any(int, Self),
+                    Optional("i"): Schema(_scope()),
+                }
+            )
+        }
+    ),
+    "root_beside_nested": Schema(
+        {Optional("a"): Schema(_scope()), Optional("n"): Any(int, Self)}
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "schema", _HOISTED_SCHEMAS.values(), ids=list(_HOISTED_SCHEMAS)
+)
+def test_a_hoisted_self_document_agrees_with_the_schema_on_nested_values(
+    schema: Schema,
 ) -> None:
-    """The open rendering is wider than the schema, never narrower."""
-    if _accepts(_NESTED_SELF, value):
-        assert _document_validates(to_json_schema(_NESTED_SELF), value)
+    """Valid and invalid values up to three levels deep get the same verdict."""
+    document = to_json_schema(schema, strict=True)
+    jsonschema.Draft202012Validator.check_schema(document)
+    validator = jsonschema.Draft202012Validator(document)
+
+    verdicts = []
+    for value in _nested_values(("a", "n", "i")):
+        expected = _accepts(schema, value)
+        assert validator.is_valid(value) is expected, value
+        verdicts.append(expected)
+
+    assert "$defs" in document
+    assert verdicts.count(True) >= 3
+    assert verdicts.count(False) >= 3
+
+
+def test_a_maybe_hoists_what_its_self_refers_to_without_null() -> None:
+    """A Self inside a Maybe is the wrapped schema alone, null stays beside the reference."""
+    schema = Schema({"k": Maybe({Optional("n"): Any(int, Self)})})
+    properties = to_json_schema(schema)["properties"]
+
+    assert properties["k"] == {"anyOf": [{"type": "null"}, _REFERENCE]}
+    assert _accepts(schema, {"k": None})
+    assert not _accepts(schema, {"k": {"n": None}})
+    assert not _document_validates(to_json_schema(schema), {"k": {"n": None}})
+
+
+def test_a_msg_hoists_the_wrapped_schema() -> None:
+    """A Self inside a Msg is the wrapped schema, and the Msg renders as the reference."""
+    document = to_json_schema(Schema({"k": Msg(_scope(), "message")}))
+
+    assert document["properties"]["k"] == _REFERENCE
+    assert document["$defs"]["schema1"]["properties"]["n"]["anyOf"][1] == _REFERENCE
+
+
+def test_every_position_of_an_exact_sequence_is_a_scope_of_its_own() -> None:
+    """A Self refers to its own position, never to a neighbour."""
+    schema = Schema(
+        {
+            "k": ExactSequence(
+                [
+                    {Optional("x"): Any(int, Self)},
+                    {Optional("y"): Any(int, Self)},
+                ]
+            )
+        }
+    )
+    document = to_json_schema(schema, strict=True)
+
+    assert document["properties"]["k"]["prefixItems"] == [
+        {"$ref": "#/$defs/schema1"},
+        {"$ref": "#/$defs/schema2"},
+    ]
+    assert document["$defs"]["schema1"]["properties"]["x"]["anyOf"][1] == {
+        "$ref": "#/$defs/schema1"
+    }
+    assert document["$defs"]["schema2"]["properties"]["y"]["anyOf"][1] == {
+        "$ref": "#/$defs/schema2"
+    }
+    for value in (
+        {"k": [{"x": {"x": 1}}, {"y": {"y": 1}}]},
+        {"k": [{"x": {"y": 1}}, {"y": 1}]},
+        {"k": [{"x": 1}, {"y": {"x": 1}}]},
+        {"k": [{"x": 1}, {"y": 1}]},
+    ):
+        assert _document_validates(document, value) is _accepts(schema, value)
+
+
+def test_a_self_binds_to_the_innermost_scope_only() -> None:
+    """Two levels give two definitions, and the inner one is not inside the outer's reach."""
+    inner = Schema({Optional("n"): Any(int, Self)})
+    outer = Schema({Optional("i"): inner, Optional("o"): Any(int, Self)})
+    document = to_json_schema(Schema({"a": outer}), strict=True)
+
+    assert document["properties"]["a"] == {"$ref": "#/$defs/schema2"}
+    assert document["$defs"]["schema1"]["properties"]["n"]["anyOf"][1] == {
+        "$ref": "#/$defs/schema1"
+    }
+    assert document["$defs"]["schema2"]["properties"] == {
+        "i": {"$ref": "#/$defs/schema1"},
+        "o": {"anyOf": [{"type": "integer"}, {"$ref": "#/$defs/schema2"}]},
+    }
+
+
+def test_several_selfs_in_one_scope_share_its_definition() -> None:
+    """Each Self bound to the same scope is the same reference, under one name."""
+    scope = Schema({Optional("a"): Any(int, Self), Optional("b"): [Self]})
+    document = to_json_schema(Schema({"k": scope}), strict=True)
+    properties = document["$defs"]["schema1"]["properties"]
+
+    assert list(document["$defs"]) == ["schema1"]
+    assert properties["a"]["anyOf"][1] == _REFERENCE
+    assert properties["b"]["items"] == _REFERENCE
+
+
+def test_a_nested_schema_used_twice_is_one_definition() -> None:
+    """The same Schema instance is rendered once and referenced from each place."""
+    element = Schema(_scope())
+    document = to_json_schema(Schema({"a": element, "b": [element]}))
+
+    assert document["properties"]["a"] == _REFERENCE
+    assert document["properties"]["b"] == {"type": "array", "items": _REFERENCE}
+    assert list(document["$defs"]) == ["schema1"]
+
+
+def test_two_equal_schemas_are_two_definitions() -> None:
+    """Only the same instance is shared, two schemas that look alike are not merged."""
+    document = to_json_schema(Schema({"a": Schema(_scope()), "b": Schema(_scope())}))
+
+    assert list(document["$defs"]) == ["schema1", "schema2"]
+
+
+def test_the_same_msg_used_twice_gets_a_definition_each() -> None:
+    """Only a Schema renders the same wherever it stands, other scopes are not shared."""
+    wrapped = Msg(_scope(), "message")
+    document = to_json_schema(Schema({"a": wrapped, "b": wrapped}))
+
+    assert list(document["$defs"]) == ["schema1", "schema2"]
+
+
+def test_a_root_self_and_a_nested_one_keep_their_own_references() -> None:
+    """The root keeps ``#`` while the nested scope is a definition."""
+    document = to_json_schema(_HOISTED_SCHEMAS["root_beside_nested"], strict=True)
+
+    assert document["properties"]["n"]["anyOf"][1] == {"$ref": "#"}
+    assert document["properties"]["a"] == _REFERENCE
+    assert document["$defs"]["schema1"]["properties"]["n"]["anyOf"][1] == _REFERENCE
+
+
+def test_a_property_decoration_stays_beside_the_reference() -> None:
+    """The description lands next to the ``$ref`` and never in the shared definition."""
+    element = Schema(_scope())
+    document = to_json_schema(
+        Schema(
+            {
+                Optional("a", description="first"): element,
+                Optional("b", description="second"): element,
+                Optional("c"): element,
+            }
+        )
+    )
+
+    assert document["properties"]["a"] == {**_REFERENCE, "description": "first"}
+    assert document["properties"]["b"] == {**_REFERENCE, "description": "second"}
+    assert document["properties"]["c"] == _REFERENCE
+    assert "description" not in document["$defs"]["schema1"]
+
+
+def test_a_nested_conversion_does_not_disturb_the_outer_one() -> None:
+    """A serializer converting another schema leaves the outer definitions alone."""
+    element = Schema(Any({str: Self}, Match(r"^str$")))
+    config = Schema({"schema": {str: element}})
+    other = Schema({"x": Schema({Optional("y"): [Self]}), "z": Schema(_scope())})
+    seen: list[dict[str, object]] = []
+
+    def hook(node: object) -> object:
+        """Convert an unrelated schema with a nested Self in the middle of the outer one."""
+        if isinstance(node, Match):
+            seen.append(to_json_schema(other))
+            return UNSUPPORTED
+        return UNSUPPORTED
+
+    assert to_json_schema(config, custom_serializer=hook) == to_json_schema(config)
+    assert seen == [to_json_schema(other)]
+    assert list(seen[0]["$defs"]) == ["schema1", "schema2"]  # type: ignore[call-overload]
+
+
+def test_the_definition_names_are_stable() -> None:
+    """Names follow the order the recursive scopes are met, so two calls give the same document."""
+    schema = Schema({"a": Schema(_scope()), "b": Schema({Optional("m"): [Self]})})
+
+    first = to_json_schema(schema)
+
+    assert first == to_json_schema(schema)
+    assert list(first["$defs"]) == ["schema1", "schema2"]
+    assert json.dumps(first) == json.dumps(to_json_schema(schema))
+
+
+def _claims_defs(defs: object) -> object:
+    """Build a custom serializer that gives the document a ``$defs`` of its own."""
+
+    def hook(node: object) -> object:
+        """Return the ``$defs`` for the marker callable, defer for the rest."""
+        if node is _definitions_marker:
+            return {"$defs": defs}
+        return UNSUPPORTED
+
+    return hook
+
+
+def _definitions_marker(value: object) -> object:
+    """Stand for a part of a schema a custom serializer renders."""
+    return value
+
+
+def test_the_definitions_are_merged_into_a_defs_the_document_already_has() -> None:
+    """A ``$defs`` from a serializer keeps its entries beside the generated ones."""
+    schema = Schema(All(_definitions_marker, {"a": Schema(_scope())}))
+
+    document = to_json_schema(schema, custom_serializer=_claims_defs({"mine": {}}))
+
+    assert list(document["$defs"]) == ["mine", "schema1"]
+
+
+def test_a_generated_name_avoids_one_the_document_already_has() -> None:
+    """The definition moves to the next free name, references and all."""
+    schema = Schema(All(_definitions_marker, {"a": Schema(_scope())}))
+
+    document = to_json_schema(
+        schema, custom_serializer=_claims_defs({"schema1": {"type": "string"}})
+    )
+
+    assert document["properties"]["a"] == {"$ref": "#/$defs/schema2"}
+    assert document["$defs"]["schema1"] == {"type": "string"}
+    assert document["$defs"]["schema2"]["properties"]["n"]["anyOf"][1] == {
+        "$ref": "#/$defs/schema2"
+    }
+
+
+def test_definitions_cannot_join_a_defs_that_is_not_an_object() -> None:
+    """There is nowhere to put them, so the conversion says so rather than dangle."""
+    schema = Schema(All(_definitions_marker, {"a": Schema(_scope())}))
+
+    with pytest.raises(SchemaError, match="not an object"):
+        to_json_schema(schema, custom_serializer=_claims_defs([]))
 
 
 @pytest.mark.parametrize(
@@ -2775,21 +3102,30 @@ def test_a_self_inside_a_nested_schema_never_rejects_what_the_schema_accepts(
         "some_of",
     ],
 )
-def test_a_self_that_is_not_the_root_is_refused_wherever_it_sits(
+def test_a_self_that_is_not_the_root_is_hoisted_wherever_it_sits(
     schema: Schema,
 ) -> None:
-    """Every route to a nested scope renders its Self open, and strict mode says so."""
-    assert "$ref" not in json.dumps(to_json_schema(schema))
+    """Every route to a nested scope renders its Self as a definition, strict included."""
+    document = to_json_schema(schema, strict=True)
 
-    with pytest.raises(SchemaError, match="nested Schema"):
-        to_json_schema(schema, strict=True)
+    assert '"$ref": "#/$defs/' in json.dumps(document)
+    jsonschema.Draft202012Validator.check_schema(document)
 
 
-def test_a_nested_self_forces_an_exactly_one_some_of_to_any_of() -> None:
-    """The open branch could match a second branch, so ``oneOf`` would reject valid input."""
+def test_a_nested_self_keeps_an_exactly_one_some_of_as_one_of() -> None:
+    """The definition is exact, so no branch is wider than its validator and ``oneOf`` holds."""
     schema = Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), {"z": str}], 1, 1)})
+    document = to_json_schema(schema)
 
-    assert "anyOf" in to_json_schema(schema)["properties"]["k"]
+    assert "oneOf" in document["properties"]["k"]
+    for value in (
+        {"k": {"n": [{"n": []}]}},
+        {"k": {"z": "s"}},
+        {"k": {"n": [], "z": "s"}},
+        {"k": {}},
+        {"k": {"n": [{"z": "s"}]}},
+    ):
+        assert _document_validates(document, value) is _accepts(schema, value)
 
 
 @pytest.mark.parametrize(

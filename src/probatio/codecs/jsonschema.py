@@ -21,10 +21,11 @@ import math
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
 from probatio._compile import recursion_guard
 from probatio.codecs._regex_safety import is_catastrophic
@@ -43,17 +44,17 @@ from probatio.codecs._shared import (
     encoding_root,
     ensure_list_branches,
     exclusive_constraint,
+    hoisted_scope,
     inclusive_constraints,
     is_one_of,
     key_presence_constraint,
     literal_any_names,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
-    nested_self_scope,
     note_widening,
     only_string_members,
     regex_flags_change_meaning,
-    self_is_document_root,
+    render_self,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -209,8 +210,7 @@ def to_json_schema(
     """
     token = _OPTIONS.set(_Options(strict=strict, custom=custom_serializer))
     try:
-        with encoding_root(schema):
-            return _convert(schema, required_default=False, allow_extra=False)
+        return _convert_document(schema)
     except RecursionError as exc:
         message = (
             "schema is too deeply nested or references itself; use the Self "
@@ -219,6 +219,38 @@ def to_json_schema(
         raise SchemaError(message) from exc
     finally:
         _OPTIONS.reset(token)
+
+
+def _convert_document(schema: Any) -> dict[str, Any]:
+    """Render the whole document, with the definitions a nested ``Self`` needs.
+
+    A scope a ``Self`` refers to is rendered once, into ``$defs`` at the root, and
+    referenced from where it stands. The names are generated, so a document that
+    already carries a ``$defs`` of its own (a custom serializer can return one) is
+    merged into, and when it already uses a generated name the whole document is
+    rendered again with that name set aside.
+    """
+    reserved: frozenset[str] = frozenset()
+    while True:
+        with encoding_root(schema, reserved) as state:
+            document = _convert(schema, required_default=False, allow_extra=False)
+
+        if not state.definitions:
+            return document
+
+        existing = document.get("$defs", {})
+        if not isinstance(existing, dict):
+            message = (
+                "to_json_schema cannot add the definitions of a nested Self to "
+                "a document whose $defs is not an object"
+            )
+            raise SchemaError(message)
+
+        taken = existing.keys() & state.definitions.keys()
+        if not taken:
+            return {**document, "$defs": {**existing, **state.definitions}}
+
+        reserved |= taken
 
 
 def _open(reason: str) -> dict[str, Any]:
@@ -245,12 +277,14 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
         # ``REMOVE_EXTRA`` accepts extra keys on input (it strips them from the
         # output), so for input-side fidelity it renders open like ``ALLOW_EXTRA``,
         # not closed like the strict default.
-        with nested_self_scope(node):
-            return _convert(
+        return hoisted_scope(
+            lambda: _convert(
                 node.schema,
                 required_default=node.required,
                 allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
-            )
+            ),
+            node,
+        )
 
     if isinstance(node, _WhenType):
         # The wrapper carries "applies only to this JSON type", which is what a
@@ -842,16 +876,12 @@ def _convert_sequence(
 def _convert_leaf(node: Any) -> dict[str, Any]:
     """Render a leaf node: a type, a literal, or a validator."""
     if node is Self:
-        # ``Self`` means "the whole enclosing schema", the recursive reference
-        # the decoder already reads back from ``$ref: "#"``. ``#`` targets the
-        # document root, which is the top-level schema being encoded (the common
-        # recursive-schema case). A ``Self`` inside a nested ``Schema`` refers to
-        # that schema instead, which a reference to the root would get wrong in
-        # both directions, so it renders open.
-        if self_is_document_root():
-            return {"$ref": "#"}
-
-        return _open("a Self inside a nested Schema, which is not the document root")
+        # ``Self`` means "the enclosing schema", the recursive reference the
+        # decoder already reads back. At the document root that is ``$ref: "#"``.
+        # A ``Self`` inside a nested scope refers to that scope instead, which a
+        # reference to the root would get wrong in both directions, so the scope
+        # is hoisted into ``$defs`` and referenced by name.
+        return render_self()
 
     json_format = getattr(node, "__probatio_json_format__", None)
 
@@ -905,8 +935,7 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, Msg):
         # ``Msg`` only swaps the error message; the shape is the wrapped validator.
-        with nested_self_scope(node):
-            return _child(node.validator)
+        return hoisted_scope(partial(_child, node.validator), node)
 
     # ``Union``/``Switch`` accept any branch (the discriminant is an
     # optimization), so they render as ``anyOf`` like ``Any``. Checked with
@@ -1190,8 +1219,9 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
         return _convert_match(node)
 
     if isinstance(node, Maybe):
-        with nested_self_scope(node):
-            return {"anyOf": [{"type": "null"}, _child(node.validator)]}
+        # A ``Self`` below is the wrapped schema alone: ``None`` is not part of it.
+        inner = hoisted_scope(partial(_child, node.validator))
+        return {"anyOf": [{"type": "null"}, inner]}
 
     temporal = _convert_temporal_node(node)
     if temporal is not None:
@@ -1441,6 +1471,15 @@ def _convert_temporal(node: Any, json_format: str) -> dict[str, Any]:
     return result
 
 
+def _convert_positions(validators: Iterable[Any]) -> list[dict[str, Any]]:
+    """Render the positions of a fixed-length array, each a scope of its own.
+
+    Every position is validated as a schema in its own right, so a ``Self`` in
+    one refers to that position alone, never to a neighbour or the whole array.
+    """
+    return [hoisted_scope(partial(_child, validator)) for validator in validators]
+
+
 def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     """Render an ExactSequence as a fixed-length positional (``prefixItems``) array.
 
@@ -1453,8 +1492,7 @@ def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     the array, and keeps it closed when a ``Length`` beside it in an ``All``
     rewrites the length keywords.
     """
-    with nested_self_scope(node):
-        prefix = [_child(validator) for validator in node.validators]
+    prefix = _convert_positions(node.validators)
 
     document: dict[str, Any] = {
         "type": "array",
@@ -1478,8 +1516,7 @@ def _convert_prefix_items(node: _JsonPrefixItems) -> dict[str, Any]:
     empty prefix (only reachable with an impossible range, ``minItems`` above
     zero) leaves it out; ``items: false`` still closes the array.
     """
-    with nested_self_scope(node):
-        prefix = [_child(validator) for validator in node.validators]
+    prefix = _convert_positions(node.validators)
 
     document: dict[str, Any] = {"type": "array", "items": False}
     if prefix:
