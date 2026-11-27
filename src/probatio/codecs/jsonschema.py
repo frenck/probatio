@@ -28,6 +28,7 @@ from probatio._compile import recursion_guard
 from probatio.codecs._regex_safety import is_catastrophic
 from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
+    INLINE_REGEX_FLAGS,
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
@@ -42,6 +43,9 @@ from probatio.codecs._shared import (
     is_one_of,
     key_presence_constraint,
     literal_any_names,
+    membership_normalizes_strings,
+    only_string_members,
+    regex_flags_change_meaning,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -1049,6 +1053,26 @@ def _enum(container: Any) -> dict[str, Any]:
     return {"enum": values}
 
 
+def _convert_in(node: In) -> dict[str, Any]:
+    """Render an ``In`` as an ``enum``, unless its options widen what it accepts.
+
+    ``fold_case`` and ``space`` normalize the value and the string members before
+    comparing, so ``In(["A"], fold_case=True)`` also accepts ``"a"``. An ``enum``
+    lists exact values and would reject that spelling. Such an ``In`` widens to
+    what is certain: a string when every member is one, anything otherwise. Strict
+    mode refuses the widening like any other. Options that cannot matter (no string
+    member) keep the exact ``enum``.
+    """
+    if not membership_normalizes_strings(node):
+        return _enum(node.container)
+
+    _open("an In that normalizes the case or spacing of its string members")
+    if only_string_members(node):
+        return {"type": "string"}
+
+    return {}
+
+
 def _const(value: Any) -> dict[str, Any]:
     """Render an equality target as a ``const``, or open when unrepresentable.
 
@@ -1068,7 +1092,7 @@ def _const(value: Any) -> dict[str, Any]:
 def _convert_equality(node: Any) -> dict[str, Any] | None:
     """Render the equality/membership validators as enum/const/not, or None."""
     if isinstance(node, In):
-        return _enum(node.container)
+        return _convert_in(node)
 
     if isinstance(node, NotIn):
         enum = _enum(node.container)
@@ -1245,8 +1269,7 @@ _PYTHON_ONLY_REGEX = re.compile(
     r"|\(\?\#"  # inline comment (?#...)
     r"|\(\?\("  # conditional (?(id)yes|no)
     r"|\(\?>"  # atomic group (?>...)
-    r"|\(\?[aiLmsux]+[:)]"  # inline flags (?i) or scoped (?im:...)
-    r"|\(\?[aiLmsux]*-[aiLmsux]+:"  # negated/mixed scoped flags (?-i:...)
+    rf"|{INLINE_REGEX_FLAGS}"  # inline flags (?i), scoped (?im:...) or (?-i:...)
     r"|(?<!\\)[*+?}]\+"  # possessive quantifier (*+ ++ ?+ }+), not an escape
     r"|\\[AZ]",  # \A / \Z anchors, which ECMA-262 spells ^ / $
 )
@@ -1268,10 +1291,16 @@ def _convert_match(node: Match | _JsonPattern) -> dict[str, Any]:
     so it needs no wrapper and keeps its meaning across a round trip.
 
     A ``bytes`` pattern has no JSON Schema (JSON strings are text), so it renders
-    as a plain string rather than crashing on the ``str``/``bytes`` mismatch.
+    as a plain string rather than crashing on the ``str``/``bytes`` mismatch. A
+    pattern whose flags change what it matches (``re.IGNORECASE`` and the like)
+    has no ECMA-262 spelling either, and is dropped the same way.
     """
     source = node.pattern.pattern
-    if isinstance(source, bytes) or _PYTHON_ONLY_REGEX.search(source):
+    if (
+        isinstance(source, bytes)
+        or _PYTHON_ONLY_REGEX.search(source)
+        or regex_flags_change_meaning(node.pattern)
+    ):
         return {"type": "string"}
 
     # A decoded ``pattern`` already carries the spec's search semantics, so it

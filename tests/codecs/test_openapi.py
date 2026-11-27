@@ -12,7 +12,8 @@ against the ``openapi-schema-validator`` reference implementation.
 from __future__ import annotations
 
 import json
-from enum import Enum
+import re
+from enum import Enum, IntEnum, StrEnum
 from typing import Any, TypeVar
 
 import jsonschema
@@ -306,7 +307,7 @@ def test_merging_enums_with_unhashable_members_does_not_leak() -> None:
     """Same-typed enum branches with list members merge and dedup without a TypeError."""
     schema = Schema(probatio.Any(probatio.In([[1, 2]]), probatio.In([[1, 2], [3, 4]])))
     # The duplicate [1, 2] is dropped; order is preserved (no set involved).
-    assert to_openapi(schema) == {"type": "string", "enum": [[1, 2], [3, 4]]}
+    assert to_openapi(schema) == {"enum": [[1, 2], [3, 4]]}
 
 
 def test_merging_hashable_enums_dedups() -> None:
@@ -1824,3 +1825,194 @@ def test_open_mapping_with_a_universal_key_keeps_its_value_schema() -> None:
 
     encoded = to_openapi(Schema({str: int}, extra=ALLOW_EXTRA))
     assert encoded["additionalProperties"] == {"type": "integer"}
+
+
+def _openapi_document_accepts(schema: Schema, value: Any, version: str) -> bool:
+    """Whether the document ``to_openapi`` emits for the schema accepts the value."""
+    document = to_openapi(schema, openapi_version=version)
+    return jsonschema.Draft202012Validator(document).is_valid(value)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("validator", "accepted"),
+    [
+        pytest.param(probatio.Equal([1, 2]), [1, 2], id="equal_list"),
+        pytest.param(probatio.Equal({"a": 1}), {"a": 1}, id="equal_dict"),
+        pytest.param(probatio.Literal([1, 2]), [1, 2], id="literal_list"),
+        pytest.param(probatio.In([[1, 2], [3]]), [3], id="in_lists"),
+        pytest.param(probatio.In([{"a": 1}]), {"a": 1}, id="in_dicts"),
+        pytest.param(probatio.In([[1], [1, 2]]), [1, 2], id="in_nested"),
+        pytest.param(probatio.In([None, [1]]), [1], id="in_null_and_list"),
+    ],
+)
+def test_enum_of_non_scalar_members_carries_no_type(
+    validator: Any, accepted: Any, version: str
+) -> None:
+    """A list or dict member has no scalar type, so the enum is not stamped with one."""
+    schema = Schema(validator)
+
+    assert schema(accepted) == accepted
+    assert "type" not in to_openapi(schema, openapi_version=version)
+    assert _openapi_document_accepts(schema, accepted, version)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("members", "expected_type"),
+    [
+        pytest.param(["a", "b"], "string", id="strings"),
+        pytest.param([1, 2], "integer", id="integers"),
+        pytest.param([1.5, 2.5], "number", id="numbers"),
+        pytest.param([True, False], "boolean", id="booleans"),
+    ],
+)
+def test_enum_of_one_scalar_type_keeps_its_type(
+    members: list[Any], expected_type: str, version: str
+) -> None:
+    """An enum whose members share a scalar type is still labelled with it."""
+    document = to_openapi(Schema(probatio.In(members)), openapi_version=version)
+
+    assert document["type"] == expected_type
+    assert document["enum"] == members
+
+
+class _Mode(StrEnum):
+    """A string enum, whose members are strings to a document."""
+
+    AUTO = "auto"
+    MANUAL = "manual"
+
+
+class _Level(IntEnum):
+    """An integer enum, whose members are integers to a document."""
+
+    LOW = 1
+    HIGH = 2
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("members", "expected_type", "expected_enum"),
+    [
+        pytest.param(list(_Mode), "string", ["auto", "manual"], id="str_enum"),
+        pytest.param(list(_Level), "integer", [1, 2], id="int_enum"),
+        pytest.param([_Level.LOW, 2], "integer", [1, 2], id="int_enum_and_int"),
+    ],
+)
+def test_enum_members_of_a_scalar_subclass_are_typed_as_the_scalar(
+    members: list[Any], expected_type: str, expected_enum: list[Any], version: str
+) -> None:
+    """A ``StrEnum`` or ``IntEnum`` member is labelled by the scalar it subclasses."""
+    document = to_openapi(Schema(probatio.In(members)), openapi_version=version)
+
+    assert document["type"] == expected_type
+    assert json.loads(json.dumps(document["enum"])) == expected_enum
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "members",
+    [
+        pytest.param([], id="empty"),
+        pytest.param([None], id="null_only"),
+        pytest.param(["a", 1], id="mixed_scalars"),
+        pytest.param(["a", [1]], id="string_and_list"),
+    ],
+)
+def test_enum_without_a_single_scalar_type_stays_untyped(
+    members: list[Any], version: str
+) -> None:
+    """No member type, or more than one, leaves the enum without a type."""
+    document = to_openapi(Schema(probatio.In(members)), openapi_version=version)
+
+    assert "type" not in document
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("validator", "accepted"),
+    [
+        pytest.param(probatio.In(["A"], fold_case=True), "a", id="fold_case"),
+        pytest.param(probatio.In(["a b"], space="_"), "a_b", id="space"),
+    ],
+)
+def test_in_with_normalizing_options_widens_to_a_string(
+    validator: Any, accepted: str, version: str
+) -> None:
+    """An In that folds case or spacing renders a string, not an exact enum."""
+    schema = Schema(validator)
+
+    assert to_openapi(schema, openapi_version=version) == {"type": "string"}
+    assert _openapi_document_accepts(schema, accepted, version)
+    with pytest.raises(probatio.SchemaError, match="normalizes the case or spacing"):
+        to_openapi(schema, openapi_version=version, strict=True)
+
+
+def test_in_with_normalizing_options_and_mixed_members_widens_to_open() -> None:
+    """A non-string member means no type is certain, so the schema is open."""
+    schema = Schema(probatio.In(["A", 1], fold_case=True))
+
+    assert to_openapi(schema) == {}
+    with pytest.raises(probatio.SchemaError):
+        to_openapi(schema, strict=True)
+
+
+def test_in_with_normalizing_options_keeps_nullability_on_the_wider_schema() -> None:
+    """Widening a folded In inside a Maybe still admits null."""
+    schema = Schema(probatio.Maybe(probatio.In(["A"], fold_case=True)))
+
+    assert to_openapi(schema) == {"type": "string", "nullable": True}
+
+
+def test_in_whose_options_cannot_matter_keeps_the_exact_enum() -> None:
+    """Options only act on strings, so an In without any renders an exact enum."""
+    schema = Schema(probatio.In([1, 2], fold_case=True))
+
+    assert to_openapi(schema, strict=True) == {"type": "integer", "enum": [1, 2]}
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("pattern", "accepted"),
+    [
+        pytest.param(re.compile("a", re.IGNORECASE), "A", id="ignorecase"),
+        pytest.param(re.compile("a b", re.VERBOSE), "ab", id="verbose"),
+        pytest.param(re.compile("a.b", re.DOTALL), "a\nb", id="dotall"),
+        pytest.param(re.compile("a$", re.MULTILINE), "a\nb", id="multiline"),
+        pytest.param(
+            re.compile(r"\S", re.ASCII), "\N{NO-BREAK SPACE}", id="ascii_whitespace"
+        ),
+        pytest.param(re.compile("(?i)a"), "A", id="inline_global"),
+        pytest.param(re.compile("(?i:a)b"), "Ab", id="inline_scoped"),
+    ],
+)
+def test_match_drops_a_pattern_whose_flags_change_what_it_matches(
+    pattern: re.Pattern[str], accepted: str, version: str
+) -> None:
+    """A flag with no plain ``pattern`` spelling drops the pattern."""
+    schema = Schema(probatio.Match(pattern))
+
+    assert schema(accepted) == accepted
+    assert to_openapi(schema, openapi_version=version) == {"type": "string"}
+    assert to_openapi(schema, openapi_version=version, strict=True) == {
+        "type": "string"
+    }
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param(re.compile("a"), id="no_flags"),
+        pytest.param(re.compile("a", re.UNICODE), id="unicode"),
+        pytest.param(re.compile(r"\w+", re.ASCII), id="ascii_word"),
+    ],
+)
+def test_match_keeps_a_pattern_whose_flags_change_nothing(
+    pattern: re.Pattern[str],
+) -> None:
+    """A flagless pattern, or one only the default UNICODE flag marks, is kept."""
+    assert to_openapi(Schema(probatio.Match(pattern))) == {
+        "type": "string",
+        "pattern": pattern.pattern,
+    }

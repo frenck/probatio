@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import Counter
 from collections.abc import Hashable
 from dataclasses import dataclass, field
@@ -36,6 +37,7 @@ from probatio.validators import (
     Hex,
     HexColor,
     Hostname,
+    In,
     IPAddress,
     IPNetwork,
     IPv4Address,
@@ -707,6 +709,65 @@ def covers_every_property_name(key: Any) -> bool:
         key = key.validator if type(key) is Msg else key.schema
 
     return key is Extra or key is str or key is object
+
+
+def membership_normalizes_strings(node: In) -> bool:
+    """Whether an ``In``'s options change which strings it accepts.
+
+    ``fold_case`` and ``space`` rewrite the value and every string member before
+    they are compared, so a string member stands for a family of spellings that no
+    ``enum`` can list. A member that is not a string is compared as it is, so the
+    options only matter when at least one member is a string.
+    """
+    if not node.fold_case and node.space is None:
+        return False
+
+    return any(isinstance(member, str) for member in ordered_values(node.container))
+
+
+def only_string_members(node: In) -> bool:
+    """Whether every member of an ``In`` is a string (an empty one is not)."""
+    members = ordered_values(node.container)
+    return bool(members) and all(isinstance(member, str) for member in members)
+
+
+# Flags a pattern can switch on with a group, like ``(?i)`` or ``(?s:...)``,
+# including the scoped ``(?-i:...)`` form that switches one off.
+INLINE_REGEX_FLAGS = r"\(\?[aiLmsux]+[:)]|\(\?[aiLmsux]*-[aiLmsux]+:"
+
+# Flags that change what a pattern matches compared to the same source read as a
+# plain ECMA-262 pattern, which is what JSON Schema and OpenAPI mean by ``pattern``:
+#
+# - IGNORECASE: ECMA is case sensitive without its own ``i`` flag.
+# - VERBOSE: whitespace and ``#`` comments in the source are ignored.
+# - DOTALL: ``.`` also matches a line break, which it never does in ECMA.
+# - MULTILINE: ``^`` and ``$`` also match at each line break.
+# - LOCALE: bytes patterns only, and those have no document form at all.
+#
+# UNICODE is left out on purpose: every ``str`` pattern carries it. ASCII is
+# handled apart, since ECMA already limits ``\w``, ``\d`` and ``\b`` to ASCII.
+_MEANING_CHANGING_FLAGS = (
+    re.IGNORECASE | re.VERBOSE | re.DOTALL | re.MULTILINE | re.LOCALE
+)
+_WHITESPACE_CLASS = re.compile(r"\\[sS]")
+
+
+def regex_flags_change_meaning(pattern: re.Pattern[Any]) -> bool:
+    r"""Whether the flags on a compiled pattern make it match differently as ECMA.
+
+    Such a pattern cannot be emitted as it is, because the document would accept
+    a different set of strings than ``Match`` does. ASCII only matters for ``\s``
+    and ``\S``: ECMA reads them as Unicode whitespace, Python's ASCII mode as
+    the six ASCII whitespace characters, so ``\S`` would reject a non-breaking
+    space that ``Match`` accepts. The check is a loose match on the source, which
+    can only drop a pattern that was safe, never keep one that was not.
+    """
+    if pattern.flags & _MEANING_CHANGING_FLAGS:
+        return True
+
+    return bool(pattern.flags & re.ASCII) and bool(
+        _WHITESPACE_CLASS.search(pattern.pattern)
+    )
 
 
 def ordered_values(values: Any) -> list[Any]:

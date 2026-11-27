@@ -41,9 +41,15 @@ the empty schema `{}`, in every position, the same as `to_json_schema`.
 voluptuous-openapi renders `object` as a JSON object and gives any other untyped
 property `type: string`; both reject values the validator accepts, so `to_openapi`
 does neither. A bare bound (`Range`) is still typed `number`, as voluptuous-openapi
-does. A mixed enum stays untyped, since a `string` stamp would reject the `1` in
-`In([1, "x"])`. A bounded `Length` on its own renders one branch per sized type
-(`string`, `array`, `object`) with the bounds on that type's keyword, because
+does. An enum is typed only when every member shares one scalar type. A mixed enum
+stays untyped, since a `string` stamp would reject the `1` in `In([1, "x"])`, and
+so does one with a list or dict member, like `In([[1, 2], [3]])`. An `In` with
+`fold_case` or `space` renders as a plain string (or open, with a non-string
+member), because an enum cannot list the spellings it normalizes; `strict=True`
+refuses that. A `Match` whose flags change what it matches, like `re.IGNORECASE`,
+renders as a plain string without its `pattern`. A bounded `Length` on its own
+renders one branch per sized type (`string`, `array`, `object`) with the bounds on
+that type's keyword, because
 `Length` accepts all three and `minLength` alone constrains only strings. Beside a
 sized type, as in `All(str, Length(min=1))`, the bounds land on that type's keyword
 directly; beside anything else the branches stay and the rest is intersected with

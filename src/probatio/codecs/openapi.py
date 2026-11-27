@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import isroutine, signature
@@ -24,6 +25,7 @@ from typing import Any, TypeVar, Union, cast, get_args, get_origin, get_type_hin
 
 from probatio.codecs._shared import (
     FORMAT_BY_TYPE,
+    INLINE_REGEX_FLAGS,
     STRING_TYPES,
     UNSUPPORTED,
     ExclusiveGroup,
@@ -40,6 +42,9 @@ from probatio.codecs._shared import (
     key_presence_constraint,
     literal_any_names,
     member_present,
+    membership_normalizes_strings,
+    only_string_members,
+    regex_flags_change_meaning,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
 from probatio.codecs._shared import json_safe as _json_safe
@@ -113,6 +118,8 @@ _V3_1 = "3.1.0"
 # render a document that is neither 3.0 nor 3.1: ``"3.1"`` is the natural way to
 # get that wrong, hence the explicit hint in the error.
 _VERSIONS = (_V3_0, _V3_1)
+
+_INLINE_REGEX_FLAGS = re.compile(INLINE_REGEX_FLAGS)
 
 _OPENAPI_TYPES: dict[type, str] = {
     bool: "boolean",
@@ -939,7 +946,13 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         source = node.pattern.pattern
         # A bytes pattern has no OpenAPI form (schema strings are text), so it
         # renders as a plain string rather than crashing on the missing ``.pattern``.
-        if isinstance(source, bytes):
+        # A pattern whose flags change what it matches, set on the compiled pattern
+        # or by a group in the source, has no plain ``pattern`` spelling either.
+        if (
+            isinstance(source, bytes)
+            or regex_flags_change_meaning(node.pattern)
+            or _INLINE_REGEX_FLAGS.search(source)
+        ):
             return {"type": "string"}
         # ``Match`` rejects anything but a string, and ``pattern`` on its own
         # constrains only strings, so the type has to travel with it.
@@ -947,7 +960,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, Equal | Literal):
         return _oa_enum([node.target if isinstance(node, Equal) else node.lit])
     if isinstance(node, In):
-        return _oa_enum(list(node.container))
+        return _oa_in(node)
     if isinstance(node, NotIn):
         enum = _oa_enum(list(node.container))
         return {"not": enum} if enum else {}
@@ -1273,6 +1286,39 @@ def _oa_length_branches(bounds: dict[str, Any]) -> dict[str, Any]:
     return {"anyOf": branches}
 
 
+def _oa_in(node: In) -> dict[str, Any]:
+    """Render an ``In`` as an enum, unless its options widen what it accepts.
+
+    ``fold_case`` and ``space`` normalize the value and the string members before
+    comparing, so an enum of the exact members would reject a spelling the
+    validator accepts. Such an ``In`` widens to what is certain: a string when every
+    member is one, anything otherwise. Strict mode refuses the widening like any
+    other. Options that cannot matter (no string member) keep the exact enum.
+    """
+    if not membership_normalizes_strings(node):
+        return _oa_enum(list(node.container))
+
+    _open("an In that normalizes the case or spacing of its string members")
+    if only_string_members(node):
+        return {"type": "string"}
+
+    return {}
+
+
+def _oa_scalar_type(member: Any) -> str | None:
+    """Name the OpenAPI scalar type of an enum member, or ``None`` if it has none.
+
+    A subclass counts as its base, so a ``StrEnum`` member is a string and an
+    ``IntEnum`` member an integer. ``bool`` is asked before ``int``, which it
+    subclasses.
+    """
+    for scalar, name in _OPENAPI_TYPES.items():
+        if isinstance(member, scalar):
+            return name
+
+    return None
+
+
 def _oa_enum(values: list[Any]) -> dict[str, Any]:
     """Render an enum (from In or an Enum type), keeping any null member.
 
@@ -1302,10 +1348,12 @@ def _oa_enum(values: list[Any]) -> dict[str, Any]:
     # OpenAPI requires enum members to be unique, so drop duplicates the container
     # may hold (``In([0, 0])``), keeping first-seen order.
     cleaned = _dedup_preserving_order(cleaned)
-    member_types = {type(member) for member in cleaned}
     result: dict[str, Any] = {}
-    if len(member_types) == 1:
-        result["type"] = _OPENAPI_TYPES.get(cleaned[0].__class__, "string")
+    # A type is only true when every member shares it. A list or a dict member has
+    # no scalar type at all, and stamping one would reject it.
+    member_types = {_oa_scalar_type(member) for member in cleaned}
+    if len(member_types) == 1 and (member_type := member_types.pop()) is not None:
+        result["type"] = member_type
     result["enum"] = [*cleaned, None] if has_null else cleaned
     if has_null:
         result["nullable"] = True
