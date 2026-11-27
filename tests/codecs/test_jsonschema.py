@@ -3054,19 +3054,14 @@ def test_the_definitions_are_merged_into_a_defs_the_document_already_has() -> No
     assert list(document["$defs"]) == ["mine", "schema1"]
 
 
-def test_a_generated_name_avoids_one_the_document_already_has() -> None:
-    """The definition moves to the next free name, references and all."""
+def test_a_generated_name_the_document_already_uses_is_refused() -> None:
+    """A clash with the document's own ``$defs`` is an error, not a second render."""
     schema = Schema(All(_definitions_marker, {"a": Schema(_scope())}))
 
-    document = to_json_schema(
-        schema, custom_serializer=_claims_defs({"schema1": {"type": "string"}})
-    )
-
-    assert document["properties"]["a"] == {"$ref": "#/$defs/schema2"}
-    assert document["$defs"]["schema1"] == {"type": "string"}
-    assert document["$defs"]["schema2"]["properties"]["n"]["anyOf"][1] == {
-        "$ref": "#/$defs/schema2"
-    }
+    with pytest.raises(SchemaError, match="schema1"):
+        to_json_schema(
+            schema, custom_serializer=_claims_defs({"schema1": {"type": "string"}})
+        )
 
 
 def test_definitions_cannot_join_a_defs_that_is_not_an_object() -> None:
@@ -3308,3 +3303,51 @@ def test_a_schema_subclass_at_the_root_keeps_its_self_reference() -> None:
         to_openapi(schema, strict=True),
     ):
         assert document["properties"]["children"]["items"] == {"$ref": "#"}
+
+
+def test_a_reused_definition_still_reports_that_it_widened() -> None:
+    """An exactly-one ``SomeOf`` around a reused, widened definition uses ``anyOf``."""
+    element = Schema(Any(In(["A"], fold_case=True), {str: Self}))
+    schema = Schema(
+        {
+            Optional("first"): element,
+            Optional("second"): SomeOf([element, In(["b"])], 1, 1),
+        }
+    )
+    document = to_json_schema(schema)
+
+    assert "oneOf" not in document["properties"]["second"]
+    # Only the second branch of the ``SomeOf`` takes "b", though both rendered
+    # branches match it.
+    assert schema({"second": "b"}) == {"second": "b"}
+    jsonschema.validate({"second": "b"}, document)
+
+
+@pytest.mark.parametrize(
+    ("inner", "keyword", "empty"),
+    [
+        pytest.param({Optional("n"): [Self]}, "minProperties", {}, id="object"),
+        pytest.param([Any(int, Self)], "minItems", [], id="array"),
+    ],
+)
+def test_a_length_beside_a_reference_lands_on_the_keyword_of_its_type(
+    inner: object, keyword: str, empty: object
+) -> None:
+    """The type behind a reference decides which length keyword a ``Length`` gets."""
+    schema = Schema({"a": All(Schema(inner), Length(min=1))})
+    document = to_json_schema(schema, strict=True)
+
+    assert document["properties"]["a"][keyword] == 1
+    assert "minLength" not in document["properties"]["a"]
+    # The bound stays beside the reference and out of the shared definition.
+    assert keyword not in next(iter(document["$defs"].values()))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"a": empty}, document)
+
+
+def test_a_length_beside_a_reference_to_the_root_keeps_its_string_keyword() -> None:
+    """The root is not a finished definition, so its type cannot be asked."""
+    schema = Schema({Optional("n"): All(Self, Length(min=1))})
+    document = to_json_schema(schema)
+
+    assert document["properties"]["n"] == {"$ref": "#", "minLength": 1}

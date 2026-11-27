@@ -242,8 +242,8 @@ no `$defs`. The same `Schema` instance used in several places is one definition.
 For a `Maybe` the definition is the wrapped schema alone: a nested `Self` does not
 accept `None`, and the `null` stays beside the reference. Because the definition
 is exact, `strict=True` has nothing to refuse. When a custom serializer already
-put a `$defs` in the document, the definitions are added to it, and a generated
-name that is taken moves to the next free one.
+put a `$defs` in the document, the definitions are added to it. If it already
+uses one of the generated names, the conversion raises `SchemaError`.
 
 `prefixItems` is honored in its closed form (`items: false`) and refused with an
 open tail. As in JSON Schema it validates the positions that are present, so a

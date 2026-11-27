@@ -53,6 +53,7 @@ from probatio.codecs._shared import (
     membership_normalizes_strings,
     note_widening,
     only_string_members,
+    referenced_definition,
     regex_flags_change_meaning,
     render_self,
     widenings,
@@ -225,32 +226,35 @@ def _convert_document(schema: Any) -> dict[str, Any]:
     """Render the whole document, with the definitions a nested ``Self`` needs.
 
     A scope a ``Self`` refers to is rendered once, into ``$defs`` at the root, and
-    referenced from where it stands. The names are generated, so a document that
+    referenced from where it stands. The names are generated. A document that
     already carries a ``$defs`` of its own (a custom serializer can return one) is
-    merged into, and when it already uses a generated name the whole document is
-    rendered again with that name set aside.
+    merged into; one that already uses a generated name is refused, since the
+    references to it are written by then and rendering again would read every
+    container in the schema a second time.
     """
-    reserved: frozenset[str] = frozenset()
-    while True:
-        with encoding_root(schema, reserved) as state:
-            document = _convert(schema, required_default=False, allow_extra=False)
+    with encoding_root(schema) as state:
+        document = _convert(schema, required_default=False, allow_extra=False)
 
-        if not state.definitions:
-            return document
+    if not state.definitions:
+        return document
 
-        existing = document.get("$defs", {})
-        if not isinstance(existing, dict):
-            message = (
-                "to_json_schema cannot add the definitions of a nested Self to "
-                "a document whose $defs is not an object"
-            )
-            raise SchemaError(message)
+    existing = document.get("$defs", {})
+    if not isinstance(existing, dict):
+        message = (
+            "to_json_schema cannot add the definitions of a nested Self to "
+            "a document whose $defs is not an object"
+        )
+        raise SchemaError(message)
 
-        taken = existing.keys() & state.definitions.keys()
-        if not taken:
-            return {**document, "$defs": {**existing, **state.definitions}}
+    taken = sorted(existing.keys() & state.definitions.keys())
+    if taken:
+        message = (
+            "to_json_schema names the definitions of a nested Self "
+            f"{', '.join(taken)}, which the document's own $defs already uses"
+        )
+        raise SchemaError(message)
 
-        reserved |= taken
+    return {**document, "$defs": {**existing, **state.definitions}}
 
 
 def _open(reason: str) -> dict[str, Any]:
@@ -1093,8 +1097,14 @@ _LENGTH_KEYS_BY_TYPE: dict[str, tuple[str, str]] = {
 
 
 def _retarget_length(merged: dict[str, Any]) -> dict[str, Any]:
-    """Move a merged Length's string-length keys onto the array/object keyword."""
-    keys = _LENGTH_KEYS_BY_TYPE.get(merged.get("type", ""))
+    """Move a merged Length's string-length keys onto the array/object keyword.
+
+    The type decides which keyword. A part that is a reference to a hoisted
+    definition carries none of its own, so the definition is asked; the bounds
+    stay beside the reference, where they apply to this use alone.
+    """
+    typed = merged if "type" in merged else referenced_definition(merged) or merged
+    keys = _LENGTH_KEYS_BY_TYPE.get(typed.get("type", ""))
     if keys is None:
         return merged
 

@@ -795,17 +795,15 @@ class _EncodingState:
     scope of their own (see ``root_wrappers``). ``frames`` is the stack of scopes
     entered since, innermost last, so a ``Self`` is only the document root while
     the stack is empty. The remaining fields serve the ``$defs`` rendering: the
-    hoisted ``definitions`` by name, the name a ``Schema`` instance was given
-    (``by_schema``, keyed on identity so one instance is one definition), the
-    names ``reserved`` by something already in the document, and how many names
-    were handed out.
+    hoisted ``definitions`` by name, what a ``Schema`` instance was given
+    (``by_schema``, keyed on identity so one instance is one definition: its name,
+    and whether rendering it widened), and how many names were handed out.
     """
 
     root_wrappers: frozenset[int] = frozenset()
-    reserved: frozenset[str] = frozenset()
     frames: list[_SelfFrame] = field(default_factory=list)
     definitions: dict[str, dict[str, Any]] = field(default_factory=dict)
-    by_schema: dict[int, str] = field(default_factory=dict)
+    by_schema: dict[int, tuple[str, bool]] = field(default_factory=dict)
     issued: int = 0
 
 
@@ -839,16 +837,14 @@ def root_wrappers(schema: Any) -> frozenset[int]:
 
 
 @contextmanager
-def encoding_root(
-    schema: Any, reserved: frozenset[str] = frozenset()
-) -> Generator[_EncodingState]:
+def encoding_root(schema: Any) -> Generator[_EncodingState]:
     """Mark ``schema`` as the document root for the ``Self`` it contains.
 
     Each call gets a state of its own, so an encoding started from inside a
     custom serializer neither sees nor disturbs the definitions of the call
-    around it. ``reserved`` are names the generated ones must avoid.
+    around it.
     """
-    state = _EncodingState(root_wrappers(schema), reserved)
+    state = _EncodingState(root_wrappers(schema))
     token = _SELF_SCOPE.set(state)
     try:
         yield state
@@ -889,12 +885,28 @@ def self_is_document_root() -> bool:
 
 
 def _definition_name(state: _EncodingState) -> str:
-    """Hand out the next definition name, skipping the ones the document uses."""
-    while True:
-        state.issued += 1
-        name = f"{_DEFINITION_PREFIX}{state.issued}"
-        if name not in state.reserved:
-            return name
+    """Hand out the next definition name."""
+    state.issued += 1
+    return f"{_DEFINITION_PREFIX}{state.issued}"
+
+
+def referenced_definition(schema: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the hoisted definition a rendered schema refers to, if it does.
+
+    For a caller that needs to know what stands behind a reference, its type
+    above all. ``None`` for anything but a reference to a definition that is
+    complete: the root, and a scope still being rendered, cannot answer yet.
+    """
+    state = _SELF_SCOPE.get()
+    ref = schema.get("$ref")
+    if state is None or not isinstance(ref, str):
+        return None
+
+    prefix = "#/$defs/"
+    if not ref.startswith(prefix):
+        return None
+
+    return state.definitions.get(ref[len(prefix) :])
 
 
 def definition_reference(name: str) -> dict[str, Any]:
@@ -936,8 +948,15 @@ def hoisted_scope(
         return render()
 
     if isinstance(node, Schema) and id(node) in state.by_schema:
-        return definition_reference(state.by_schema[id(node)])
+        name, widened = state.by_schema[id(node)]
+        # The definition is not rendered again, so what its rendering reported
+        # is: a construct around this use has to learn that it widened.
+        if widened:
+            note_widening()
 
+        return definition_reference(name)
+
+    before = widenings()
     frame = _SelfFrame()
     state.frames.append(frame)
     try:
@@ -950,7 +969,7 @@ def hoisted_scope(
 
     state.definitions[frame.name] = body
     if isinstance(node, Schema):
-        state.by_schema[id(node)] = frame.name
+        state.by_schema[id(node)] = (frame.name, widenings() != before)
 
     return definition_reference(frame.name)
 
