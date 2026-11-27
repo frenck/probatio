@@ -165,3 +165,36 @@ def test_install_as_voluptuous_warns_when_shadowing_real_voluptuous() -> None:
     )  # stand-in for the real one
     with pytest.warns(RuntimeWarning, match="shadowing"):
         install_as_voluptuous()
+
+
+@pytest.mark.usefixtures("_restore_voluptuous")
+def test_subclass_call_raising_value_error_matches_voluptuous() -> None:
+    """A Range subclass whose ``__call__`` raises ValueError fails like it does in voluptuous."""
+    # Drop any shim registration so the real voluptuous loads from disk.
+    for key in [
+        k for k in sys.modules if k == "voluptuous" or k.startswith("voluptuous.")
+    ]:
+        del sys.modules[key]
+    voluptuous = pytest.importorskip("voluptuous")
+
+    def outcome(library: object) -> tuple[str, list[str]]:
+        """Validate an odd number against an even-only Range and describe the error."""
+
+        class Even(library.Range):  # type: ignore[name-defined]
+            """A range that only takes even numbers, rejecting with a ValueError."""
+
+            def __call__(self, value: int) -> int:
+                """Run the range check, then reject odd numbers."""
+                value = super().__call__(value)
+                if value % 2:
+                    message = "must be even"
+                    raise ValueError(message)
+                return value
+
+        with pytest.raises(library.MultipleInvalid) as caught:  # type: ignore[attr-defined]
+            library.Schema({"n": Even(min=0)})({"n": 3})
+
+        (error,) = caught.value.errors
+        return type(error).__name__, [str(segment) for segment in error.path]
+
+    assert outcome(probatio) == outcome(voluptuous)

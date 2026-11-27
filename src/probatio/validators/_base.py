@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class _SafeValidator:
     """Base for validators that always raise ``Invalid`` on failure.
@@ -29,6 +31,29 @@ class _SafeValidator:
     skip the generic ``ValueError``-to-``Invalid`` guard it wraps arbitrary
     callables in. Set it only on a validator that genuinely upholds the contract;
     ``tests/validators/test_safe_contract.py`` fuzzes every built-in to enforce it.
+
+    The promise covers the ``__call__`` probatio wrote, not a subclass's. A subclass
+    that resolves to a ``__call__`` from outside the package, its own or one a mixin
+    supplies, has promised nothing, so ``__init_subclass__`` withdraws the flag and
+    the compiler wraps it in the generic guard like any other callable. A subclass
+    that keeps probatio's ``__call__`` keeps the flag.
     """
 
     __probatio_safe__: bool = True
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Withdraw the safe flag when the class runs a ``__call__`` probatio did not write."""
+        super().__init_subclass__(**kwargs)
+
+        # Walk the MRO by hand: ``getattr(cls, "__call__")`` falls back to
+        # ``type.__call__`` on a class without one (the abstract bases), which is not
+        # a validator ``__call__`` at all.
+        owner = next((base for base in cls.__mro__ if "__call__" in vars(base)), None)
+        if owner is None:
+            return
+
+        # Judge by the class that defines ``__call__``, not by the function: an
+        # override decorated with ``functools.wraps(Range.__call__)`` carries the
+        # wrapped function's ``__module__`` and would pass for probatio's own.
+        if not owner.__module__.startswith("probatio."):
+            cls.__probatio_safe__ = False

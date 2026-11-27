@@ -120,6 +120,10 @@ carries the `not a valid value: ` prefix. Raise `Invalid` when you want full
 control of the message the caller reads, with no prefix.
 :::
 
+This holds for a subclass of a built-in validator that overrides `__call__` too:
+a `ValueError` from your override becomes an `Invalid`, the same as for a plain
+callable.
+
 ## Wrapping a predicate with truth
 
 Some checks already exist as predicates: a function that answers `True` or

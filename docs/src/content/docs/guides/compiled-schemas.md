@@ -121,7 +121,8 @@ TypedDicts, including nested mappings, and single-element list schemas (`[str]`,
 inlines the validators that show up most: `Coerce` to `int`/`float`, numeric
 `Range`, plain `In` membership, type checks, an `Any` of literal choices
 (`Any("on", "off")`, validated as a membership test), `Maybe(X)` (an optional
-validated value), and `All`/`Any` chains of those.
+validated value), and `All`/`Any` chains of those. A subclass of one of these that
+overrides `__call__` is not inlined: its override always runs, compiled or not.
 
 Anything it does not handle is simply left interpreted. A recursive schema (`Self`
 or a recursive JSON Schema `$ref`), an exclusive or inclusive group, a multi-element
