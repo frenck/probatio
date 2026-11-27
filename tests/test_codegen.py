@@ -1112,6 +1112,112 @@ def test_failing_deep_acyclic_tree_does_not_cost_exponential_time() -> None:
     assert outcome == _outcome(interpreted, data)
 
 
+class _Label:
+    """A type that validates itself: its hook lowercases, an instance included."""
+
+    def __init__(self, text: str) -> None:
+        """Hold the text as given."""
+        self.text = text
+
+    def __eq__(self, other: object) -> bool:
+        """Compare by text, so a normalized label differs from the raw one."""
+        return isinstance(other, _Label) and other.text == self.text
+
+    def __hash__(self) -> int:
+        """Hash by text, to match ``__eq__``."""
+        return hash(self.text)
+
+    def __repr__(self) -> str:
+        """Render the text, so a parity failure shows which side normalized."""
+        return f"_Label({self.text!r})"
+
+    @classmethod
+    def __probatio_validate__(cls, value: object) -> _Label:
+        """Lowercase a label or a string; reject anything else."""
+        if isinstance(value, cls):
+            return cls(value.text.lower())
+        if isinstance(value, str):
+            return cls(value.lower())
+        message = "expected a label"
+        raise Invalid(message)
+
+
+@dataclass
+class _Labeled:
+    """A dataclass with a self-validating field."""
+
+    label: _Label
+
+
+@dataclass
+class _HoldsLabeled:
+    """A dataclass holding ``_Labeled``, so the field is reached through a twin."""
+
+    inner: _Labeled
+
+
+# One entry per position a type is inlined in: a schema builder taking the
+# ``compile`` flag, and how that schema's input wraps a label.
+_PROTOCOL_POSITIONS = {
+    "mapping value": (
+        lambda compiled: Schema({"k": _Label}, compile=compiled),
+        lambda label: {"k": label},
+    ),
+    "list element": (
+        lambda compiled: Schema({"k": [_Label]}, compile=compiled),
+        lambda label: {"k": [label]},
+    ),
+    "top-level list": (
+        lambda compiled: Schema([_Label], compile=compiled),
+        lambda label: [label],
+    ),
+    "all member": (
+        lambda compiled: Schema({"k": All(_Label)}, compile=compiled),
+        lambda label: {"k": label},
+    ),
+    "dataclass field": (
+        lambda compiled: DataclassSchema(_Labeled, compile=compiled),
+        lambda label: {"label": label},
+    ),
+    "nested dataclass field": (
+        lambda compiled: DataclassSchema(_HoldsLabeled, compile=compiled),
+        lambda label: {"inner": {"label": label}},
+    ),
+}
+
+
+@pytest.mark.parametrize("position", sorted(_PROTOCOL_POSITIONS))
+def test_compiled_schema_runs_a_type_validation_hook_on_an_instance(
+    position: str,
+) -> None:
+    """A type's ``__probatio_validate__`` runs on every value, compiled or not.
+
+    The hook may return a different value even for an existing instance (here it
+    lowercases), so generated code must not replace it with an ``isinstance`` test
+    that passes the instance through untouched. Checked in every position a type
+    is inlined, the field of a nested dataclass reached through its twin included.
+    """
+    make, wrap = _PROTOCOL_POSITIONS[position]
+    interpreted = make(False)
+    compiled = make(True).compile()
+
+    for label in (_Label("ABC"), "ABC", 3):
+        data = wrap(label)
+        assert _outcome(compiled, data) == _outcome(interpreted, data), label
+    assert _Label("abc") in _flatten(compiled(wrap(_Label("ABC"))))
+
+
+def _flatten(value: object) -> list[object]:
+    """Every leaf of a result built from dicts, lists, and dataclasses."""
+    if isinstance(value, dict):
+        return [leaf for item in value.values() for leaf in _flatten(item)]
+    if isinstance(value, list):
+        return [leaf for item in value for leaf in _flatten(item)]
+    if isinstance(value, (_Labeled, _HoldsLabeled)):
+        return _flatten(vars(value))
+    return [value]
+
+
 class _Link(TypedDict):
     """A self-referential TypedDict, for the deep-failure regression test."""
 

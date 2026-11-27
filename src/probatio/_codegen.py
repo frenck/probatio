@@ -322,12 +322,19 @@ def _inline_in(schema: Any, namespace: dict[str, Any], tag: str) -> list[str] | 
 
 
 def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str] | None:
-    """Inline an isinstance check for a plain (non-Enum) type; ``_v`` is unchanged.
+    """Inline an isinstance check for a plain type; ``_v`` is unchanged.
 
     ``float`` is the exception: it honors the numeric tower (ADR-017), so an ``int``
     is coerced to ``float`` rather than rejected. A ``float`` subclass or a ``bool``
     bails to the interpreted ``_FloatCheck``, which decides them, so compiled and
     interpreted agree.
+
+    A type that validates itself is not inlined, the same two cases ``_compile_type``
+    puts ahead of the bare check: an ``Enum`` (value-or-member coercion) and a type
+    with a ``__probatio_validate__`` hook (ADR-007). The hook runs on every value,
+    an existing instance included, and may return a different one, so an
+    ``isinstance`` test that waves an instance through would skip it. Both stay a
+    call to the compiled closure, which runs the real validation.
     """
     if schema is float:
         return [
@@ -341,7 +348,9 @@ def _inline_type(schema: type, namespace: dict[str, Any], tag: str) -> list[str]
             "        else:",
             "            raise _Bail",
         ]
-    if issubclass(schema, Enum):
+    if issubclass(schema, Enum) or callable(
+        getattr(schema, "__probatio_validate__", None)
+    ):
         return None
     namespace[f"_ty{tag}"] = schema
     return [f"        if not isinstance(_v, _ty{tag}):", "            raise _Bail"]
