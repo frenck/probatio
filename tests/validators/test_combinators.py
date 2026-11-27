@@ -566,7 +566,7 @@ def test_any_float_branch_miss_matches_the_union_error() -> None:
 
 
 def test_any_float_branch_survives_extra_policy_recompile() -> None:
-    """Rebinding the Any under another extra policy keeps the ordered float walk."""
+    """Rebinding the Any under another extra policy keeps the branch order of the float shortcut."""
     schema = Schema({"k": Any(int, float)}, extra=ALLOW_EXTRA)
 
     assert schema({"k": 7}) == {"k": 7}
@@ -586,8 +586,8 @@ def _any_outcome(schema: Schema, value: object) -> tuple[object, ...]:
     return ("value", type(result), repr(result))
 
 
-_FLOAT_WALK_BRANCHES = (int, float, str, bool, None, object, _SubFloat)
-_FLOAT_WALK_VALUES = (
+_FLOAT_SHORTCUT_BRANCHES = (int, float, str, bool, None, object, _SubFloat)
+_FLOAT_SHORTCUT_VALUES = (
     0,
     7,
     -0.0,
@@ -606,25 +606,27 @@ _FLOAT_WALK_VALUES = (
 
 
 @pytest.mark.parametrize("size", [1, 2, 3])
-def test_any_float_walk_agrees_with_running_every_branch(size: int) -> None:
-    """The exception-free walk gives what calling the branches in order gives."""
-    for branches in itertools.permutations(_FLOAT_WALK_BRANCHES, size):
+def test_any_float_shortcut_agrees_with_running_every_branch(size: int) -> None:
+    """The exception-free shortcut gives what calling the branches in order gives."""
+    for branches in itertools.permutations(_FLOAT_SHORTCUT_BRANCHES, size):
         if float not in branches:
             continue
 
         # ``Union`` without a discriminant runs each compiled branch in order,
-        # which is the behavior the walk in ``Any`` has to reproduce.
+        # which is the behavior the shortcut in ``Any`` has to reproduce.
         fast = Schema(Any(*branches))
         reference = Schema(Union(*branches))
 
-        for value in _FLOAT_WALK_VALUES:
+        for value in _FLOAT_SHORTCUT_VALUES:
             assert _any_outcome(fast, value) == _any_outcome(reference, value), (
                 branches,
                 value,
             )
 
 
-def test_any_float_walk_leaves_a_failing_int_conversion_to_the_next_branch() -> None:
+def test_any_float_shortcut_leaves_a_failing_int_conversion_to_the_next_branch() -> (
+    None
+):
     """An ``Invalid`` from an int subclass's ``__float__`` rejects only the float branch."""
 
     class Stubborn(int):
@@ -643,7 +645,9 @@ def test_any_float_walk_leaves_a_failing_int_conversion_to_the_next_branch() -> 
     )
 
 
-def test_any_float_walk_leaves_a_type_check_that_runs_code_to_the_branches() -> None:
+def test_any_float_shortcut_leaves_a_type_check_that_runs_code_to_the_branches() -> (
+    None
+):
     """A type with its own ``__instancecheck__`` is checked once, by its branch."""
     answers: list[object] = []
 
@@ -669,7 +673,7 @@ def test_any_float_walk_leaves_a_type_check_that_runs_code_to_the_branches() -> 
     assert len(answers) == 1
 
 
-def test_any_float_walk_does_not_skip_a_branch_for_none() -> None:
+def test_any_float_shortcut_does_not_skip_a_branch_for_none() -> None:
     """A type check that raises on ``None`` still runs when a ``None`` branch follows."""
 
     class Loud(type):
@@ -685,3 +689,46 @@ def test_any_float_walk_does_not_skip_a_branch_for_none() -> None:
 
     with pytest.raises(RuntimeError, match="boom"):
         Schema(Any(Odd, float, None))(None)
+
+
+def test_any_float_shortcut_leaves_a_value_with_its_own_class_lookup_alone() -> None:
+    """A subclass whose ``__class__`` is a property is read as often as each branch asks."""
+    reads: list[int] = []
+
+    class Shifty(int):
+        """An int whose ``__class__`` is computed, and counted, on every read."""
+
+        @property  # type: ignore[misc]
+        def __class__(self) -> type:  # type: ignore[override]
+            """Count the read and answer honestly."""
+            reads.append(1)
+            return Shifty
+
+    value = Shifty(7)
+
+    Schema(Union(str, int, float))(value)
+    expected = len(reads)
+    reads.clear()
+
+    assert Schema(Any(str, int, float))(value) is value
+    # One more than the branches ask for: the membership check ahead of them, which
+    # an ``Any`` with a float branch has always done.
+    assert len(reads) == expected + 1
+
+
+def test_any_float_shortcut_does_not_hash_the_type_of_a_value() -> None:
+    """A value whose class cannot be hashed is still validated."""
+
+    class Unhashable(type):
+        """A metaclass that makes its classes unhashable."""
+
+        __hash__ = None  # type: ignore[assignment]
+
+    class Odd(str, metaclass=Unhashable):
+        """A str whose class cannot be a dict key."""
+
+        __slots__ = ()
+
+    value = Odd("x")
+
+    assert Schema(Any(float, str))(value) is value
