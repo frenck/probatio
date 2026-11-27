@@ -43,6 +43,7 @@ from probatio.codecs._shared import (
     is_one_of,
     key_presence_constraint,
     literal_any_names,
+    members_a_json_value_can_equal,
     membership_normalizes_strings,
     only_string_members,
     regex_flags_change_meaning,
@@ -1063,14 +1064,32 @@ def _convert_in(node: In) -> dict[str, Any]:
     mode refuses the widening like any other. Options that cannot matter (no string
     member) keep the exact ``enum``.
     """
-    if not membership_normalizes_strings(node):
-        return _enum(node.container)
+    members = _ordered(node.container)
+    if not membership_normalizes_strings(node, members):
+        return _enum(members)
 
     _open("an In that normalizes the case or spacing of its string members")
-    if only_string_members(node):
+    if only_string_members(members):
         return {"type": "string"}
 
     return {}
+
+
+def _convert_not_in(node: NotIn) -> dict[str, Any]:
+    """Render a ``NotIn`` as a ``not`` over the members a JSON value can equal.
+
+    A member whose JSON form no longer equals it (a tuple rendered as a list, say)
+    is left out: the validator accepts that list, so excluding it would reject a
+    valid value. Leaving a member out widens, which strict mode refuses.
+    """
+    members = _ordered(node.container)
+    excluded = members_a_json_value_can_equal(members)
+    if len(excluded) != len(members):
+        _open("a NotIn member that no JSON value equals")
+        if not excluded:
+            return {}
+
+    return {"not": _enum(excluded)}
 
 
 def _const(value: Any) -> dict[str, Any]:
@@ -1095,10 +1114,7 @@ def _convert_equality(node: Any) -> dict[str, Any] | None:
         return _convert_in(node)
 
     if isinstance(node, NotIn):
-        enum = _enum(node.container)
-        # An unrepresentable ``NotIn`` container already widened (or raised in
-        # strict mode) inside ``_enum``, so a truthy ``enum`` is the only case here.
-        return {"not": enum} if enum else enum
+        return _convert_not_in(node)
 
     if isinstance(node, Equal):
         return _const(node.target)

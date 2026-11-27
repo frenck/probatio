@@ -42,6 +42,7 @@ from probatio.codecs._shared import (
     key_presence_constraint,
     literal_any_names,
     member_present,
+    members_a_json_value_can_equal,
     membership_normalizes_strings,
     only_string_members,
     regex_flags_change_meaning,
@@ -962,8 +963,7 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     if isinstance(node, In):
         return _oa_in(node)
     if isinstance(node, NotIn):
-        enum = _oa_enum(list(node.container))
-        return {"not": enum} if enum else {}
+        return _oa_not_in(node)
     if is_one_of(node, _OPENAPI_FORMATS):
         return {"format": _OPENAPI_FORMATS[node]}
 
@@ -1295,14 +1295,33 @@ def _oa_in(node: In) -> dict[str, Any]:
     member is one, anything otherwise. Strict mode refuses the widening like any
     other. Options that cannot matter (no string member) keep the exact enum.
     """
-    if not membership_normalizes_strings(node):
-        return _oa_enum(list(node.container))
+    members = _ordered(node.container)
+    if not membership_normalizes_strings(node, members):
+        return _oa_enum(members)
 
     _open("an In that normalizes the case or spacing of its string members")
-    if only_string_members(node):
+    if only_string_members(members):
         return {"type": "string"}
 
     return {}
+
+
+def _oa_not_in(node: NotIn) -> dict[str, Any]:
+    """Render a ``NotIn`` as a ``not`` over the members a JSON value can equal.
+
+    A member whose JSON form no longer equals it (a tuple rendered as a list, say)
+    is left out: the validator accepts that list, so excluding it would reject a
+    valid value. Leaving a member out widens, which strict mode refuses.
+    """
+    members = _ordered(node.container)
+    excluded = members_a_json_value_can_equal(members)
+    if len(excluded) != len(members):
+        _open("a NotIn member that no JSON value equals")
+        if not excluded:
+            return {}
+
+    enum = _oa_enum(excluded)
+    return {"not": enum} if enum else {}
 
 
 def _oa_scalar_type(member: Any) -> str | None:

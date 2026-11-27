@@ -711,24 +711,44 @@ def covers_every_property_name(key: Any) -> bool:
     return key is Extra or key is str or key is object
 
 
-def membership_normalizes_strings(node: In) -> bool:
+def membership_normalizes_strings(node: In, members: list[Any]) -> bool:
     """Whether an ``In``'s options change which strings it accepts.
 
     ``fold_case`` and ``space`` rewrite the value and every string member before
     they are compared, so a string member stands for a family of spellings that no
     ``enum`` can list. A member that is not a string is compared as it is, so the
     options only matter when at least one member is a string.
+
+    ``members`` is the container listed once by the caller: a container can be an
+    iterator, which a second listing would find empty.
     """
     if not node.fold_case and node.space is None:
         return False
 
-    return any(isinstance(member, str) for member in ordered_values(node.container))
+    return any(isinstance(member, str) for member in members)
 
 
-def only_string_members(node: In) -> bool:
-    """Whether every member of an ``In`` is a string (an empty one is not)."""
-    members = ordered_values(node.container)
+def only_string_members(members: list[Any]) -> bool:
+    """Whether every member is a string (an empty list has none)."""
     return bool(members) and all(isinstance(member, str) for member in members)
+
+
+def members_a_json_value_can_equal(members: list[Any]) -> list[Any]:
+    """Keep the members whose JSON form still compares equal to them.
+
+    For the members a ``NotIn`` excludes. Rendering a tuple gives a list, a
+    ``datetime`` a string, a plain ``Enum`` member its value, and none of those
+    equals the member, so the validator accepts the very value the document would
+    exclude. Leaving such a member out of the ``not`` only widens it, which is the
+    safe direction, where keeping it rejects a value that is valid.
+    """
+    kept: list[Any] = []
+    for member in members:
+        rendered = json_safe(member)
+        if rendered is not UNREPRESENTABLE and bool(rendered == member):
+            kept.append(member)
+
+    return kept
 
 
 # Flags a pattern can switch on with a group, like ``(?i)`` or ``(?s:...)``,

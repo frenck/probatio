@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import itertools
 import json
 import re
@@ -2442,3 +2443,38 @@ def test_match_with_flags_as_a_mapping_key_adds_no_key_constraint() -> None:
     schema = Schema({Match(re.compile("a", re.IGNORECASE)): int})
 
     assert _document_accepts(schema, {"A": 1})
+
+
+def test_in_reads_an_iterator_container_once() -> None:
+    """An ``In`` over an iterator still lists its members when an option is set."""
+    document = to_json_schema(Schema(In(iter([1, 2]), fold_case=True)))
+
+    assert document == {"enum": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    ("container", "expected"),
+    [
+        pytest.param([(1, 2)], {}, id="tuple_only"),
+        pytest.param([1, (1, 2)], {"not": {"enum": [1]}}, id="tuple_beside_int"),
+        pytest.param([dt.date(2020, 1, 1)], {}, id="date"),
+        pytest.param([[(1, 2)]], {}, id="tuple_nested_in_list"),
+    ],
+)
+def test_not_in_leaves_out_a_member_no_json_value_equals(
+    container: list[object], expected: dict[str, object]
+) -> None:
+    """A member whose JSON form differs from it is not excluded by the document."""
+    document = to_json_schema(Schema(NotIn(container)))
+
+    assert document == expected
+    # The validator accepts the JSON form of the member, so the document must too.
+    rendered = json.loads(json.dumps(container[-1], default=str))
+    assert Schema(NotIn(container))(rendered) == rendered
+    jsonschema.validate(rendered, document)
+
+
+def test_strict_refuses_a_not_in_member_no_json_value_equals() -> None:
+    """Leaving a member out of the ``not`` widens, which strict mode reports."""
+    with pytest.raises(SchemaError, match="NotIn member"):
+        to_json_schema(Schema(NotIn([(1, 2)])), strict=True)

@@ -2016,3 +2016,41 @@ def test_match_keeps_a_pattern_whose_flags_change_nothing(
         "type": "string",
         "pattern": pattern.pattern,
     }
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_in_reads_an_iterator_container_once(version: str) -> None:
+    """An ``In`` over an iterator still lists its members when an option is set."""
+    document = to_openapi(
+        Schema(probatio.In(iter([1, 2]), fold_case=True)), openapi_version=version
+    )
+
+    assert document == {"type": "integer", "enum": [1, 2]}
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("container", "expected"),
+    [
+        pytest.param([(1, 2)], {}, id="tuple_only"),
+        pytest.param(
+            [1, (1, 2)],
+            {"not": {"type": "integer", "enum": [1]}},
+            id="tuple_beside_int",
+        ),
+    ],
+)
+def test_not_in_leaves_out_a_member_no_json_value_equals(
+    container: list[Any], expected: dict[str, Any], version: str
+) -> None:
+    """A member whose JSON form differs from it is not excluded by the document."""
+    document = to_openapi(Schema(probatio.NotIn(container)), openapi_version=version)
+
+    assert document == expected
+    assert Schema(probatio.NotIn(container))([1, 2]) == [1, 2]
+
+
+def test_strict_refuses_a_not_in_member_no_json_value_equals() -> None:
+    """Leaving a member out of the ``not`` widens, which strict mode reports."""
+    with pytest.raises(probatio.SchemaError, match="NotIn member"):
+        to_openapi(Schema(probatio.NotIn([(1, 2)])), strict=True)
