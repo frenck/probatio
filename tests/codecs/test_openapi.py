@@ -2649,3 +2649,25 @@ def test_a_nullable_property_leaves_a_presence_rule_beside_it_exact() -> None:
         {"a": 1, "x": None},
     ):
         assert _validates(document, "3.0", value) is _accepts(schema, value), value
+
+
+def test_a_union_with_null_keeps_the_annotations_on_the_property() -> None:
+    """A description, a default and ``writeOnly`` stay where a reader looks for them."""
+    conflicting = probatio.Maybe(
+        probatio.All(probatio.In(["a"]), probatio.In(["a", "b"]))
+    )
+    schema = Schema(
+        {
+            probatio.Optional(
+                "name", description="the name", default=None
+            ): conflicting,
+            probatio.Secret("token"): conflicting,
+        }
+    )
+    properties = to_openapi(schema)["properties"]
+
+    assert properties["name"]["description"] == "the name"
+    assert properties["name"]["default"] is None
+    assert properties["token"]["writeOnly"] is True
+    assert "description" not in properties["name"]["anyOf"][0]
+    assert "writeOnly" not in properties["token"]["anyOf"][0]

@@ -348,9 +348,20 @@ def _mark_nullable(result: dict[str, Any], version: str) -> None:
         # in the same position. Everything the schema asserted moves into one
         # branch of a union with null, which keeps the siblings honest: "all of
         # this, or null" rather than "all of this, and separately maybe null".
-        asserted = {key: value for key, value in result.items() if key != "nullable"}
+        #
+        # What describes the schema (its description, its default, ``writeOnly``)
+        # stays on the outside, where a reader of the property looks for it.
+        described = {
+            key: value
+            for key, value in result.items()
+            if key in _ANNOTATIONS and key != "nullable"
+        }
+        asserted = {
+            key: value for key, value in result.items() if key not in _ANNOTATIONS
+        }
         result.clear()
         result["anyOf"] = [asserted, _oa_null(version)]
+        result.update(described)
         return
 
     if version == _V3_1:
