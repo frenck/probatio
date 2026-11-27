@@ -1002,8 +1002,8 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
             # Taking the fallback is a widening of its own, whatever prompted it:
             # ``anyOf`` passes a value two branches match. A scope around this one
             # has to hear that even when the prompt was only a ``Self`` that turns
-            # out exact.
-            note_widening()
+            # out exact, and strict mode refuses it like any other.
+            _open("an exactly-one SomeOf whose branches are not all known to be exact")
             return {"anyOf": branches}
 
         return {"oneOf": branches}

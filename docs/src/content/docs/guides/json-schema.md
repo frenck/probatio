@@ -249,7 +249,8 @@ One construct gives up some precision next to a `Self`. A `SomeOf` that wants
 exactly one branch renders as `oneOf` only when every branch is known to be exact,
 and a `Self` refers to a schema that is still being rendered at that point. Such a
 `SomeOf` with a `Self` among its branches renders as `anyOf`, which never rejects
-a value the schema accepts.
+a value the schema accepts. It is a loss all the same, so `strict=True` refuses
+it.
 
 `prefixItems` is honored in its closed form (`items: false`) and refused with an
 open tail. As in JSON Schema it validates the positions that are present, so a

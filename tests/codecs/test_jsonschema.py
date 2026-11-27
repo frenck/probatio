@@ -3439,3 +3439,29 @@ def test_an_any_of_fallback_inside_a_scope_is_a_widening_of_that_scope() -> None
     assert schema(value) == value
     assert "oneOf" not in document["properties"]["k"]
     jsonschema.validate(value, document)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            Schema({"a": Schema({Optional("n"): SomeOf([Self, int], 1, 1)})}),
+            id="nested",
+        ),
+        pytest.param(Schema({Optional("n"): SomeOf([Self, int], 1, 1)}), id="root"),
+    ],
+)
+def test_strict_refuses_an_exactly_one_that_fell_back_beside_a_self(
+    schema: Schema,
+) -> None:
+    """The ``anyOf`` fallback is a loss, so strict mode says so."""
+    assert "oneOf" not in json.dumps(to_json_schema(schema))
+    with pytest.raises(SchemaError, match="exactly-one SomeOf"):
+        to_json_schema(schema, strict=True)
+
+
+def test_strict_accepts_an_exactly_one_around_a_finished_exact_scope() -> None:
+    """Nothing is lost when the recursive scope is a complete, exact branch."""
+    schema = Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), str], 1, 1)})
+
+    assert "oneOf" in to_json_schema(schema, strict=True)["properties"]["k"]
