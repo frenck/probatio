@@ -2547,6 +2547,7 @@ class _RaisingInt(int):
         pytest.param(_IdentityInt(1), id="identity_equality"),
         pytest.param(_RaisingInt(1), id="raising_equality"),
         pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="infinity"),
         pytest.param({1: 2}, id="dict_with_a_non_string_key"),
     ],
 )

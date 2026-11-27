@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import datetime as dt
+import math
 import re
 from collections import Counter
 from collections.abc import Hashable
@@ -784,10 +785,13 @@ def _compares_like_its_json_form(member: Any) -> bool:
     if member is None or type(member) is bool:
         return True
 
-    for scalar in (str, int, float):
+    if isinstance(member, float):
+        # JSON has no spelling for a NaN or an infinity.
+        return type(member).__eq__ is float.__eq__ and math.isfinite(member)
+
+    for scalar in (str, int):
         if isinstance(member, scalar):
-            # A NaN equals nothing, itself included, and JSON cannot spell it.
-            return type(member).__eq__ is scalar.__eq__ and member == member  # noqa: PLR0124
+            return type(member).__eq__ is scalar.__eq__
 
     if type(member) is list:
         return all(_compares_like_its_json_form(item) for item in member)
