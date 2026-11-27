@@ -15,6 +15,7 @@ from probatio import (
     Length,
     MultipleInvalid,
     Range,
+    Remove,
     Schema,
     SchemaError,
     probatio,
@@ -575,3 +576,14 @@ def test_a_dict_constraint_next_to_an_annotation_rejects_unknown_keys() -> None:
 
     with pytest.raises(MultipleInvalid):
         take({"a": 1, "other": 2})
+
+
+def test_a_dict_in_a_remove_element_keeps_the_default_extra_policy() -> None:
+    """A mapping wrapped in a sequence ``Remove`` does not inherit the call's policy."""
+
+    @probatio({"rows": [Remove({"a": int}), dict]})
+    def take(rows):  # type: ignore[no-untyped-def]
+        return rows
+
+    # Only an exact ``{"a": int}`` is removed; a dict with another key is kept.
+    assert take([{"a": 1}, {"a": 1, "other": 2}]) == [{"a": 1, "other": 2}]
