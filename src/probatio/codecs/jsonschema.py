@@ -999,6 +999,11 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     count = len(branches)
     if node.min_valid == node.max_valid == 1:
         if count > 1 and widenings() != before:
+            # Taking the fallback is a widening of its own, whatever prompted it:
+            # ``anyOf`` passes a value two branches match. A scope around this one
+            # has to hear that even when the prompt was only a ``Self`` that turns
+            # out exact.
+            note_widening()
             return {"anyOf": branches}
 
         return {"oneOf": branches}

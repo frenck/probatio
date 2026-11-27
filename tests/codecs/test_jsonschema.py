@@ -3423,3 +3423,19 @@ def test_a_finished_scope_that_widened_is_seen_by_an_exactly_one_around_it() -> 
     document = to_json_schema(schema)
 
     assert "oneOf" not in document["properties"]["k"]
+
+
+def test_an_any_of_fallback_inside_a_scope_is_a_widening_of_that_scope() -> None:
+    """An exactly-one around a scope that fell back to ``anyOf`` falls back too."""
+    recursive = Schema(
+        {Optional("n"): SomeOf([Self, {"x": str}], 1, 1), Optional("x"): str}
+    )
+    schema = Schema({"k": SomeOf([recursive, {"n": {"x": str}}], 1, 1)})
+    document = to_json_schema(schema)
+
+    # The recursive scope takes this value in its rendering but not as a
+    # validator, so only the second branch of the outer ``SomeOf`` accepts it.
+    value = {"k": {"n": {"x": "hi"}}}
+    assert schema(value) == value
+    assert "oneOf" not in document["properties"]["k"]
+    jsonschema.validate(value, document)
