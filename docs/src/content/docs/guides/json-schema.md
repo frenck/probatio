@@ -227,7 +227,7 @@ element = Schema(Any(Match(r"^str$"), {str: Self}))
 config = Schema({"name": str, "schema": {str: element}})
 
 to_json_schema(config)["properties"]["schema"]["additionalProperties"]
-# {"$ref": "#/$defs/schema1"}
+# {'$ref': '#/$defs/schema1'}
 
 to_json_schema(config)["$defs"]["schema1"]
 # {"anyOf": [{"type": "string", "pattern": "^str$"},
