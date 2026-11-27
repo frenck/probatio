@@ -2828,7 +2828,7 @@ def test_an_empty_exact_sequence_is_a_valid_document() -> None:
     document = to_json_schema(Schema(ExactSequence([])), strict=True)
 
     jsonschema.Draft202012Validator.check_schema(document)
-    assert document == {"type": "array", "maxItems": 0}
+    assert document == {"type": "array", "items": False, "minItems": 0, "maxItems": 0}
 
 
 @pytest.mark.parametrize("value", [[], [1], [[]], {}, None, "a"])
@@ -2943,3 +2943,32 @@ def test_an_alias_that_accepts_its_canonical_claims_nothing_beside_an_any_key() 
             "first": {"type": "string"},
             "second": {"type": "string"},
         }
+
+
+def test_an_empty_exact_sequence_stays_closed_beside_a_length() -> None:
+    """A ``Length`` merged in by ``All`` cannot reopen the empty sequence."""
+    schema = Schema(All(ExactSequence([]), Length(max=2)))
+
+    for document in (
+        to_json_schema(schema),
+        to_openapi(schema, openapi_version="3.1.0"),
+    ):
+        assert document["items"] is False
+        jsonschema.validate([], document)
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate([1], document)
+
+
+def test_a_schema_subclass_at_the_root_keeps_its_self_reference() -> None:
+    """A ``Schema`` subclass on top is the document root, so ``Self`` points at it."""
+
+    class TreeSchema(Schema):
+        """A schema subclass that changes nothing."""
+
+    schema = TreeSchema({Optional("children"): [Self]})
+
+    for document in (
+        to_json_schema(schema, strict=True),
+        to_openapi(schema, strict=True),
+    ):
+        assert document["properties"]["children"]["items"] == {"$ref": "#"}

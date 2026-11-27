@@ -2385,7 +2385,8 @@ def test_an_empty_exact_sequence_is_a_valid_document(version: str) -> None:
     document = to_openapi(schema, strict=True, openapi_version=version)
 
     _REFERENCE_VALIDATOR[version].check_schema(document)
-    assert document == {"type": "array", "minItems": 0, "maxItems": 0}
+    assert document["minItems"] == document["maxItems"] == 0
+    assert "prefixItems" not in document
     for value in ([], [1], [[]], {}, None):
         assert _validates(document, version, value) is _accepts(schema, value)
 

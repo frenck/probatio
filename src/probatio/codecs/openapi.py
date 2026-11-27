@@ -1085,9 +1085,12 @@ def _oa_collection(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
         return {"type": "array"}
     if isinstance(node, ExactSequence):
         # An empty sequence has no position to describe, and ``prefixItems`` must
-        # hold at least one schema, so the length says all of it on both versions.
+        # hold at least one schema. On 3.1 ``items: false`` closes the array, also
+        # when a ``Length`` beside it in an ``All`` rewrites the length keywords.
         count = len(node.validators)
-        if count and version == _V3_1:
+        if not count and version == _V3_1:
+            return {"type": "array", "items": False, "minItems": 0, "maxItems": 0}
+        if version == _V3_1:
             with nested_self_scope(node):
                 prefix = [
                     _ensure_default(_oa(v, custom, version)) for v in node.validators

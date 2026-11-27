@@ -799,15 +799,15 @@ def root_wrappers(schema: Any) -> frozenset[int]:
     ``Schema(Schema({...}))`` and ``Msg({...}, "text")`` each build their own
     inner schema, and that inner schema is what a ``Self`` below refers to. It
     validates the same document as the outer one, so for the document root they
-    are one scope. Exact types only: a subclass can validate differently, and
-    asking one anything would run user code.
+    are one scope. A subclass counts, the way the encoders unwrap it: a
+    ``Schema`` subclass at the top is still the document root.
     """
     wrappers: set[int] = set()
     # A wrapper that holds itself would never end; the encoder reports that cycle
     # once it recurses into it.
-    while type(schema) in (Schema, Msg) and id(schema) not in wrappers:
+    while isinstance(schema, Schema | Msg) and id(schema) not in wrappers:
         wrappers.add(id(schema))
-        schema = schema.schema if type(schema) is Schema else schema.validator
+        schema = schema.schema if isinstance(schema, Schema) else schema.validator
 
     return frozenset(wrappers)
 

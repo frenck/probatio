@@ -1433,21 +1433,24 @@ def _convert_exact_sequence(node: ExactSequence) -> dict[str, Any]:
     the array must have exactly the listed positions.
 
     An empty sequence has no position to describe, and ``prefixItems`` must hold
-    at least one schema, so it renders as the empty array alone.
+    at least one schema, so the keyword is left out. ``items: false`` still closes
+    the array, and keeps it closed when a ``Length`` beside it in an ``All``
+    rewrites the length keywords.
     """
-    if not node.validators:
-        return {"type": "array", "maxItems": 0}
-
     with nested_self_scope(node):
         prefix = [_child(validator) for validator in node.validators]
 
-    return {
+    document: dict[str, Any] = {
         "type": "array",
         "prefixItems": prefix,
         "items": False,
         "minItems": len(prefix),
         "maxItems": len(prefix),
     }
+    if not prefix:
+        del document["prefixItems"]
+
+    return document
 
 
 def _iso_parsable(value: str) -> str:
