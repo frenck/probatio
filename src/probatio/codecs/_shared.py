@@ -846,13 +846,16 @@ def encoding_root(schema: Any) -> Generator[_EncodingState]:
 
     Each call gets a state of its own, so an encoding started from inside a
     custom serializer neither sees nor disturbs the definitions of the call
-    around it.
+    around it. The same goes for what it reports as widened: that is about its
+    own document, so the count is put back when it ends.
     """
     state = _EncodingState(root_wrappers(schema))
     token = _SELF_SCOPE.set(state)
+    widened = _WIDENINGS.set(_WIDENINGS.get())
     try:
         yield state
     finally:
+        _WIDENINGS.reset(widened)
         _SELF_SCOPE.reset(token)
 
 

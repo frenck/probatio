@@ -3465,3 +3465,18 @@ def test_strict_accepts_an_exactly_one_around_a_finished_exact_scope() -> None:
     schema = Schema({"k": SomeOf([Schema({Optional("n"): [Self]}), str], 1, 1)})
 
     assert "oneOf" in to_json_schema(schema, strict=True)["properties"]["k"]
+
+
+def test_an_export_made_inside_a_custom_serializer_reports_nothing_outward() -> None:
+    """What a nested export widened is about its own document, not the outer one."""
+
+    def custom(node: object) -> object:
+        """Export an unrelated recursive schema on the side, then defer."""
+        if node is int:
+            to_json_schema(Schema({Optional("children"): [Self]}))
+        return UNSUPPORTED
+
+    schema = Schema(SomeOf([int, str], 1, 1))
+    document = to_json_schema(schema, strict=True, custom_serializer=custom)
+
+    assert document == {"oneOf": [{"type": "integer"}, {"type": "string"}]}
