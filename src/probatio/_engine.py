@@ -232,65 +232,69 @@ class _MappingValidator:
             {} if data_type is dict or not issubclass(data_type, dict) else data_type()
         )
         errors: list[Invalid] = []
+        try:
+            # Track matches by candidate position. A bytearray is cheaper than a set
+            # here and lets the finalizer distinguish invalid keys from absent ones.
+            seen: bytearray | None = (
+                bytearray(len(self._candidates)) if self._track_seen else None
+            )
 
-        # Track matches by candidate position. A bytearray is cheaper than a set
-        # here and lets the finalizer distinguish invalid keys from absent ones.
-        seen: bytearray | None = (
-            bytearray(len(self._candidates)) if self._track_seen else None
-        )
-
-        # Inline the literal-key fast path. More complex keys fall back to helpers.
-        fast_get = self._literal_fast.get
-        literal_get = self._literal.get
-        for key, value in data.items():
-            entry = fast_get(key)
-            if entry is not None:
-                index, value_type, check_value = entry
-                if seen is not None:
-                    seen[index] = 1
-                if value_type is not None:
-                    # Inlined ``{"k": <type>}``: isinstance, no validator call.
-                    if isinstance(value, value_type):
-                        out[key] = value
-                    else:
-                        errors.append(
-                            _type_error(value_type.__name__, [key], self._invalid_msg),
-                        )
+            # Inline the literal-key fast path. More complex keys fall back to helpers.
+            fast_get = self._literal_fast.get
+            literal_get = self._literal.get
+            for key, value in data.items():
+                entry = fast_get(key)
+                if entry is not None:
+                    index, value_type, check_value = entry
+                    if seen is not None:
+                        seen[index] = 1
+                    if value_type is not None:
+                        # Inlined ``{"k": <type>}``: isinstance, no validator call.
+                        if isinstance(value, value_type):
+                            out[key] = value
+                        else:
+                            errors.append(
+                                _type_error(
+                                    value_type.__name__, [key], self._invalid_msg
+                                ),
+                            )
+                        continue
+                    try:
+                        out[key] = check_value(value)
+                    except Invalid as exc:
+                        self._collect(key, exc, errors)
                     continue
-                try:
-                    out[key] = check_value(value)
-                except Invalid as exc:
-                    self._collect(key, exc, errors)
-                continue
-            match = literal_get(key)
-            if match is None:
-                self._match_validator(key, value, out, errors, seen)
-                continue
-            # Only Forbidden and Remove literal keys reach here; plain literal
-            # keys took the fast path above. ``_apply`` raises the forbidden
-            # error or validates the Remove value, and a Remove whose value fails
-            # has not consumed the key, so the type/callable candidates get a
-            # turn (a ``str: str`` may take it) and ``_match_validator`` applies
-            # the extra-key policy if none match.
-            index, candidate = match
-            if not self._apply(key, key, value, index, candidate, out, errors, seen):
-                self._match_validator(key, value, out, errors, seen)
+                match = literal_get(key)
+                if match is None:
+                    self._match_validator(key, value, out, errors, seen)
+                    continue
+                # Only Forbidden and Remove literal keys reach here; plain literal
+                # keys took the fast path above. ``_apply`` raises the forbidden
+                # error or validates the Remove value, and a Remove whose value fails
+                # has not consumed the key, so the type/callable candidates get a
+                # turn (a ``str: str`` may take it) and ``_match_validator`` applies
+                # the extra-key policy if none match.
+                index, candidate = match
+                if not self._apply(
+                    key, key, value, index, candidate, out, errors, seen
+                ):
+                    self._match_validator(key, value, out, errors, seen)
 
-        if seen is not None:
-            self._finalize(out, errors, seen)
-        if self._has_groups and seen is not None:
-            self._check_groups(out, errors, seen)
+            if seen is not None:
+                self._finalize(out, errors, seen)
+            if self._has_groups and seen is not None:
+                self._check_groups(out, errors, seen)
 
-        if errors:
-            if self._secret_keys:
-                self._redact_secrets(errors)
-            try:
-                raise MultipleInvalid(errors)
-            finally:
-                # The exception keeps its own copy; see ``Invalid`` for the cycle.
-                errors.clear()
+            if errors:
+                if self._secret_keys:
+                    self._redact_secrets(errors)
+                # A copy, so emptying the list below leaves ``args`` intact.
+                raise MultipleInvalid(list(errors))
 
-        return out
+            return out
+        finally:
+            # On every way out, a raising default factory included; see ``Invalid``.
+            errors.clear()
 
     def _redact_secrets(self, errors: list[Invalid]) -> None:
         """Tag every error under a secret key so its value is redacted, not echoed.
@@ -747,61 +751,63 @@ class _SequenceValidator:
 
         result: list[Any] = []
         errors: list[Invalid] = []
-        item_type = self._single_type
-
-        if item_type is not None:
-            # Inlined ``[<type>]``: isinstance per item, no per-item call.
-            expected = item_type.__name__
-            append = result.append
-            for index, item in enumerate(data):
-                if isinstance(item, item_type):
-                    append(item)
-                else:
-                    errors.append(
-                        TypeInvalid(
-                            path=[index],
-                            context={"expected": expected},
-                            translation_key="expected_type",
-                            placeholders={"expected": expected},
-                        ),
-                    )
-        elif (check := self._single) is not None:
-            append = result.append
-            for index, item in enumerate(data):
-                try:
-                    append(check(item))
-                except Invalid as exc:
-                    exc.prepend([index])
-                    if isinstance(exc, MultipleInvalid):
-                        errors.extend(exc.errors)
-                    else:
-                        errors.append(exc)
-        else:
-            for index, item in enumerate(data):
-                self._validate_item(index, item, result, errors)
-
-        if errors:
-            try:
-                raise MultipleInvalid(errors)
-            finally:
-                errors.clear()
-
-        # A plain list is the hot case: ``result`` is already a fresh list of the
-        # validated items, so return it directly rather than copying it into a new
-        # one. Other types are rebuilt as the data's own type (voluptuous semantics),
-        # so a subclass or namedtuple round-trips. A namedtuple takes its fields
-        # positionally, not a single iterable, so it is rebuilt with a splat. A
-        # subclass whose constructor is not ``(iterable)`` cannot be rebuilt that
-        # way, so fall back to the plain base type rather than leak its TypeError.
-        out_type = type(data)
-        if out_type is list:
-            return result
         try:
-            if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
-                return out_type(*result)
-            return out_type(result)
-        except TypeError:
-            return list(result) if issubclass(out_type, list) else tuple(result)
+            item_type = self._single_type
+
+            if item_type is not None:
+                # Inlined ``[<type>]``: isinstance per item, no per-item call.
+                expected = item_type.__name__
+                append = result.append
+                for index, item in enumerate(data):
+                    if isinstance(item, item_type):
+                        append(item)
+                    else:
+                        errors.append(
+                            TypeInvalid(
+                                path=[index],
+                                context={"expected": expected},
+                                translation_key="expected_type",
+                                placeholders={"expected": expected},
+                            ),
+                        )
+            elif (check := self._single) is not None:
+                append = result.append
+                for index, item in enumerate(data):
+                    try:
+                        append(check(item))
+                    except Invalid as exc:
+                        exc.prepend([index])
+                        if isinstance(exc, MultipleInvalid):
+                            errors.extend(exc.errors)
+                        else:
+                            errors.append(exc)
+            else:
+                for index, item in enumerate(data):
+                    self._validate_item(index, item, result, errors)
+
+            if errors:
+                # A copy, so emptying the list below leaves ``args`` intact.
+                raise MultipleInvalid(list(errors))
+
+            # A plain list is the hot case: ``result`` is already a fresh list of the
+            # validated items, so return it directly rather than copying it into a new
+            # one. Other types are rebuilt as the data's own type (voluptuous semantics),
+            # so a subclass or namedtuple round-trips. A namedtuple takes its fields
+            # positionally, not a single iterable, so it is rebuilt with a splat. A
+            # subclass whose constructor is not ``(iterable)`` cannot be rebuilt that
+            # way, so fall back to the plain base type rather than leak its TypeError.
+            out_type = type(data)
+            if out_type is list:
+                return result
+            try:
+                if issubclass(out_type, tuple) and hasattr(out_type, "_fields"):
+                    return out_type(*result)
+                return out_type(result)
+            except TypeError:
+                return list(result) if issubclass(out_type, list) else tuple(result)
+        finally:
+            # On every way out; see ``Invalid``.
+            errors.clear()
 
     def _validate_item(
         self,
@@ -818,27 +824,29 @@ class _SequenceValidator:
         matching a ``Remove`` element is dropped instead of appended.
         """
         last_error: Invalid | None = None
-        for check, is_remove in zip(
-            self._element_checks, self._remove_flags, strict=True
-        ):
-            try:
-                validated = check(item)
-            except Invalid as exc:
-                last_error = exc
-            else:
-                if not is_remove:
-                    result.append(validated)
-                del last_error
+        try:
+            for check, is_remove in zip(
+                self._element_checks, self._remove_flags, strict=True
+            ):
+                try:
+                    validated = check(item)
+                except Invalid as exc:
+                    last_error = exc
+                else:
+                    if not is_remove:
+                        result.append(validated)
+                    return
+
+            if last_error is None:
+                # No element schemas at all: nothing can match this item.
+                errors.append(Invalid(path=[index], translation_key="invalid_value"))
                 return
 
-        if last_error is None:
-            # No element schemas at all: nothing can match this item.
-            errors.append(Invalid(path=[index], translation_key="invalid_value"))
-            return
-
-        last_error.prepend([index])
-        if isinstance(last_error, MultipleInvalid):
-            errors.extend(last_error.errors)
-        else:
-            errors.append(last_error)
-        del last_error
+            last_error.prepend([index])
+            if isinstance(last_error, MultipleInvalid):
+                errors.extend(last_error.errors)
+            else:
+                errors.append(last_error)
+        finally:
+            # A rejected element check leaves its error here; see ``Invalid``.
+            del last_error

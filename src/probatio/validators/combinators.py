@@ -779,13 +779,13 @@ class SomeOf(_Combinator):
         is the last branch's result, not necessarily the value that went in.
         """
         errors: list[Invalid] = []
-        for compiled in self._compiled:
-            try:
-                value = compiled(value)
-            except Invalid as exc:
-                errors.append(exc)
-
         try:
+            for compiled in self._compiled:
+                try:
+                    value = compiled(value)
+                except Invalid as exc:
+                    errors.append(exc)
+
             passed = len(self._compiled) - len(errors)
             if self.min_valid <= passed <= self.max_valid:
                 return value
@@ -803,7 +803,7 @@ class SomeOf(_Combinator):
                 raise TooManyValid(message)
             raise NotEnoughValid(message)
         finally:
-            # The branch errors are only needed for the message; see ``Invalid``.
+            # On every way out; see ``Invalid``.
             errors.clear()
 
 

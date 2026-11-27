@@ -7,7 +7,7 @@ from enum import Enum, StrEnum
 import pytest
 
 import probatio
-from probatio import In, Required, Schema, _messages
+from probatio import ExactSequence, In, Required, Schema, _messages
 from probatio.error import (
     Error,
     Invalid,
@@ -387,3 +387,24 @@ def test_in_suggests_a_str_enum_member_by_value(
     error = caught.value.errors[0]
     assert error.error_message.endswith(", did you mean 'green'?")
     assert all(type(candidate) is str for candidate in error.candidates)
+
+
+@pytest.mark.parametrize(
+    ("spec", "data"),
+    [
+        ({"a": int, "b": int}, {"a": "x", "b": "y"}),
+        ([int], ["x", "y"]),
+        (ExactSequence([int, int]), ["x", "y"]),
+    ],
+    ids=["mapping", "sequence", "exact sequence"],
+)
+def test_engine_raised_multiple_invalid_keeps_its_errors_in_args(
+    spec: object, data: object
+) -> None:
+    """Rebuilding the exception from ``args`` gives back the same child errors."""
+    with pytest.raises(MultipleInvalid) as caught:
+        Schema(spec)(data)
+
+    error = caught.value
+    assert len(error.errors) == 2
+    assert type(error)(*error.args).errors == error.errors

@@ -306,6 +306,73 @@ def test_failed_validation_forms_no_reference_cycle(
     _assert_no_cycles(lambda: _run_ignoring_invalid(schema, make_data))
 
 
+def _declines_with_invalid() -> Any:
+    """A default factory that fails validation itself."""
+    message = "no default today"
+    raise Invalid(message)
+
+
+def _explodes(_value: Any) -> Any:
+    """A user callable with a bug: it raises something that is not ``Invalid``."""
+    message = "boom"
+    raise RuntimeError(message)
+
+
+# Each case collects an error first and is then cut short by an exception that is
+# not part of the normal "collect, then raise" ending.
+_EARLY_EXIT_CASES: dict[str, tuple[Any, Callable[[], Any]]] = {
+    "mapping, default factory raises": (
+        {"a": Coerce(int), Optional("b", default=_declines_with_invalid): int},
+        lambda: _TrackedDict({"a": "bad"}),
+    ),
+    "mapping, later value explodes": (
+        {"a": Coerce(int), "b": _explodes},
+        lambda: _TrackedDict({"a": "bad", "b": 1}),
+    ),
+    "list, later item explodes": (
+        [Coerce(int), All(str, _explodes)],
+        lambda: _TrackedList([1.5j, "x"]),
+    ),
+    "list item, later candidate explodes": (
+        [int, _explodes],
+        lambda: _TrackedList(["x"]),
+    ),
+    "exact sequence, later position explodes": (
+        ExactSequence([Coerce(int), _explodes]),
+        lambda: _TrackedList(["bad", 1]),
+    ),
+    "some of, later branch explodes": (
+        SomeOf([Coerce(int), _explodes], min_valid=1),
+        lambda: _TrackedStr("abc"),
+    ),
+    "any, later branch explodes": (
+        AnyOf(Coerce(int), _explodes),
+        lambda: _TrackedStr("abc"),
+    ),
+}
+
+
+def _run_ignoring_everything(
+    schema: Callable[[Any], Any], make_data: Callable[[], Any]
+) -> None:
+    """Validate a fresh input, dropping whatever it raises."""
+    with contextlib.suppress(Invalid, RuntimeError):
+        schema(make_data())
+
+
+@_COMPILE_MODES
+@pytest.mark.parametrize(
+    ("spec", "make_data"), _EARLY_EXIT_CASES.values(), ids=_EARLY_EXIT_CASES
+)
+def test_validation_cut_short_forms_no_reference_cycle(
+    spec: Any, make_data: Callable[[], Any], *, compiled: bool
+) -> None:
+    """An exception that leaves mid-validation does not strand the errors so far."""
+    schema = Schema(spec, compile=compiled)
+
+    _assert_no_cycles(lambda: _run_ignoring_everything(schema, make_data))
+
+
 @_COMPILE_MODES
 def test_failed_dataclass_validation_forms_no_reference_cycle(
     *, compiled: bool
