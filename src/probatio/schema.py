@@ -477,14 +477,24 @@ class Schema:
         schema never reaches the threshold, so it is never compiled. A combinator
         that captured this counter keeps delegating through it to the compiled
         validator after the swap.
+
+        The counter is not synchronized, on purpose: a lock per call would cost
+        more than compiling saves. So the threshold is a level to reach, not a
+        value to hit. Another thread can add to the count between this call's
+        increment and its test, and a test for the exact value would then never be
+        true again, leaving the schema interpreted for good. Reaching the level
+        twice at once only compiles twice, to the same result.
         """
         calls = 0
 
         def validate(data: Any) -> Any:
             nonlocal calls
-            calls += 1
-            if calls == _AUTO_COMPILE_THRESHOLD:
-                self._compiled = self._compile_from(interpreted)
+            # Past the threshold there is nothing left to count: a combinator
+            # that captured this counter keeps calling it for as long as it lives.
+            if calls < _AUTO_COMPILE_THRESHOLD:
+                calls += 1
+                if calls >= _AUTO_COMPILE_THRESHOLD:
+                    self._compiled = self._compile_from(interpreted)
 
             # Read once, and never call it if it is still this counter. Another
             # caller can cross the threshold while the generation above is still

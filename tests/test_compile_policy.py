@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
@@ -19,9 +20,11 @@ from probatio import (
     set_compile_policy,
 )
 from probatio._compile_policy import _DEFAULT_POLICY
+from probatio.schema import _AUTO_COMPILE_THRESHOLD
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from types import FrameType
 
 
 @pytest.fixture(autouse=True)
@@ -191,3 +194,69 @@ def test_dataclass_and_typeddict_schemas_accept_the_flag() -> None:
 
     assert DataclassSchema(Point, compile=True)._should_compile() is True
     assert TypedDictSchema(Movie, compile=False)._should_compile() is False
+
+
+def test_auto_compiles_when_the_count_moves_on_before_it_is_tested() -> None:
+    """A count that passes the threshold between increment and test still compiles.
+
+    The counter is not synchronized, so a second caller can add to it right after
+    the first one did. That interleaving is replayed here on one thread: a trace
+    function calls the schema again at the moment the count has just reached the
+    threshold, before the line that tests it runs.
+    """
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema({"a": int})
+    data = {"a": 1}
+    for _ in range(_AUTO_COMPILE_THRESHOLD - 1):
+        schema(data)
+
+    counter = schema._compiled
+    interleaved: list[bool] = []
+
+    def tracer(frame: FrameType, event: str, _arg: object) -> object:
+        """Call the counter once more, right after the count reaches the threshold."""
+        if frame.f_code is not counter.__code__:
+            return None
+        if (
+            event == "line"
+            and not interleaved
+            and frame.f_locals["calls"] == _AUTO_COMPILE_THRESHOLD
+        ):
+            interleaved.append(True)
+            counter(data)
+        return tracer
+
+    previous = sys.gettrace()
+    sys.settrace(tracer)
+    try:
+        schema(data)
+    finally:
+        sys.settrace(previous)
+
+    assert interleaved
+    assert schema._compiled is not counter
+    assert schema(data) == data
+
+
+def test_a_captured_auto_counter_stops_counting_once_it_compiled() -> None:
+    """A counter something still holds delegates after the swap and compiles once."""
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema({"a": int})
+    data = {"a": 1}
+    schema(data)
+    counter = schema._compiled
+
+    compiles: list[object] = []
+    original = schema._compile_from
+
+    def counting(interpreted: object) -> object:
+        """Record the compile, then do it."""
+        compiles.append(interpreted)
+        return original(interpreted)
+
+    schema._compile_from = counting  # type: ignore[method-assign]
+    for _ in range(_AUTO_COMPILE_THRESHOLD * 3):
+        assert counter(data) == data
+
+    assert len(compiles) == 1
+    assert schema._compiled is not counter
