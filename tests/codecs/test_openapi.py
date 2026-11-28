@@ -1350,6 +1350,51 @@ def test_a_remove_of_a_type_does_not_close_an_open_mapping() -> None:
     assert to_openapi(schema, strict=True)["additionalProperties"] is True
 
 
+def test_a_removed_key_keeps_what_it_says_about_itself() -> None:
+    """Widening the values a property takes leaves its description and secret flag."""
+    from probatio import ALLOW_EXTRA, Remove, Secret  # noqa: PLC0415
+
+    described = Secret(Remove("old", description="legacy field"))
+    assert to_openapi(Schema({described: int}, extra=ALLOW_EXTRA))["properties"] == {
+        "old": {"description": "legacy field", "writeOnly": True}
+    }
+    assert to_openapi(Schema({described: int, str: str}))["properties"] == {
+        "old": {
+            "description": "legacy field",
+            "writeOnly": True,
+            "anyOf": [{"type": "integer"}, {"type": "string"}],
+        }
+    }
+
+
+def test_a_removed_key_beside_a_key_that_cannot_take_it_reports_the_widening() -> None:
+    """An open value hides the union, and the widening is reported all the same."""
+    from probatio import Remove, SomeOf  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    removing = {Remove("old"): int, int: object, str: float}
+    assert to_openapi(Schema(removing))["properties"] == {"old": {}}
+    with pytest.raises(SchemaError, match="a variable key that may not take it"):
+        to_openapi(Schema(removing), strict=True)
+
+    exactly_one = Schema(SomeOf([removing, {"old": str}], min_valid=1, max_valid=1))
+    assert exactly_one({"old": "text"}) == {"old": "text"}
+    assert "oneOf" not in to_openapi(exactly_one)
+
+
+def test_a_remove_keeps_a_property_of_its_own_under_a_shared_serializer() -> None:
+    """A later key of the same name is told apart even when both render one dict."""
+    from probatio import ALLOW_EXTRA, Optional, Remove  # noqa: PLC0415
+
+    shared = {"type": "integer"}
+    schema = Schema({Remove("a"): int, Optional("a"): int}, extra=ALLOW_EXTRA)
+
+    document = to_openapi(
+        schema, custom_serializer=lambda node: shared if node is int else UNSUPPORTED
+    )
+    assert document["properties"] == {"a": {"type": "integer"}}
+
+
 def test_a_literal_key_keeps_its_property_beside_an_any_key() -> None:
     """A literal key is found before an Any key is tried, also when it is written first."""
     from probatio import Any as AnyKey  # noqa: PLC0415

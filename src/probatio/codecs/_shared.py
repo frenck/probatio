@@ -216,6 +216,33 @@ def names_handed_elsewhere_first(node: dict[Any, Any]) -> frozenset[str]:
     return frozenset(handed_elsewhere)
 
 
+def passing_on_is_exact(
+    variable_keys: list[Any], keeping_keys: list[Any], *, open_policy: bool
+) -> bool:
+    """Whether ``additionalProperties`` says what one passed-on name may hold.
+
+    It describes every undeclared name at once. For a single name that is only
+    the same thing when no value schema in it is out of that name's reach.
+
+    With an open extra policy and no key that keeps what it matches, nothing
+    rejects the name: a ``Remove`` drops it or passes it on, and the policy takes
+    what is left. Otherwise every variable key has to match the name, so that none
+    of them is skipped, and at most one may keep it, because a second keeping key
+    never gets a name the first one took.
+    """
+    if open_policy and not keeping_keys:
+        return True
+
+    return len(keeping_keys) <= 1 and all(
+        map(covers_every_property_name, variable_keys)
+    )
+
+
+# Keywords that describe a property without deciding which values it takes. They
+# stay on a property whose value schema is widened.
+_PROPERTY_ANNOTATIONS = frozenset({"description", "title", "default", "writeOnly"})
+
+
 def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described once
     node: dict[Any, Any],
     properties: dict[Any, Any],
@@ -238,7 +265,7 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
     ``exact`` says whether that makes no difference: a variable key that does not
     match this name, or a second key behind one that already took it, puts a
     value schema in ``additional`` that the name can never use. Without it the
-    union is still written, and reported through ``widen``, the encoder's own
+    property is still written, and reported through ``widen``, the encoder's own
     report of a widening.
 
     Another ``Any`` key that lists the name is one of the keys it is passed on to
@@ -247,7 +274,9 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
 
     ``removed`` maps each name to the schema the ``Remove`` wrote for it, a dict
     of its own. A property that is no longer that dict was replaced by a key
-    declared later under the same name, and is left alone.
+    declared later under the same name, and is left alone. What a property says
+    about itself (a description, a secret flag) stays on it whatever happens to
+    the values it takes.
     """
     listed_by_any: Counter[str] = Counter()
     literal: set[str] = set()
@@ -259,23 +288,39 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
             listed_by_any.update(literal_any_names(name) or ())
 
     for name, written in removed.items():
+        if properties[name] is not written:
+            continue
+
+        described = {
+            keyword: value
+            for keyword, value in written.items()
+            if keyword in _PROPERTY_ANNOTATIONS
+        }
+        constraint = {
+            keyword: value
+            for keyword, value in written.items()
+            if keyword not in _PROPERTY_ANNOTATIONS
+        }
         # An open property already takes everything it could be passed on for.
-        if properties[name] is not written or not written:
+        if not constraint:
             continue
 
         # A literal ``Remove`` wins the property from an ``Any`` key, so any ``Any``
         # key listing the name is another key. Otherwise one of them wrote it.
         written_by_any = name not in literal
         if listed_by_any[name] > written_by_any:
-            properties[name] = widen("a removed key another Any key also lists")
-        elif additional is False:
+            widen("a removed key another Any key also lists")
+            properties[name] = described
             continue
-        elif additional is True or not additional:
-            properties[name] = {}
+        if additional is False:
+            continue
+
+        if not exact:
+            widen("a removed key beside a variable key that may not take it")
+        if additional is True or not additional:
+            properties[name] = described
         else:
-            if not exact:
-                widen("a removed key beside a variable key that may not take it")
-            properties[name] = {"anyOf": [written, additional]}
+            properties[name] = {**described, "anyOf": [constraint, additional]}
 
 
 def claimed_canonical_name(marker: Alias, name: Any) -> str | None:

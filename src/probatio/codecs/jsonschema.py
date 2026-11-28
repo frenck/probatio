@@ -55,6 +55,7 @@ from probatio.codecs._shared import (
     names_handed_elsewhere_first,
     note_widening,
     only_string_members,
+    passing_on_is_exact,
     referenced_definition,
     regex_flags_change_meaning,
     render_self,
@@ -572,8 +573,11 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
         properties,
         removed,
         additional,
-        exact=len(keeping_keys) <= 1
-        and all(map(covers_every_property_name, variable_key_names)),
+        exact=passing_on_is_exact(
+            variable_key_names,
+            [key for key, _ in keeping_keys],
+            open_policy=allow_extra,
+        ),
         widen=_open,
     )
 

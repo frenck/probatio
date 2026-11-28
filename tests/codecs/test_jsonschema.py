@@ -1938,6 +1938,14 @@ def test_a_remove_keeps_a_property_of_its_own_under_a_shared_serializer() -> Non
     assert document["properties"] == {"a": {"type": "integer"}}
 
 
+def test_a_removed_key_is_exact_when_only_removes_stand_before_an_open_policy() -> None:
+    """Whatever the Removes pass on, the open policy keeps: nothing is widened."""
+    schema = Schema({Remove("old"): int, Remove(str): str}, extra=ALLOW_EXTRA)
+    assert schema({"old": None}) == {"old": None}
+
+    assert to_json_schema(schema, strict=True)["properties"] == {"old": {}}
+
+
 def test_a_remove_of_a_type_does_not_close_an_open_mapping() -> None:
     """Remove(str) matches every name and still rejects nothing under ALLOW_EXTRA."""
     schema = Schema({Remove(str): int}, extra=ALLOW_EXTRA)

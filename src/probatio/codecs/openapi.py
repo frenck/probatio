@@ -53,6 +53,7 @@ from probatio.codecs._shared import (
     nested_self_scope,
     note_widening,
     only_string_members,
+    passing_on_is_exact,
     regex_flags_change_meaning,
     self_is_document_root,
     widenings,
@@ -702,8 +703,7 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
         properties,
         removed,
         additional or not closed,
-        exact=len(keeping_keys) <= 1
-        and all(map(covers_every_property_name, variable_keys)),
+        exact=passing_on_is_exact(variable_keys, keeping_keys, open_policy=not closed),
         widen=_open,
     )
 
