@@ -684,7 +684,9 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
         elif isinstance(pkey, str):
             properties[pkey] = pval
             if isinstance(marker, Remove):
-                removed[pkey] = pval
+                # A dict of its own, so the property can be told from one a later
+                # key writes, whatever a custom serializer hands back.
+                properties[pkey] = removed[pkey] = pval.copy()
         else:
             _record_variable_key(
                 pkey, pval, variable_keys, variable_values, demands=demands
@@ -696,7 +698,13 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
     # What an undeclared property may hold once the object is assembled: with no
     # variable key to say so, the extra-key policy decides.
     let_removed_properties_pass_on(
-        properties, removed, additional or not closed, contested=contested, widen=_open
+        node,
+        properties,
+        removed,
+        additional or not closed,
+        exact=len(keeping_keys) <= 1
+        and all(map(covers_every_property_name, variable_keys)),
+        widen=_open,
     )
 
     dependent_required, group_constraints = _group_constraints(

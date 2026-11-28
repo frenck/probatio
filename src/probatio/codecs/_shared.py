@@ -216,12 +216,13 @@ def names_handed_elsewhere_first(node: dict[Any, Any]) -> frozenset[str]:
     return frozenset(handed_elsewhere)
 
 
-def let_removed_properties_pass_on(
+def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described once
+    node: dict[Any, Any],
     properties: dict[Any, Any],
     removed: dict[str, dict[str, Any]],
     additional: Any,
     *,
-    contested: frozenset[str],
+    exact: bool,
     widen: Callable[[str], dict[str, Any]],
 ) -> None:
     """Finish the properties a ``Remove`` key wrote, now the object is known.
@@ -233,26 +234,47 @@ def let_removed_properties_pass_on(
     ``additionalProperties``) says. A named property is not checked against
     ``additionalProperties``, so that half has to be written into the property.
 
-    An ``Any`` key that lists the name is one of the keys it is passed on to, and
-    its value schema is not in ``additional``. Such a name is in ``contested``,
-    and its property is opened through ``widen``, the encoder's own report of a
-    widening.
+    ``additional`` describes every undeclared name at once, and this is one name.
+    ``exact`` says whether that makes no difference: a variable key that does not
+    match this name, or a second key behind one that already took it, puts a
+    value schema in ``additional`` that the name can never use. Without it the
+    union is still written, and reported through ``widen``, the encoder's own
+    report of a widening.
 
-    ``removed`` maps each name to the schema the ``Remove`` wrote for it. A
-    property that is no longer that schema was replaced by a key declared later
-    under the same name, and is left alone.
+    Another ``Any`` key that lists the name is one of the keys it is passed on to
+    as well, and its value schema is not in ``additional`` at all. There the
+    property is opened.
+
+    ``removed`` maps each name to the schema the ``Remove`` wrote for it, a dict
+    of its own. A property that is no longer that dict was replaced by a key
+    declared later under the same name, and is left alone.
     """
+    listed_by_any: Counter[str] = Counter()
+    literal: set[str] = set()
+    for key in node:
+        name = resolve_key(key).key
+        if isinstance(name, str):
+            literal.add(name)
+        else:
+            listed_by_any.update(literal_any_names(name) or ())
+
     for name, written in removed.items():
-        if properties[name] is not written:
+        # An open property already takes everything it could be passed on for.
+        if properties[name] is not written or not written:
             continue
 
-        if name in contested:
-            properties[name] = widen("a removed key an Any key also lists")
+        # A literal ``Remove`` wins the property from an ``Any`` key, so any ``Any``
+        # key listing the name is another key. Otherwise one of them wrote it.
+        written_by_any = name not in literal
+        if listed_by_any[name] > written_by_any:
+            properties[name] = widen("a removed key another Any key also lists")
         elif additional is False:
             continue
         elif additional is True or not additional:
             properties[name] = {}
         else:
+            if not exact:
+                widen("a removed key beside a variable key that may not take it")
             properties[name] = {"anyOf": [written, additional]}
 
 

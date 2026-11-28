@@ -539,7 +539,9 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
             # A removed key is stripped from the output, but a present value is
             # validated first, so input carrying it is valid: emit it as an
             # optional property (never rejected as an extra key).
-            properties[name] = removed[name] = value_schema
+            # A dict of its own, so the property can be told from one a later key
+            # writes, whatever a custom serializer hands back.
+            properties[name] = removed[name] = dict(value_schema)
             continue
 
         decorated = _decorate_property(
@@ -566,7 +568,13 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
         )
     )
     let_removed_properties_pass_on(
-        properties, removed, additional, contested=contested, widen=_open
+        node,
+        properties,
+        removed,
+        additional,
+        exact=len(keeping_keys) <= 1
+        and all(map(covers_every_property_name, variable_key_names)),
+        widen=_open,
     )
 
     result: dict[str, Any] = {

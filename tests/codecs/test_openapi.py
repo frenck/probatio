@@ -1338,7 +1338,7 @@ def test_a_removed_key_an_any_key_also_lists_is_open() -> None:
 
     schema = Schema({Optional(AnyKey("a", "b")): int, Remove("b"): str})
     assert to_openapi(schema)["properties"]["b"] == {}
-    with pytest.raises(SchemaError, match="a removed key an Any key also lists"):
+    with pytest.raises(SchemaError, match="a removed key another Any key also lists"):
         to_openapi(schema, strict=True)
 
 
