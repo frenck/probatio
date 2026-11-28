@@ -485,28 +485,28 @@ class Schema:
         increment and its test, and a test for the exact value would then never be
         true again, leaving the schema interpreted for good. Reaching the level
         twice at once only compiles twice, to the same result.
+
+        The counter keeps the validator it currently runs in a variable of its
+        own and never looks itself up. A closure that named itself would be a
+        reference cycle: replaced by the compiled validator, it would stay behind
+        for the cyclic collector, once for every schema that compiles.
         """
         calls = 0
+        current = interpreted
 
         def validate(data: Any) -> Any:
-            nonlocal calls
+            nonlocal calls, current
             # Past the threshold there is nothing left to count: a combinator
             # that captured this counter keeps calling it for as long as it lives.
             if calls < _AUTO_COMPILE_THRESHOLD:
                 calls += 1
                 if calls >= _AUTO_COMPILE_THRESHOLD:
-                    self._compiled = self._compile_from(interpreted)
+                    # Assigned only once the generation is done. Code generation
+                    # is not quick, and a caller that arrives while it runs keeps
+                    # validating interpreted.
+                    current = self._compiled = self._compile_from(interpreted)
 
-            # Read once, and never call it if it is still this counter. Another
-            # caller can cross the threshold while the generation above is still
-            # running, and code generation is not quick; delegating to
-            # ``_compiled`` then lands back here, increments again, and recurses
-            # until the stack gives out. Validating interpreted for the few calls
-            # that fall in that window costs nothing and cannot recurse.
-            compiled = self._compiled
-            if compiled is validate:
-                return interpreted(data)
-            return compiled(data)
+            return current(data)
 
         return validate
 
