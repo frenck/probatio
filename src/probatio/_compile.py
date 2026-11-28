@@ -395,11 +395,16 @@ def compile_node(schema: Any, ctx: CompileCtx) -> CompiledSchema:  # noqa: PLR09
 _REMOVE_KEY, _MARKER_KEY, _CALLABLE_KEY, _TYPE_KEY, _EXTRA_KEY = range(5)
 
 
-def _matching_rank(key: Any, candidate: _Candidate) -> int:
-    """Where a matching key stands in the order the engine tries them."""
+def matching_rank(key: Any, *, catches_all: bool) -> int:
+    """Where a matching key stands in the order the engine tries them.
+
+    ``key`` is the key as written in the schema, and ``catches_all`` says whether
+    it resolves to ``Extra``. Lower is tried earlier. The encoders read the same
+    rank, so that a document never assumes an order the engine does not follow.
+    """
     if isinstance(key, Remove):
         return _REMOVE_KEY
-    if candidate.key_schema is Extra:
+    if catches_all:
         return _EXTRA_KEY
     if isinstance(key, Marker):
         return _MARKER_KEY
@@ -430,7 +435,9 @@ def _candidates(schema: dict[Any, Any], ctx: CompileCtx) -> list[_Candidate]:
         keys = list(schema)
         ranked = sorted(
             positions,
-            key=lambda position: _matching_rank(keys[position], candidates[position]),
+            key=lambda position: matching_rank(
+                keys[position], catches_all=candidates[position].key_schema is Extra
+            ),
         )
         reordered = [candidates[position] for position in ranked]
         for position, candidate in zip(positions, reordered, strict=True):
