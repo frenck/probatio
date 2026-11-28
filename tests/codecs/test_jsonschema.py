@@ -3971,6 +3971,19 @@ def test_a_catch_all_key_does_not_hide_other_dropped_keys(mapping: object) -> No
         to_json_schema(schema, strict=True)
 
 
+@pytest.mark.parametrize("extra", [ALLOW_EXTRA, REMOVE_EXTRA])
+def test_a_decoded_typeless_object_keeps_its_own_extra_policy(extra: int) -> None:
+    """A decoded object without a type is closed by its document, whatever wraps it."""
+    decoded = from_json_schema(
+        {"properties": {"x": {"type": "integer"}}, "additionalProperties": False}
+    )
+    schema = Schema({"k": decoded.schema}, extra=extra)
+    document = to_json_schema(schema, strict=True)
+
+    for value in ({"k": {"x": 1}}, {"k": {"x": 1, "y": 2}}, {"k": 1}):
+        assert _document_validates(document, value) is _accepts(schema, value)
+
+
 def test_a_some_of_counting_none_after_dropped_keys_opens() -> None:
     """With no lower bound there is nothing to keep, so the count opens."""
     schema = Schema(

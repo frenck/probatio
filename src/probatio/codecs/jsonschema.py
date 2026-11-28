@@ -300,8 +300,9 @@ def _convert(node: Any, *, required_default: bool, extra: int) -> dict[str, Any]
         # JSON Schema keyword already means, so it re-emits as its contents with
         # the type dropped. Keeping the ``type`` the inner renderer adds would
         # narrow: ``{"pattern": "x"}`` accepts the number 123 vacuously, and
-        # ``{"type": "string", "pattern": "x"}`` rejects it.
-        inner = _convert(node.subschema, required_default=required_default, extra=extra)
+        # ``{"type": "string", "pattern": "x"}`` rejects it. The wrapper compiles
+        # its contents under its own policy, so the enclosing one stops here.
+        inner = _child(node.subschema)
         return {key: value for key, value in inner.items() if key != "type"}
 
     custom = _options().custom
