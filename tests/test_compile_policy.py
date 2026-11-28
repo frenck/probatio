@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import sys
 import threading
 from dataclasses import dataclass
@@ -260,3 +261,30 @@ def test_a_captured_auto_counter_stops_counting_once_it_compiled() -> None:
 
     assert len(compiles) == 1
     assert schema._compiled is not counter
+
+
+@pytest.mark.parametrize(
+    ("spec", "data"),
+    [
+        pytest.param({"a": int}, {"a": 1}, id="mapping"),
+        pytest.param([int], [1, 2], id="sequence"),
+        pytest.param(Any({"a": int}, {"b": int}), {"b": 1}, id="mapping_branches"),
+    ],
+)
+def test_crossing_the_auto_threshold_leaves_nothing_for_the_collector(
+    spec: object, data: object
+) -> None:
+    """The counter a compiled validator replaces is freed by its reference count."""
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = Schema(spec)
+
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(_AUTO_COMPILE_THRESHOLD + 5):
+            schema(data)
+        unreachable = gc.collect()
+    finally:
+        gc.enable()
+
+    assert unreachable == 0
