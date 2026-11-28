@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Container, Generator, Iterable
 
-from probatio.markers import Alias, Extra, resolve_key
+from probatio._compile import matching_rank
+from probatio.markers import Alias, Extra, Remove, resolve_key
 from probatio.schema import Schema
 from probatio.validators import (
     ASCII,
@@ -124,11 +125,12 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
     engine actually hands the name to, and several things can take it first: a
     literal key (which wins whatever the declaration order), an ``Alias`` under any
     of its accepted names, another ``Any`` listing the same name, and a variable
-    key (``{str: ...}``), which matches anything and wins when it is declared
-    first. Whether a variable key gets there first is declaration order, so rather
-    than model the engine's precedence this reports every name it cannot prove is
-    safely owned; the codecs then leave the rule out. ``Extra`` is excluded: it is
-    the catch-all for names nothing else matched, so it never takes one first.
+    key (``{str: ...}``), which matches anything and wins when the engine tries it
+    first. Which key that is depends on the kinds of both keys and on where they
+    are declared, so rather than model the engine's precedence this reports every
+    name it cannot prove is safely owned; the codecs then leave the rule out. ``Extra`` is excluded: it is
+    the catch-all for names nothing else matched, so it never takes one first. A
+    ``Remove(Extra)`` does count, because a ``Remove`` is tried before the rest.
 
     The properties are unaffected and always emitted. Only the object-level rule,
     which would otherwise contradict validation in either direction, is dropped.
@@ -157,7 +159,12 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
             counts.update(names)
             listed_by_any.extend(names)
             continue
-        if name is not Extra and (isinstance(name, type) or callable(name)):
+        if name is Extra:
+            # The catch-all is tried last, so it takes no name from another key.
+            # Unless it is a ``Remove``, which is tried first like any ``Remove``.
+            variable_key = variable_key or isinstance(facets.marker, Remove)
+            continue
+        if isinstance(name, type) or callable(name):
             # Only a key matching by shape can take a name it does not spell. A
             # non-string literal (``{1: ...}``) matches no JSON property name.
             variable_key = True
@@ -166,6 +173,47 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
     if variable_key:
         contested.update(listed_by_any)
     return frozenset(contested)
+
+
+def names_handed_elsewhere_first(node: dict[Any, Any]) -> frozenset[str]:
+    """Names an ``Any`` key lists that the engine may hand to another key first.
+
+    A key that matches by shape is tried in the order the engine ranks them, and
+    the first one that takes a name decides what its value has to be. So the value
+    schema of ``Any("a", "b")`` only describes ``a`` when nothing is tried before
+    that key: with ``{Optional(Any("a", "b")): int, Remove(str): str}`` the
+    ``Remove`` goes first and a string under ``a`` is valid.
+
+    Whether an earlier key really matches a name is a question for the key, which
+    may be any callable, so it is not asked: every key tried earlier counts,
+    except another ``Any`` of names, which takes exactly the names it lists.
+    Literal keys are not in this order at all. They are found by lookup, and the
+    codecs already let a literal key keep its own property.
+    """
+    tried: list[tuple[int, int, list[str] | None]] = []
+    for position, key in enumerate(node):
+        name = resolve_key(key).key
+        catches_all = name is Extra
+        if not (catches_all or isinstance(name, type) or callable(name)):
+            continue
+
+        rank = matching_rank(key, catches_all=catches_all)
+        tried.append((rank, position, literal_any_names(name)))
+
+    tried.sort(key=lambda entry: entry[:2])
+
+    handed_elsewhere: set[str] = set()
+    names_seen: set[str] = set()
+    shape_key_seen = False
+    for _, _, names in tried:
+        if names is None:
+            shape_key_seen = True
+            continue
+
+        handed_elsewhere.update(names if shape_key_seen else names_seen & set(names))
+        names_seen.update(names)
+
+    return frozenset(handed_elsewhere)
 
 
 def claimed_canonical_name(marker: Alias, name: Any) -> str | None:

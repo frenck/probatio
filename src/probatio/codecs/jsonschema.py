@@ -51,6 +51,7 @@ from probatio.codecs._shared import (
     literal_any_names,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    names_handed_elsewhere_first,
     note_widening,
     only_string_members,
     referenced_definition,
@@ -458,6 +459,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
     contested = contested_names(node)
+    handed_elsewhere = names_handed_elsewhere_first(node)
     groups = _Groups(abandoned_group_names(node, contested))
     for key, value in node.items():
         # Resolve the marker chain first, so a nested marker (``Secret(Remove(...))``)
@@ -498,6 +500,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 groups,
                 required_default=required_default,
                 contested=contested,
+                handed_elsewhere=handed_elsewhere,
             )
             continue
 
@@ -628,6 +631,7 @@ def _emit_any_key(  # noqa: PLR0913
     *,
     required_default: bool,
     contested: frozenset[str],
+    handed_elsewhere: frozenset[str],
 ) -> None:
     """Place one property per name an ``Any`` key lists, and its presence rule.
 
@@ -643,14 +647,24 @@ def _emit_any_key(  # noqa: PLR0913
     literal key already declares keeps that key's value schema, whatever the
     declaration order. Overwriting it would reject values the mapping accepts.
 
+    A name the engine may hand to another matching key first gets an open
+    property: this key's value schema does not describe a value that key takes.
+
     For the same reason a presence rule is only written when this key owns every
     name it lists: where another key can match one, the engine may never let this
     one see it, and the rule would disagree with validation in both directions.
     """
     for name in names:
+        if name in properties:
+            continue
+
         # A copy each, so a caller that edits one emitted property does not
         # silently edit the others this key expanded into.
-        properties.setdefault(name, dict(decorated))
+        properties[name] = (
+            _open("a property for a name another key is tried for first")
+            if name in handed_elsewhere
+            else dict(decorated)
+        )
 
     grouped = isinstance(marker, Inclusive | Exclusive)
     demands_one = not isinstance(marker, Remove) and _is_required(

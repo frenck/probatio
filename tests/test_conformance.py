@@ -10,6 +10,7 @@ voluptuous is a dev-only oracle here; no code is copied from it.
 
 from __future__ import annotations
 
+import itertools
 from typing import Any
 
 import pytest
@@ -271,3 +272,51 @@ _DETAIL_CASES = [case for case in CASES if case[0] not in _MESSAGE_DEVIATIONS]
 def test_matches_voluptuous_error_detail(builder: Any, data: Any) -> None:
     """probatio agrees with voluptuous on the error class and rendered message."""
     assert _detail(builder, data, probatio) == _detail(builder, data, voluptuous)
+
+
+def _matching_keys(lib: Any) -> dict[str, Any]:
+    """One key of every kind that matches a data key instead of naming it."""
+    return {
+        "type": str,
+        "callable": lib.Coerce(str),
+        "validator": lib.In(["k"]),
+        # Around a validator, not ``str``: a marker equals the key it holds, so
+        # ``Optional(str)`` and ``str`` would be one entry of the schema.
+        "marker": lib.Optional(lib.All(str)),
+        "remove": lib.Remove(str),
+    }
+
+
+def _winning_key(lib: Any, first: str, second: str) -> list[str]:
+    """What becomes of a key that both schema keys match, per value.
+
+    The first key's value accepts only ``"first"`` and the second only
+    ``"second"``, so the outcome tells which of the two the engine tried first.
+    """
+    keys = _matching_keys(lib)
+    mapping = {keys[first]: "first", keys[second]: "second"}
+    assert len(mapping) == 2
+    schema = lib.Schema(mapping)
+
+    outcomes = []
+    for value in ("first", "second"):
+        try:
+            outcomes.append("kept" if "k" in schema({"k": value}) else "dropped")
+        except lib.Invalid:
+            outcomes.append("rejected")
+
+    return outcomes
+
+
+@pytest.mark.parametrize(
+    ("first", "second"), list(itertools.permutations(_matching_keys(probatio), 2))
+)
+def test_matching_keys_are_tried_in_the_same_order(first: str, second: str) -> None:
+    """Two keys that match one data key are tried in the order voluptuous tries them.
+
+    That order is by kind (a Remove, another marker, a callable, a type), not by
+    where the keys sit in the schema, so every ordered pair of kinds is checked.
+    """
+    assert _winning_key(probatio, first, second) == _winning_key(
+        voluptuous, first, second
+    )

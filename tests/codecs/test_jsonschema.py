@@ -1731,8 +1731,8 @@ _CONTESTED_SCHEMAS = {
         Any("b", "c"): int,
         Inclusive("d", "g"): int,
     },
-    # A variable key matches by shape, so it can take any name; whether it gets
-    # there first is declaration order, which the codec does not model.
+    # A variable key matches by shape, so it can take any name. Whether it gets
+    # there first is the engine's business, which the presence rule does not model.
     "a_variable_key_first": {
         str: int,
         Inclusive(Any("a", "b"), "g"): int,
@@ -1765,6 +1765,59 @@ def test_a_contested_name_never_narrows_the_document(slots: dict) -> None:
             # Widening is safe and expected here; rejecting what the mapping takes
             # is not, and is what writing the rule anyway would have caused.
             assert validator.is_valid(value), value
+
+
+# Something the engine tries before the ``Any`` key and that takes the same names
+# with another value: a ``Remove`` always goes first, a marker goes before a bare
+# callable, and markers go in the order they are written.
+_TRIED_BEFORE_THE_ANY_KEY = {
+    "a_remove_of_a_type": {Optional(Any("a", "b")): int, Remove(str): str},
+    "a_remove_of_extra": {Optional(Any("a", "b")): int, Remove(Extra): str},
+    "a_marker_before_a_bare_key": {Any("a", "b"): int, Optional(All(str)): str},
+    "a_marker_written_earlier": {Optional(All(str)): str, Optional(Any("a", "b")): int},
+    "a_grouped_key_and_a_remove": {
+        Inclusive(Any("a", "b"), "g"): int,
+        Inclusive("c", "g"): int,
+        Remove(Extra): int,
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "slots", _TRIED_BEFORE_THE_ANY_KEY.values(), ids=_TRIED_BEFORE_THE_ANY_KEY
+)
+def test_a_name_another_key_takes_first_never_narrows_the_document(slots: dict) -> None:
+    """The value schema of an ``Any`` key is not imposed on a name it never sees."""
+    schema = Schema(slots)
+    validator = jsonschema.Draft202012Validator(to_json_schema(schema))
+
+    for names in itertools.product([None, 1, "text"], repeat=3):
+        value = {
+            name: given
+            for name, given in zip("abc", names, strict=True)
+            if given is not None
+        }
+        try:
+            schema(dict(value))
+        except Invalid:
+            continue
+        assert validator.is_valid(value), value
+
+
+def test_strict_refuses_a_property_another_key_is_tried_for_first() -> None:
+    """Opening the property widens the document, which strict mode refuses."""
+    schema = Schema({Optional(Any("a", "b")): int, Remove(str): str})
+    with pytest.raises(SchemaError, match="another key is tried for first"):
+        to_json_schema(schema, strict=True)
+
+
+def test_an_any_key_tried_first_keeps_its_value_schema() -> None:
+    """A type key is tried after a marker, so the ``Any`` key still owns its names."""
+    document = to_json_schema(Schema({str: str, Optional(Any("a", "b")): int}))
+    assert document["properties"] == {
+        "a": {"type": "integer"},
+        "b": {"type": "integer"},
+    }
 
 
 def test_a_contested_any_key_writes_no_presence_rule() -> None:

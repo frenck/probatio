@@ -386,19 +386,74 @@ def compile_node(schema: Any, ctx: CompileCtx) -> CompiledSchema:  # noqa: PLR09
     return _compile_literal(schema)
 
 
+# The order in which the keys that match rather than name are tried against a
+# data key no literal key took. It is voluptuous's order, with one exception: an
+# ``Extra`` goes last, also inside a marker like ``Optional``. voluptuous means
+# that too, but ranks ``Extra`` with the callables, because it is one. A
+# ``Remove`` goes first whatever it holds: when its value does not match it
+# passes the key on, so it takes nothing from the keys after it.
+_REMOVE_KEY, _MARKER_KEY, _CALLABLE_KEY, _TYPE_KEY, _EXTRA_KEY = range(5)
+
+
+def matching_rank(key: Any, *, catches_all: bool) -> int:
+    """Where a matching key stands in the order the engine tries them.
+
+    ``key`` is the key as written in the schema, and ``catches_all`` says whether
+    it resolves to ``Extra``. Lower is tried earlier. The encoders read the same
+    rank, so that a document never assumes an order the engine does not follow.
+    """
+    if isinstance(key, Remove):
+        return _REMOVE_KEY
+    if catches_all:
+        return _EXTRA_KEY
+    if isinstance(key, Marker):
+        return _MARKER_KEY
+    if isinstance(key, type):
+        return _TYPE_KEY
+    return _CALLABLE_KEY
+
+
+def _candidates(schema: dict[Any, Any], ctx: CompileCtx) -> list[_Candidate]:
+    """Compile a mapping's items, with the matching keys in the order they are tried.
+
+    A literal key is found by lookup, so where it sits does not matter for
+    matching. It does matter for the order defaults are applied and missing keys
+    are reported in, so every literal key keeps its place: the matching keys are
+    reordered among the positions they already hold. Keys of one rank stay in the
+    order they were written.
+    """
+    candidates = [
+        _make_candidate(key, value_schema, ctx) for key, value_schema in schema.items()
+    ]
+
+    positions = [
+        position
+        for position, candidate in enumerate(candidates)
+        if not candidate.is_literal
+    ]
+    if len(positions) > 1:
+        keys = list(schema)
+        ranked = sorted(
+            positions,
+            key=lambda position: matching_rank(
+                keys[position], catches_all=candidates[position].key_schema is Extra
+            ),
+        )
+        reordered = [candidates[position] for position in ranked]
+        for position, candidate in zip(positions, reordered, strict=True):
+            candidates[position] = candidate
+
+    return candidates
+
+
 def _compile_dict(schema: dict[Any, Any], ctx: CompileCtx) -> CompiledSchema:
     """Compile a mapping schema into a candidate-matching validator."""
-    candidates = [_make_candidate(k, v, ctx) for k, v in schema.items()]
-    # An Extra catch-all is tried after every named key, regardless of where
-    # it sits in the schema dict (matching voluptuous).
-    candidates.sort(key=lambda candidate: candidate.key_schema is Extra)
-    return _MappingValidator(candidates, ctx.extra)
+    return _MappingValidator(_candidates(schema, ctx), ctx.extra)
 
 
 def _compile_object(schema: Object, ctx: CompileCtx) -> CompiledSchema:
     """Compile an Object schema: validate attributes, then rebuild the object."""
-    candidates = [_make_candidate(k, v, ctx) for k, v in schema.items()]
-    candidates.sort(key=lambda candidate: candidate.key_schema is Extra)
+    candidates = _candidates(schema, ctx)
     mapping = _MappingValidator(candidates, ctx.extra, invalid_msg="object value")
     return _ObjectValidator(mapping, schema.cls)
 

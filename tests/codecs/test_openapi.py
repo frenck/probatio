@@ -1287,6 +1287,22 @@ def test_group_keyed_on_an_any_keeps_its_constraint_per_version() -> None:
     ]
 
 
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_name_another_key_takes_first_gets_an_open_property(version: str) -> None:
+    """An ``Any`` key's value schema is not imposed on a name a ``Remove`` takes first."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Optional, Remove  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Optional(AnyKey("a", "b")): int, Remove(str): str})
+    assert schema({"a": "dropped"}) == {}
+
+    document = to_openapi(schema, openapi_version=version)
+    assert document["properties"] == {"a": {}, "b": {}}
+    with pytest.raises(SchemaError, match="another key is tried for first"):
+        to_openapi(schema, openapi_version=version, strict=True)
+
+
 def test_a_contested_name_writes_no_constraint() -> None:
     """A name another key can also match carries no presence or group rule."""
     from probatio import Any as AnyKey  # noqa: PLC0415

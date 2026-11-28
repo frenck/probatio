@@ -48,6 +48,7 @@ from probatio.codecs._shared import (
     member_present,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
+    names_handed_elsewhere_first,
     nested_self_scope,
     note_widening,
     only_string_members,
@@ -583,6 +584,9 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     # constraint over it would not agree with validation; collected up front
     # because precedence does not follow declaration order.
     contested = contested_names(node)
+    # A name another matching key is tried for first, where an ``Any`` key's value
+    # schema does not describe what that key accepts.
+    handed_elsewhere = names_handed_elsewhere_first(node)
     # A group with an unrenderable member is not rendered at all: the rest would
     # say something the mapping does not.
     abandoned = abandoned_group_names(node, contested)
@@ -649,7 +653,11 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
             # so it stays the open property the alias declares.
             properties.update(
                 {
-                    name: prop
+                    name: (
+                        _open("a property for a name another key is tried for first")
+                        if name in handed_elsewhere
+                        else prop
+                    )
                     for name, prop in props.items()
                     if name not in claimed_names
                 }
