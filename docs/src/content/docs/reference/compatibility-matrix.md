@@ -301,6 +301,15 @@ Probatio does.
   Probatio follows the same order and does put `Extra` last, wherever it is
   written and also inside a marker like `Optional(Extra)`, so it only catches the
   keys nothing else matched. A `Remove(Extra)` is tried first, like any `Remove`.
+- **A `Remove` beside another key that accepts the same value
+  (`{Remove(str): int, str: int}`).** In voluptuous a `Remove` that matches only
+  marks the key: the keys tried after it still get a turn, the entry is kept when
+  one of them accepts it, and it is dropped only when none does. So
+  `{Remove("old"): int, Extra: object}` never removes anything. In Probatio a
+  `Remove` that matches, removes: `{"k": 1}` comes back as `{}`. A `Remove` is
+  tried before every other key, so this does not depend on where it is written.
+  What both libraries share is the other half: a `Remove` whose value does not
+  match passes the key on to the keys after it.
 - **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
   is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
   any key schema, including an `Any` of names

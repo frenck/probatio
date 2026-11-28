@@ -320,3 +320,24 @@ def test_matching_keys_are_tried_in_the_same_order(first: str, second: str) -> N
     assert _winning_key(probatio, first, second) == _winning_key(
         voluptuous, first, second
     )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda lib: {lib.Remove(str): int, str: int},
+        lambda lib: {str: int, lib.Remove(str): int},
+        lambda lib: {lib.Remove("k"): int, str: int},
+        lambda lib: {lib.Remove("k"): int, lib.Extra: object},
+    ],
+    ids=["remove first", "remove last", "literal remove", "beside extra"],
+)
+def test_a_matching_remove_is_final_where_voluptuous_keeps_looking(build: Any) -> None:
+    """A deliberate deviation: probatio drops what voluptuous lets a later key keep.
+
+    voluptuous only marks a key a ``Remove`` matched, and keeps the entry when a
+    key tried afterwards accepts it too. Pinned from both sides, so a change in
+    either library shows up here and in the compatibility matrix.
+    """
+    assert voluptuous.Schema(build(voluptuous))({"k": 1}) == {"k": 1}
+    assert probatio.Schema(build(probatio))({"k": 1}) == {}
