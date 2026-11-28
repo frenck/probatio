@@ -2894,7 +2894,9 @@ def test_merged_enum_order_does_not_depend_on_the_hash_seed() -> None:
 
 # The wrappers the engine hands an enclosing extra-key policy on through, each
 # holding a mapping that policy reaches. The exactly-one ``SomeOf`` pairs the
-# mapping with a scalar branch, so its ``oneOf`` has only one branch to match.
+# mapping with a scalar branch, so its ``oneOf`` has only one branch to match,
+# and puts the mapping last: under ``REMOVE_EXTRA`` a branch after it would see
+# the value with its keys dropped, which no count over the input describes.
 # The ``Any`` in a ``Maybe`` has the mapping as its only branch: beside a second
 # one, OpenAPI 3.0 spells the null as an object branch, which takes any object.
 _POLICY_INHERITING = {
@@ -2905,7 +2907,7 @@ _POLICY_INHERITING = {
     "Union": probatio.Union({"x": int}, str),
     "Switch": probatio.Switch({"x": int}),
     "SomeOf at least one": probatio.SomeOf([{"x": int}, str], min_valid=1),
-    "SomeOf exactly one": probatio.SomeOf([{"x": int}, str], min_valid=1, max_valid=1),
+    "SomeOf exactly one": probatio.SomeOf([str, {"x": int}], min_valid=1, max_valid=1),
     "Maybe": probatio.Maybe({"x": int}),
     "Maybe in Any": probatio.Any(probatio.Maybe({"x": int}), str),
     "Any in Maybe": probatio.Maybe(probatio.Any({"x": int})),
@@ -3050,3 +3052,96 @@ def test_a_partial_variable_key_in_an_open_maybe_is_a_widening() -> None:
 
     with pytest.raises(probatio.SchemaError, match="partial variable key"):
         to_openapi(schema, strict=True)
+
+
+def _drops_under_remove(mapping: object) -> Schema:
+    """Wrap a mapping in a schema of its own that drops undeclared keys."""
+    return Schema(mapping, extra=probatio.REMOVE_EXTRA)
+
+
+# Pipelines whose later parts validate the value an earlier part returned with
+# keys dropped, each with the policy it runs under and values to try. One entry
+# per way a part can reach a mapping that drops keys.
+_DROPPED_KEYS_PIPELINES = {
+    "SomeOf exactly one": (
+        probatio.SomeOf([{"x": int}, {"y": int}], min_valid=1, max_valid=1),
+        probatio.REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, {"x": 1}, {"y": 1}, {"x": 1, "y": 2}, {}],
+    ),
+    "SomeOf every branch": (
+        probatio.SomeOf([{"x": int}, {"x": int, "y": str}], min_valid=2, max_valid=2),
+        probatio.REMOVE_EXTRA,
+        [{"x": 1, "y": 5}, {"x": 1}, {"x": "bad", "y": "s"}],
+    ),
+    "All with a required key after": (
+        probatio.All({"x": int}, {probatio.Required("y"): int}),
+        probatio.REMOVE_EXTRA,
+        [{"x": 1, "y": 2}, {"y": 2}, {"x": 1}],
+    ),
+    "All with a typed key after": (
+        probatio.All({"x": int}, {"y": int}),
+        probatio.REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, {"x": "bad"}, {"x": 1}],
+    ),
+    "nested Schema": (
+        probatio.All(_drops_under_remove({"x": int}), {"x": int}),
+        probatio.PREVENT_EXTRA,
+        [{"x": 1, "y": 2}, {"x": "bad"}, {"x": 1}],
+    ),
+}
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("wrapped", "extra", "values"),
+    _DROPPED_KEYS_PIPELINES.values(),
+    ids=list(_DROPPED_KEYS_PIPELINES),
+)
+def test_a_part_after_dropped_keys_is_never_narrower(
+    wrapped: object, extra: int, values: list[object], version: str
+) -> None:
+    """The document accepts every value the pipeline does, and strict refuses it."""
+    schema = Schema(wrapped, extra=extra)
+    document = to_openapi(schema, openapi_version=version)
+
+    for value in values:
+        if _accepts(schema, value):
+            assert _validates(document, version, value)
+
+    with pytest.raises(probatio.SchemaError, match="drops keys"):
+        to_openapi(schema, openapi_version=version, strict=True)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    ("wrapped", "extra"),
+    [
+        (probatio.All(dict, {"x": int}), probatio.REMOVE_EXTRA),
+        (
+            probatio.SomeOf([str, {"x": int}], min_valid=1, max_valid=1),
+            probatio.REMOVE_EXTRA,
+        ),
+        (probatio.SomeOf([{"x": int}, {"y": int}], min_valid=1), probatio.REMOVE_EXTRA),
+        (probatio.All({"x": int}, {"y": int}), probatio.ALLOW_EXTRA),
+        (
+            probatio.SomeOf([{"x": int}, {"y": int}], min_valid=1, max_valid=1),
+            probatio.ALLOW_EXTRA,
+        ),
+    ],
+    ids=[
+        "All with the mapping last",
+        "SomeOf with the mapping last",
+        "SomeOf at least one",
+        "All under ALLOW_EXTRA",
+        "SomeOf under ALLOW_EXTRA",
+    ],
+)
+def test_a_pipeline_that_sees_the_input_stays_exact(
+    wrapped: object, extra: int, version: str
+) -> None:
+    """Without a part after dropped keys, the document is exact and strict allows it."""
+    schema = Schema(wrapped, extra=extra)
+    document = to_openapi(schema, openapi_version=version, strict=True)
+
+    for value in ({"x": 1}, {"x": 1, "y": 2}, {"x": 1, "y": "s"}, {"y": 1}, {}, 1):
+        assert _validates(document, version, value) is _accepts(schema, value)

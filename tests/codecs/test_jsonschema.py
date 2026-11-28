@@ -3682,7 +3682,9 @@ def test_an_export_made_inside_a_custom_serializer_reports_nothing_outward() -> 
 
 # The wrappers the engine hands an enclosing extra-key policy on through, each
 # holding a mapping that policy reaches. The exactly-one ``SomeOf`` pairs the
-# mapping with a scalar branch, so its ``oneOf`` has only one branch to match.
+# mapping with a scalar branch, so its ``oneOf`` has only one branch to match,
+# and puts the mapping last: under ``REMOVE_EXTRA`` a branch after it would see
+# the value with its keys dropped, which no count over the input describes.
 _POLICY_INHERITING = {
     "dict value": {"x": int},
     "list": [{"x": int}],
@@ -3691,7 +3693,7 @@ _POLICY_INHERITING = {
     "Union": Union({"x": int}, str),
     "Switch": Switch({"x": int}),
     "SomeOf at least one": SomeOf([{"x": int}, str], min_valid=1),
-    "SomeOf exactly one": SomeOf([{"x": int}, str], min_valid=1, max_valid=1),
+    "SomeOf exactly one": SomeOf([str, {"x": int}], min_valid=1, max_valid=1),
     "Maybe": Maybe({"x": int}),
     "Maybe in Any": Any(Maybe({"x": int}), str),
     "Any in Maybe": Maybe(Any({"x": int}, str)),
@@ -3815,3 +3817,140 @@ def test_a_partial_variable_key_in_an_open_maybe_is_a_widening() -> None:
 
     with pytest.raises(SchemaError, match="on an open mapping"):
         to_json_schema(schema, strict=True)
+
+
+def _drops_under_remove(mapping: object) -> Schema:
+    """Wrap a mapping in a schema of its own that drops undeclared keys."""
+    return Schema(mapping, extra=REMOVE_EXTRA)
+
+
+# Pipelines whose later parts validate the value an earlier part returned with
+# keys dropped, each with the policy it runs under and values to try. One entry
+# per way a part can reach a mapping that drops keys.
+_DROPPED_KEYS_PIPELINES = {
+    "SomeOf exactly one": (
+        SomeOf([{"x": int}, {"y": int}], min_valid=1, max_valid=1),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, {"x": 1}, {"y": 1}, {"x": 1, "y": 2}, {}],
+    ),
+    "SomeOf every branch": (
+        SomeOf([{"x": int}, {"x": int, "y": str}], min_valid=2, max_valid=2),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": 5}, {"x": 1}, {"x": "bad", "y": "s"}],
+    ),
+    "All with a required key after": (
+        All({"x": int}, {Required("y"): int}),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": 2}, {"y": 2}, {"x": 1}],
+    ),
+    "All with a typed key after": (
+        All({"x": int}, {"y": int}),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, {"x": "bad"}, {"x": 1}],
+    ),
+    "list of mappings": (
+        All([{"x": int}], [{"x": int, "y": int}]),
+        REMOVE_EXTRA,
+        [[{"x": 1, "y": "bad"}], [{"x": "bad"}]],
+    ),
+    "Remove element": (
+        All([Remove({"x": int}), str], [str]),
+        REMOVE_EXTRA,
+        [[{"x": 1, "y": 2}, "a"], ["a"], [1]],
+    ),
+    "combinator": (
+        All(Any({"x": int}, str), {"y": int}),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, "s", {"x": "bad"}],
+    ),
+    "Maybe": (
+        All(Maybe({"x": int}), {"y": int}),
+        REMOVE_EXTRA,
+        [{"x": 1, "y": "bad"}, None, {"x": "bad"}],
+    ),
+    "Self": (
+        {Optional("a"): All([Self], Length(max=1))},
+        REMOVE_EXTRA,
+        [{"a": [{"b": 1}]}, {"a": [{}, {}]}, {}],
+    ),
+    "nested Schema": (
+        All(_drops_under_remove({"x": int}), {"x": int}),
+        PREVENT_EXTRA,
+        [{"x": 1, "y": 2}, {"x": "bad"}, {"x": 1}],
+    ),
+    "nested Schema in a value": (
+        All({"k": _drops_under_remove({"x": int})}, {"k": {"x": int, "y": int}}),
+        PREVENT_EXTRA,
+        [{"k": {"x": 1, "y": "bad"}}, {"k": {"x": "bad"}}],
+    ),
+    "nested Schema in a Msg": (
+        All(Msg(_drops_under_remove({"x": int}), "bad"), {"x": int}),
+        PREVENT_EXTRA,
+        [{"x": 1, "y": 2}, {"x": "bad"}],
+    ),
+    "nested Schema in an ExactSequence": (
+        All(ExactSequence([_drops_under_remove({"x": int})]), [{"x": int}]),
+        PREVENT_EXTRA,
+        [[{"x": 1, "y": 2}], [{"x": "bad"}]],
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("wrapped", "extra", "values"),
+    _DROPPED_KEYS_PIPELINES.values(),
+    ids=list(_DROPPED_KEYS_PIPELINES),
+)
+def test_a_part_after_dropped_keys_is_never_narrower(
+    wrapped: object, extra: int, values: list[object]
+) -> None:
+    """The document accepts every value the pipeline does, and strict refuses it."""
+    schema = Schema(wrapped, extra=extra)
+    document = to_json_schema(schema)
+
+    for value in values:
+        if _accepts(schema, value):
+            assert _document_validates(document, value)
+
+    with pytest.raises(SchemaError, match="drops keys"):
+        to_json_schema(schema, strict=True)
+
+
+@pytest.mark.parametrize(
+    ("wrapped", "extra"),
+    [
+        (All(dict, {"x": int}), REMOVE_EXTRA),
+        (All(int, {"x": int}), REMOVE_EXTRA),
+        (SomeOf([str, {"x": int}], min_valid=1, max_valid=1), REMOVE_EXTRA),
+        (SomeOf([{"x": int}, {"y": int}], min_valid=1), REMOVE_EXTRA),
+        (All({"x": int}, {"y": int}), ALLOW_EXTRA),
+        (SomeOf([{"x": int}, {"y": int}], min_valid=1, max_valid=1), ALLOW_EXTRA),
+    ],
+    ids=[
+        "All with the mapping last",
+        "All of a type and a mapping",
+        "SomeOf with the mapping last",
+        "SomeOf at least one",
+        "All under ALLOW_EXTRA",
+        "SomeOf under ALLOW_EXTRA",
+    ],
+)
+def test_a_pipeline_that_sees_the_input_stays_exact(
+    wrapped: object, extra: int
+) -> None:
+    """Without a part after dropped keys, the document is exact and strict allows it."""
+    schema = Schema(wrapped, extra=extra)
+    document = to_json_schema(schema, strict=True)
+
+    for value in ({"x": 1}, {"x": 1, "y": 2}, {"x": 1, "y": "s"}, {"y": 1}, {}, 1):
+        assert _document_validates(document, value) is _accepts(schema, value)
+
+
+def test_a_some_of_counting_none_after_dropped_keys_opens() -> None:
+    """With no lower bound there is nothing to keep, so the count opens."""
+    schema = Schema(
+        SomeOf([{"x": int}, {"y": int}], min_valid=0, max_valid=1),
+        extra=REMOVE_EXTRA,
+    )
+
+    assert to_json_schema(schema) == {}

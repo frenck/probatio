@@ -41,6 +41,7 @@ from probatio.codecs._shared import (
     encoding_root,
     ensure_list_branches,
     exclusive_constraint,
+    first_part_dropping_keys,
     inclusive_constraints,
     is_one_of,
     key_presence_constraint,
@@ -56,6 +57,7 @@ from probatio.codecs._shared import (
     passing_on_is_exact,
     regex_flags_change_meaning,
     self_is_document_root,
+    some_of_after_dropped_keys,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -1221,6 +1223,11 @@ def _oa_some_of(
         _oa(validator, custom, version, extra=extra) for validator in node.validators
     ]
     count = len(branches)
+
+    chained = some_of_after_dropped_keys(node, branches, extra, widen=_open)
+    if chained is not None:
+        return chained
+
     if node.min_valid == node.max_valid == 1:
         if count > 1 and widenings() != before:
             return {"anyOf": branches}
@@ -1369,6 +1376,13 @@ def _oa_all(node: All[Any], custom: Any, version: str, *, extra: int) -> dict[st
     leading = head is not None and claimed is None
 
     rest = validators[1:] if head is not None else validators
+    # A part after one that drops keys validates a value the document never
+    # sees, so it has no rendering against the input; it is left out.
+    cut = first_part_dropping_keys(rest, extra)
+    if cut is not None:
+        _open("the parts of an All after one that drops keys under REMOVE_EXTRA")
+        rest = rest[: cut + 1]
+
     for part in ([claimed] if claimed is not None else []) + [
         _oa_all_part(validator, custom, version, extra=extra) for validator in rest
     ]:

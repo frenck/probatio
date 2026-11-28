@@ -18,14 +18,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Container, Generator, Iterable
 
 from probatio._compile import matching_rank
-from probatio.markers import Alias, Extra, Remove, resolve_key
-from probatio.schema import Schema
+from probatio.markers import Alias, Extra, Remove, Self, resolve_key
+from probatio.schema import PREVENT_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     ASCII,
     E164,
     IBAN,
     ULID,
     UUID,
+    All,
     AllOrNone,
     Alpha,
     Alphanumeric,
@@ -37,6 +38,7 @@ from probatio.validators import (
     DataURI,
     EndsWith,
     ExactlyOne,
+    ExactSequence,
     Fqdn,
     Hex,
     HexColor,
@@ -48,6 +50,7 @@ from probatio.validators import (
     IPv6Address,
     IsRegex,
     MacAddress,
+    Maybe,
     Msg,
     NormalizeMacAddress,
     NoWhitespace,
@@ -56,9 +59,11 @@ from probatio.validators import (
     RequiredWith,
     RequiredWithout,
     Slug,
+    SomeOf,
     StartsWith,
     TimeZone,
     TimeZoneInfo,
+    Union,
 )
 from probatio.validators import Any as AnyValidator
 
@@ -912,6 +917,111 @@ def covers_every_property_name(key: Any) -> bool:
         key = key.validator if type(key) is Msg else key.schema
 
     return key is Extra or key is str or key is object
+
+
+def drops_keys(node: Any, extra: int) -> bool:  # noqa: PLR0911 - one per node kind
+    """Whether validating with ``node`` under ``extra`` can drop keys from the value.
+
+    ``All`` and ``SomeOf`` hand each part's output on to the next part. A mapping
+    compiled under ``REMOVE_EXTRA`` strips the keys it does not declare, so the
+    parts after it validate a value the document never sees. This finds such a
+    mapping by walking the schema the way the engine compiles it, never by
+    calling a validator.
+
+    ``extra`` is the policy handed on to ``node``. It reaches a bare mapping
+    directly, through a sequence or a mapping value, and through a combinator
+    or a ``Maybe``, which the engine rebinds under it. A nested ``Schema`` brings
+    its own policy, and ``Msg`` and ``ExactSequence`` compile their contents
+    under the strict default; a ``REMOVE_EXTRA`` schema inside one still drops.
+    A ``Self`` stands for a scope that may be a mapping under the policy in
+    force, so it counts when that policy drops.
+    """
+    if isinstance(node, Schema):
+        return drops_keys(node.schema, node.extra)
+
+    if isinstance(node, dict):
+        return extra == REMOVE_EXTRA or any(
+            drops_keys(value, extra) for value in node.values()
+        )
+
+    if isinstance(node, list | tuple | set | frozenset):
+        # A ``Remove`` element compiles as the schema it wraps.
+        return any(
+            drops_keys(
+                element.schema if isinstance(element, Remove) else element, extra
+            )
+            for element in node
+        )
+
+    if node is Self:
+        return extra == REMOVE_EXTRA
+
+    if isinstance(node, All | AnyValidator | Union | SomeOf):
+        return any(drops_keys(branch, extra) for branch in node.validators)
+
+    if isinstance(node, Maybe):
+        return drops_keys(node.validator, extra)
+
+    if isinstance(node, Msg):
+        return drops_keys(node.validator, PREVENT_EXTRA)
+
+    if isinstance(node, ExactSequence):
+        return any(drops_keys(position, PREVENT_EXTRA) for position in node.validators)
+
+    return False
+
+
+def first_part_dropping_keys(parts: list[Any], extra: int) -> int | None:
+    """Return where an ``All`` or ``SomeOf`` first hands on a value with keys dropped.
+
+    That is the index of the first part that drops keys (see ``drops_keys``)
+    with another part after it, or None when there is none. Every part up to and
+    including that one validates the input; the parts after it validate what
+    it returned. A part that drops keys but comes last hands its value to
+    nothing, so it does not count.
+    """
+    for index, part in enumerate(parts[:-1]):
+        if drops_keys(part, extra):
+            return index
+
+    return None
+
+
+def some_of_after_dropped_keys(
+    node: SomeOf,
+    branches: list[dict[str, Any]],
+    extra: int,
+    *,
+    widen: Callable[[str], dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Render a SomeOf whose branches see a value with keys dropped, or None.
+
+    Each branch that passes hands its output to the next, and one that fails
+    hands the value on unchanged. After a branch that drops keys and passes,
+    the rest validate a value the document never sees, so a count over them
+    says nothing about the input. Two things still hold. The first branch to
+    pass saw the input, since nothing before it passed, so "at least one" is
+    exactly "some branch accepts the input" and keeps its plain rendering. And
+    every branch up to the first one that drops keys sees the input.
+
+    When every branch has to pass, those up to the first that drops keys must
+    accept the input, so they render as ``allOf``. Any other count of at least
+    one needs some branch to accept the input, which is ``anyOf``. Both are
+    wider than the validator, and reported through ``widen``. A count of zero
+    has no such bound and is left to the plain rendering, which opens it.
+    """
+    cut = first_part_dropping_keys(node.validators, extra)
+    count = len(branches)
+    at_least_one = node.min_valid == 1 and node.max_valid == count
+    if cut is None or node.min_valid == 0 or at_least_one:
+        return None
+
+    if node.min_valid == node.max_valid == count:
+        widen("the branches of a SomeOf after one that drops keys under REMOVE_EXTRA")
+        return {"allOf": branches[: cut + 1]}
+
+    widen("the count of a SomeOf with a branch after one that drops keys")
+    return {"anyOf": branches}
 
 
 # How many renderings so far came out wider than the validator they describe. Only

@@ -44,6 +44,7 @@ from probatio.codecs._shared import (
     encoding_root,
     ensure_list_branches,
     exclusive_constraint,
+    first_part_dropping_keys,
     hoisted_scope,
     inclusive_constraints,
     is_one_of,
@@ -59,6 +60,7 @@ from probatio.codecs._shared import (
     referenced_definition,
     regex_flags_change_meaning,
     render_self,
+    some_of_after_dropped_keys,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -87,7 +89,7 @@ from probatio.markers import (
     Undefined,
     resolve_key,
 )
-from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema
+from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     UUID,
     All,
@@ -236,7 +238,7 @@ def _convert_document(schema: Any) -> dict[str, Any]:
     container in the schema a second time.
     """
     with encoding_root(schema) as state:
-        document = _convert(schema, required_default=False, allow_extra=False)
+        document = _convert(schema, required_default=False, extra=PREVENT_EXTRA)
 
     if not state.definitions:
         return document
@@ -278,17 +280,17 @@ def _open(reason: str) -> dict[str, Any]:
     return {}
 
 
-def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[str, Any]:
-    """Dispatch a schema node to the right JSON Schema renderer."""
+def _convert(node: Any, *, required_default: bool, extra: int) -> dict[str, Any]:
+    """Dispatch a schema node to the right JSON Schema renderer.
+
+    ``extra`` is the extra-key policy in force, the engine's own value, so a
+    mapping can render open or closed and a pipeline can tell a mapping that
+    drops keys (``REMOVE_EXTRA``) from one that keeps them.
+    """
     if isinstance(node, Schema):
-        # ``REMOVE_EXTRA`` accepts extra keys on input (it strips them from the
-        # output), so for input-side fidelity it renders open like ``ALLOW_EXTRA``,
-        # not closed like the strict default.
         return hoisted_scope(
             lambda: _convert(
-                node.schema,
-                required_default=node.required,
-                allow_extra=node.extra in (ALLOW_EXTRA, REMOVE_EXTRA),
+                node.schema, required_default=node.required, extra=node.extra
             ),
             node,
         )
@@ -299,11 +301,7 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
         # the type dropped. Keeping the ``type`` the inner renderer adds would
         # narrow: ``{"pattern": "x"}`` accepts the number 123 vacuously, and
         # ``{"type": "string", "pattern": "x"}`` rejects it.
-        inner = _convert(
-            node.subschema,
-            required_default=required_default,
-            allow_extra=allow_extra,
-        )
+        inner = _convert(node.subschema, required_default=required_default, extra=extra)
         return {key: value for key, value in inner.items() if key != "type"}
 
     custom = _options().custom
@@ -313,18 +311,12 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
             return cast("dict[str, Any]", result)
 
     if isinstance(node, dict):
-        return _convert_mapping(
-            node,
-            required_default=required_default,
-            allow_extra=allow_extra,
-        )
+        return _convert_mapping(node, required_default=required_default, extra=extra)
 
     if isinstance(node, list | tuple | set | frozenset):
-        return _convert_sequence(
-            node, required_default=required_default, allow_extra=allow_extra
-        )
+        return _convert_sequence(node, required_default=required_default, extra=extra)
 
-    return _convert_leaf(node, allow_extra=allow_extra)
+    return _convert_leaf(node, extra=extra)
 
 
 def _child(node: Any) -> dict[str, Any]:
@@ -335,17 +327,17 @@ def _child(node: Any) -> dict[str, Any]:
     their contents under their own policy. Structural nesting (a dict value, a
     list element) inherits both, and threads them through ``_convert`` instead.
     """
-    return _convert(node, required_default=False, allow_extra=False)
+    return _convert(node, required_default=False, extra=PREVENT_EXTRA)
 
 
-def _branch(node: Any, *, allow_extra: bool) -> dict[str, Any]:
+def _branch(node: Any, *, extra: int) -> dict[str, Any]:
     """Convert a combinator branch, or the schema a ``Maybe`` wraps.
 
     The engine rebinds a combinator and a ``Maybe`` under the enclosing schema's
     extra-key policy, so a mapping inside one is as open as the mapping around
     it. The required policy is not handed on: a combinator carries its own.
     """
-    return _convert(node, required_default=False, allow_extra=allow_extra)
+    return _convert(node, required_default=False, extra=extra)
 
 
 class _Groups:
@@ -440,7 +432,7 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
     node: dict[Any, Any],
     *,
     required_default: bool,
-    allow_extra: bool,
+    extra: int,
 ) -> dict[str, Any]:
     """Render a mapping schema as a JSON Schema object.
 
@@ -450,6 +442,10 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
     (``Alias``, ``Inclusive``, ``Exclusive``) and a required ``Any`` key add
     object-level constraints, combined under ``allOf``.
     """
+    # ``REMOVE_EXTRA`` accepts extra keys on input (it strips them from the
+    # output), so for input-side fidelity it renders open like ``ALLOW_EXTRA``,
+    # not closed like the strict default.
+    allow_extra = extra in (ALLOW_EXTRA, REMOVE_EXTRA)
     properties: dict[Any, Any] = {}
     required: list[Any] = []
     # Multiple variable keys ({str: int, int: str}) merge into one
@@ -485,9 +481,7 @@ def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping
         facets = resolve_key(key)
         marker = facets.marker
         name = facets.key
-        value_schema = _convert(
-            value, required_default=required_default, allow_extra=allow_extra
-        )
+        value_schema = _convert(value, required_default=required_default, extra=extra)
 
         if isinstance(marker, Forbidden):
             # A literal forbidden key is a rejected property; a type/callable one
@@ -910,7 +904,7 @@ def _convert_sequence(
     node: Any,
     *,
     required_default: bool = False,
-    allow_extra: bool = False,
+    extra: int = PREVENT_EXTRA,
 ) -> dict[str, Any]:
     """Render a sequence/set schema as a JSON Schema array.
 
@@ -921,7 +915,7 @@ def _convert_sequence(
     one, matching the engine.
     """
     items = [
-        _convert(element, required_default=required_default, allow_extra=allow_extra)
+        _convert(element, required_default=required_default, extra=extra)
         for element in _ordered(node)
     ]
 
@@ -938,10 +932,10 @@ def _convert_sequence(
     return result
 
 
-def _convert_leaf(node: Any, *, allow_extra: bool) -> dict[str, Any]:
+def _convert_leaf(node: Any, *, extra: int) -> dict[str, Any]:
     """Render a leaf node: a type, a literal, or a validator.
 
-    ``allow_extra`` is the enclosing extra-key policy, which a combinator or a
+    ``extra`` is the enclosing extra-key policy, which a combinator or a
     ``Maybe`` hands on to a mapping inside it.
     """
     if node is Self:
@@ -966,7 +960,7 @@ def _convert_leaf(node: Any, *, allow_extra: bool) -> dict[str, Any]:
     if isinstance(node, str | int | float | bool):
         return {"const": node}
 
-    validator = _convert_validator(node, allow_extra=allow_extra)
+    validator = _convert_validator(node, extra=extra)
     return validator if validator is not None else _open(f"the validator {node!r}")
 
 
@@ -994,7 +988,7 @@ def _convert_type(node: type) -> dict[str, Any]:
     return _open(f"the type {node.__name__!r}")
 
 
-def _convert_validator(node: Any, *, allow_extra: bool) -> dict[str, Any] | None:
+def _convert_validator(node: Any, *, extra: int) -> dict[str, Any] | None:
     """Render a combinator, or delegate to the constraint validators."""
     if isinstance(node, Coerce):
         target = node.type
@@ -1008,7 +1002,7 @@ def _convert_validator(node: Any, *, allow_extra: bool) -> dict[str, Any] | None
 
     if isinstance(node, Maybe):
         # A ``Self`` below is the wrapped schema alone: ``None`` is not part of it.
-        inner = hoisted_scope(partial(_branch, node.validator, allow_extra=allow_extra))
+        inner = hoisted_scope(partial(_branch, node.validator, extra=extra))
         return {"anyOf": [{"type": "null"}, inner]}
 
     # ``Union``/``Switch`` accept any branch (the discriminant is an
@@ -1016,17 +1010,14 @@ def _convert_validator(node: Any, *, allow_extra: bool) -> dict[str, Any] | None
     # ``Any`` since both wrap ``.validators``.
     if isinstance(node, AnyValidator | Union):
         return _convert_any(
-            [
-                _branch(validator, allow_extra=allow_extra)
-                for validator in node.validators
-            ]
+            [_branch(validator, extra=extra) for validator in node.validators]
         )
 
     if isinstance(node, SomeOf):
-        return _convert_some_of(node, allow_extra=allow_extra)
+        return _convert_some_of(node, extra=extra)
 
     if isinstance(node, All):
-        return _convert_all(node, allow_extra=allow_extra)
+        return _convert_all(node, extra=extra)
 
     presence = key_presence_constraint(node, dependent_required=True)
     if presence is not None:
@@ -1056,7 +1047,7 @@ def _convert_any(branches: list[dict[str, Any]]) -> dict[str, Any]:
     return {"anyOf": branches}
 
 
-def _convert_some_of(node: SomeOf, *, allow_extra: bool) -> dict[str, Any]:
+def _convert_some_of(node: SomeOf, *, extra: int) -> dict[str, Any]:
     """Render a SomeOf for the counts JSON Schema can express, else an open schema.
 
     Exactly one branch (``min == max == 1``) is ``oneOf``; at least one
@@ -1070,10 +1061,13 @@ def _convert_some_of(node: SomeOf, *, allow_extra: bool) -> dict[str, Any]:
     then renders as ``anyOf``, which is wider and never rejects such a value.
     """
     before = widenings()
-    branches = [
-        _branch(validator, allow_extra=allow_extra) for validator in node.validators
-    ]
+    branches = [_branch(validator, extra=extra) for validator in node.validators]
     count = len(branches)
+
+    chained = some_of_after_dropped_keys(node, branches, extra, widen=_open)
+    if chained is not None:
+        return chained
+
     if node.min_valid == node.max_valid == 1:
         if count > 1 and widenings() != before:
             # Taking the fallback is a widening of its own, whatever prompted it:
@@ -1091,7 +1085,7 @@ def _convert_some_of(node: SomeOf, *, allow_extra: bool) -> dict[str, Any]:
     return _open("a SomeOf with a min/max count JSON Schema cannot express")
 
 
-def _convert_all(node: All[Any], *, allow_extra: bool) -> dict[str, Any]:
+def _convert_all(node: All[Any], *, extra: int) -> dict[str, Any]:
     """Merge an All's validators into one schema, or ``allOf`` when keys conflict.
 
     Merging with ``dict.update`` is the common, compact case (``All(int, Range)``
@@ -1124,7 +1118,14 @@ def _convert_all(node: All[Any], *, allow_extra: bool) -> dict[str, Any]:
     leading = head is not None and claimed is None
 
     members = validators[1:] if head is not None else validators
-    parts = [_branch(validator, allow_extra=allow_extra) for validator in members]
+    # A part after one that drops keys validates a value the document never
+    # sees, so it has no rendering against the input; it is left out.
+    cut = first_part_dropping_keys(members, extra)
+    if cut is not None:
+        _open("the parts of an All after one that drops keys under REMOVE_EXTRA")
+        members = members[: cut + 1]
+
+    parts = [_branch(validator, extra=extra) for validator in members]
     if claimed is not None:
         parts.insert(0, claimed)
     merged: dict[str, Any] = {}
