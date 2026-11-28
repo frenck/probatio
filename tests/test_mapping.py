@@ -519,6 +519,11 @@ def test_a_remove_that_matches_removes(schema: dict[object, object]) -> None:
     assert Schema(schema)({"k": 1}) == {}
 
 
+def test_a_literal_key_is_found_before_a_remove_can_take_it() -> None:
+    """A key the schema names is looked up first, so a Remove of its type never sees it."""
+    assert Schema({Remove(str): int, "k": int})({"k": 1, "other": 2}) == {"k": 1}
+
+
 def test_reordering_matching_keys_leaves_literal_keys_in_place() -> None:
     """Defaults fill in the order the keys were written, around the matching keys."""
     schema = Schema(

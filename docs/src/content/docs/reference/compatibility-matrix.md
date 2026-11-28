@@ -306,10 +306,12 @@ Probatio does.
   marks the key: the keys tried after it still get a turn, the entry is kept when
   one of them accepts it, and it is dropped only when none does. So
   `{Remove("old"): int, Extra: object}` never removes anything. In Probatio a
-  `Remove` that matches, removes: `{"k": 1}` comes back as `{}`. A `Remove` is
-  tried before every other key, so this does not depend on where it is written.
-  What both libraries share is the other half: a `Remove` whose value does not
-  match passes the key on to the keys after it.
+  `Remove` that matches, removes: `{"k": 1}` comes back as `{}`. Among the keys
+  that match by shape a `Remove` is tried first, so this does not depend on where
+  it is written. A key the schema names literally is still found before any of
+  them, in both libraries: `{Remove(str): int, "k": int}` keeps `k`. What both
+  libraries also share is the other half: a `Remove` whose value does not match
+  passes the key on to the keys after it.
 - **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
   is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
   any key schema, including an `Any` of names
