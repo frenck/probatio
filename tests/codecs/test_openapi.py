@@ -2890,3 +2890,163 @@ def test_merged_enum_order_does_not_depend_on_the_hash_seed() -> None:
     }
 
     assert len(documents) == 1
+
+
+# The wrappers the engine hands an enclosing extra-key policy on through, each
+# holding a mapping that policy reaches. The exactly-one ``SomeOf`` pairs the
+# mapping with a scalar branch, so its ``oneOf`` has only one branch to match.
+# The ``Any`` in a ``Maybe`` has the mapping as its only branch: beside a second
+# one, OpenAPI 3.0 spells the null as an object branch, which takes any object.
+_POLICY_INHERITING = {
+    "dict value": {"x": int},
+    "list": [{"x": int}],
+    "Any": probatio.Any({"x": int}, str),
+    "All": probatio.All({"x": int}),
+    "Union": probatio.Union({"x": int}, str),
+    "Switch": probatio.Switch({"x": int}),
+    "SomeOf at least one": probatio.SomeOf([{"x": int}, str], min_valid=1),
+    "SomeOf exactly one": probatio.SomeOf([{"x": int}, str], min_valid=1, max_valid=1),
+    "Maybe": probatio.Maybe({"x": int}),
+    "Maybe in Any": probatio.Any(probatio.Maybe({"x": int}), str),
+    "Any in Maybe": probatio.Maybe(probatio.Any({"x": int})),
+    "Any in All": probatio.All(probatio.Any({"x": int})),
+    "list in Maybe": probatio.Maybe([{"x": int}]),
+    "Maybe in a list": [probatio.Maybe({"x": int})],
+    "two levels deep": {"a": {"b": probatio.Maybe({"x": int})}},
+    "Remove key in Maybe": probatio.Maybe({"x": int, probatio.Remove("r"): int}),
+    "str key in Maybe": probatio.Maybe({"x": int, str: int}),
+    "Extra key in Maybe": probatio.Maybe({"x": int, probatio.Extra: int}),
+}
+
+# The wrappers that compile their contents under their own policy, so a mapping
+# inside one stays closed whatever the enclosing schema says. ``ExactSequence``
+# is one too, but OpenAPI 3.0 cannot spell its positions, so it is left out here.
+_POLICY_BOUNDARIES = {
+    "Schema in Maybe": probatio.Maybe(Schema({"x": int})),
+    "Schema in Any": probatio.Any(Schema({"x": int}), str),
+    "Msg": probatio.Msg({"x": int}, "bad"),
+    "Msg in Maybe": probatio.Maybe(probatio.Msg({"x": int}, "bad")),
+}
+
+_POLICY_OBJECTS = [
+    {"x": 1},
+    {"x": 1, "y": 2},
+    {"x": "s"},
+    {"x": "s", "y": 2},
+    {"x": 1, "r": 3},
+    {"x": 1, "r": "s"},
+    {"y": 2},
+    {},
+]
+
+# Each object as the value itself, as a list item, and two levels down, so every
+# wrapper sees it in the shape it takes and in the shapes it rejects.
+_POLICY_VALUES = [
+    *_POLICY_OBJECTS,
+    *([item] for item in _POLICY_OBJECTS),
+    *({"a": {"b": item}} for item in _POLICY_OBJECTS),
+    None,
+    "s",
+    [None],
+]
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "extra", [probatio.PREVENT_EXTRA, probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA]
+)
+@pytest.mark.parametrize(
+    "wrapped",
+    [*_POLICY_INHERITING.values(), *_POLICY_BOUNDARIES.values()],
+    ids=[*_POLICY_INHERITING, *_POLICY_BOUNDARIES],
+)
+def test_a_nested_mapping_follows_the_extra_policy_the_engine_hands_it(
+    wrapped: object, extra: int, version: str
+) -> None:
+    """The document accepts exactly what the schema accepts, without widening."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_openapi(schema, openapi_version=version, strict=True)
+
+    for value in _POLICY_VALUES:
+        data = {"k": value}
+        assert _validates(document, version, data) is _accepts(schema, data)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize("extra", [probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    "wrapped", _POLICY_INHERITING.values(), ids=list(_POLICY_INHERITING)
+)
+def test_an_open_policy_opens_the_mapping_inside_a_wrapper(
+    wrapped: object, extra: int, version: str
+) -> None:
+    """An extra key the engine accepts in the nested mapping, the document accepts."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_openapi(schema, openapi_version=version)
+    extra_key = {"x": 1, "y": 2}
+
+    data = [
+        {"k": shaped}
+        for shaped in (extra_key, [extra_key], {"a": {"b": extra_key}})
+        if _accepts(schema, {"k": shaped})
+    ]
+
+    assert data
+    assert all(_validates(document, version, value) for value in data)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize("extra", [probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    "wrapped", _POLICY_BOUNDARIES.values(), ids=list(_POLICY_BOUNDARIES)
+)
+def test_a_wrapper_with_its_own_policy_keeps_its_mapping_closed(
+    wrapped: object, extra: int, version: str
+) -> None:
+    """The mapping rejects the extra key the open schema around the wrapper allows."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_openapi(schema, openapi_version=version)
+
+    assert not _accepts(schema, {"k": {"x": 1, "y": 2}})
+    assert not _validates(document, version, {"k": {"x": 1, "y": 2}})
+
+
+@pytest.mark.parametrize("extra", [probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA])
+def test_an_open_policy_renders_a_nested_mapping_like_the_top_level(
+    extra: int,
+) -> None:
+    """A nested mapping takes the shape the top level takes under the same policy."""
+    top_level = to_openapi(Schema({"x": int}, extra=extra))
+    document = to_openapi(Schema({"k": {"x": int}, "l": [{"x": int}]}, extra=extra))
+
+    assert document["properties"]["k"] == top_level
+    assert document["properties"]["l"]["items"] == top_level
+
+
+@pytest.mark.parametrize("extra", [probatio.ALLOW_EXTRA, probatio.REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    ("sequence", "as_list"),
+    [
+        (({"x": int},), [{"x": int}]),
+        ({probatio.Maybe({"x": int})}, [probatio.Maybe({"x": int})]),
+    ],
+    ids=["tuple", "set"],
+)
+def test_a_tuple_or_set_hands_the_policy_on_like_a_list(
+    sequence: object, as_list: object, extra: int
+) -> None:
+    """A tuple and a set render their items the way a list does, policy included."""
+    rendered = to_openapi(Schema({"k": sequence}, extra=extra))
+    expected = to_openapi(Schema({"k": as_list}, extra=extra))
+
+    assert rendered["properties"]["k"]["items"] == expected["properties"]["k"]["items"]
+
+
+def test_a_partial_variable_key_in_an_open_maybe_is_a_widening() -> None:
+    """The open policy reaches the mapping in the Maybe, and strict refuses the loss."""
+    schema = Schema(
+        {"k": probatio.Maybe({"x": int, int: int})}, extra=probatio.ALLOW_EXTRA
+    )
+
+    with pytest.raises(probatio.SchemaError, match="partial variable key"):
+        to_openapi(schema, strict=True)

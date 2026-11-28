@@ -15,6 +15,7 @@ import pytest
 from probatio import (
     ALLOW_EXTRA,
     ASCII,
+    PREVENT_EXTRA,
     REMOVE_EXTRA,
     UNSUPPORTED,
     UUID,
@@ -77,9 +78,11 @@ from probatio import (
     Self,
     Slug,
     SomeOf,
+    Switch,
     Time,
     TimeZone,
     TimeZoneInfo,
+    Union,
     Unique,
     Url,
 )
@@ -3675,3 +3678,140 @@ def test_an_export_made_inside_a_custom_serializer_reports_nothing_outward() -> 
     document = to_json_schema(schema, strict=True, custom_serializer=custom)
 
     assert document == {"oneOf": [{"type": "integer"}, {"type": "string"}]}
+
+
+# The wrappers the engine hands an enclosing extra-key policy on through, each
+# holding a mapping that policy reaches. The exactly-one ``SomeOf`` pairs the
+# mapping with a scalar branch, so its ``oneOf`` has only one branch to match.
+_POLICY_INHERITING = {
+    "dict value": {"x": int},
+    "list": [{"x": int}],
+    "Any": Any({"x": int}, str),
+    "All": All({"x": int}),
+    "Union": Union({"x": int}, str),
+    "Switch": Switch({"x": int}),
+    "SomeOf at least one": SomeOf([{"x": int}, str], min_valid=1),
+    "SomeOf exactly one": SomeOf([{"x": int}, str], min_valid=1, max_valid=1),
+    "Maybe": Maybe({"x": int}),
+    "Maybe in Any": Any(Maybe({"x": int}), str),
+    "Any in Maybe": Maybe(Any({"x": int}, str)),
+    "Any in All": All(Any({"x": int})),
+    "list in Maybe": Maybe([{"x": int}]),
+    "Maybe in a list": [Maybe({"x": int})],
+    "two levels deep": {"a": {"b": Maybe({"x": int})}},
+    "Remove key in Maybe": Maybe({"x": int, Remove("r"): int}),
+    "str key in Maybe": Maybe({"x": int, str: int}),
+    "Extra key in Maybe": Maybe({"x": int, Extra: int}),
+}
+
+# The wrappers that compile their contents under their own policy, so a mapping
+# inside one stays closed whatever the enclosing schema says.
+_POLICY_BOUNDARIES = {
+    "Schema in Maybe": Maybe(Schema({"x": int})),
+    "Schema in Any": Any(Schema({"x": int}), str),
+    "Msg": Msg({"x": int}, "bad"),
+    "Msg in Maybe": Maybe(Msg({"x": int}, "bad")),
+    "ExactSequence": ExactSequence([{"x": int}]),
+}
+
+_POLICY_OBJECTS = [
+    {"x": 1},
+    {"x": 1, "y": 2},
+    {"x": "s"},
+    {"x": "s", "y": 2},
+    {"x": 1, "r": 3},
+    {"x": 1, "r": "s"},
+    {"y": 2},
+    {},
+]
+
+# Each object as the value itself, as a list item, and two levels down, so every
+# wrapper sees it in the shape it takes and in the shapes it rejects.
+_POLICY_VALUES = [
+    *_POLICY_OBJECTS,
+    *([item] for item in _POLICY_OBJECTS),
+    *({"a": {"b": item}} for item in _POLICY_OBJECTS),
+    None,
+    "s",
+    [None],
+]
+
+
+@pytest.mark.parametrize("extra", [PREVENT_EXTRA, ALLOW_EXTRA, REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    "wrapped",
+    [*_POLICY_INHERITING.values(), *_POLICY_BOUNDARIES.values()],
+    ids=[*_POLICY_INHERITING, *_POLICY_BOUNDARIES],
+)
+def test_a_nested_mapping_follows_the_extra_policy_the_engine_hands_it(
+    wrapped: object, extra: int
+) -> None:
+    """The document accepts exactly what the schema accepts, without widening."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_json_schema(schema, strict=True)
+
+    for value in _POLICY_VALUES:
+        data = {"k": value}
+        assert _document_validates(document, data) is _accepts(schema, data)
+
+
+@pytest.mark.parametrize("extra", [ALLOW_EXTRA, REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    "wrapped", _POLICY_INHERITING.values(), ids=list(_POLICY_INHERITING)
+)
+def test_an_open_policy_opens_the_mapping_inside_a_wrapper(
+    wrapped: object, extra: int
+) -> None:
+    """An extra key the engine accepts in the nested mapping, the document accepts."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_json_schema(schema)
+    extra_key = {"x": 1, "y": 2}
+
+    data = [
+        {"k": shaped}
+        for shaped in (extra_key, [extra_key], {"a": {"b": extra_key}})
+        if _accepts(schema, {"k": shaped})
+    ]
+
+    assert data
+    assert all(_document_validates(document, value) for value in data)
+
+
+@pytest.mark.parametrize("extra", [ALLOW_EXTRA, REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    "wrapped", _POLICY_BOUNDARIES.values(), ids=list(_POLICY_BOUNDARIES)
+)
+def test_a_wrapper_with_its_own_policy_keeps_its_mapping_closed(
+    wrapped: object, extra: int
+) -> None:
+    """The mapping rejects the extra key the open schema around the wrapper allows."""
+    schema = Schema({"k": wrapped}, extra=extra)
+    document = to_json_schema(schema)
+
+    for value in ({"x": 1, "y": 2}, [{"x": 1, "y": 2}]):
+        assert not _accepts(schema, {"k": value})
+        assert not _document_validates(document, {"k": value})
+
+
+@pytest.mark.parametrize("extra", [ALLOW_EXTRA, REMOVE_EXTRA])
+@pytest.mark.parametrize(
+    ("sequence", "as_list"),
+    [(({"x": int},), [{"x": int}]), ({Maybe({"x": int})}, [Maybe({"x": int})])],
+    ids=["tuple", "set"],
+)
+def test_a_tuple_or_set_hands_the_policy_on_like_a_list(
+    sequence: object, as_list: object, extra: int
+) -> None:
+    """A tuple and a set render their items the way a list does, policy included."""
+    rendered = to_json_schema(Schema({"k": sequence}, extra=extra))
+    expected = to_json_schema(Schema({"k": as_list}, extra=extra))
+
+    assert rendered["properties"]["k"]["items"] == expected["properties"]["k"]["items"]
+
+
+def test_a_partial_variable_key_in_an_open_maybe_is_a_widening() -> None:
+    """The open policy reaches the mapping in the Maybe, and strict refuses the loss."""
+    schema = Schema({"k": Maybe({"x": int, int: int})}, extra=ALLOW_EXTRA)
+
+    with pytest.raises(SchemaError, match="on an open mapping"):
+        to_json_schema(schema, strict=True)

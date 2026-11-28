@@ -324,19 +324,28 @@ def _convert(node: Any, *, required_default: bool, allow_extra: bool) -> dict[st
             node, required_default=required_default, allow_extra=allow_extra
         )
 
-    return _convert_leaf(node)
+    return _convert_leaf(node, allow_extra=allow_extra)
 
 
 def _child(node: Any) -> dict[str, Any]:
     """Convert a validator-internal node with default (non-required, closed) settings.
 
-    Used where the validation engine does *not* inherit the enclosing schema's
-    required/extra policy: combinator branches, ``Maybe``, ``Contains``, and
-    ``ExactSequence`` compile their contents under their own policy. Structural
-    nesting (a dict value, a list element) does inherit, and threads the policy
-    through ``_convert`` instead.
+    Used where the validation engine does *not* hand the enclosing schema's
+    required/extra policy on: ``Msg``, ``Contains`` and ``ExactSequence`` compile
+    their contents under their own policy. Structural nesting (a dict value, a
+    list element) inherits both, and threads them through ``_convert`` instead.
     """
     return _convert(node, required_default=False, allow_extra=False)
+
+
+def _branch(node: Any, *, allow_extra: bool) -> dict[str, Any]:
+    """Convert a combinator branch, or the schema a ``Maybe`` wraps.
+
+    The engine rebinds a combinator and a ``Maybe`` under the enclosing schema's
+    extra-key policy, so a mapping inside one is as open as the mapping around
+    it. The required policy is not handed on: a combinator carries its own.
+    """
+    return _convert(node, required_default=False, allow_extra=allow_extra)
 
 
 class _Groups:
@@ -908,7 +917,8 @@ def _convert_sequence(
     A list or tuple element inherits the enclosing schema's required/extra
     policy, mirroring the validation engine (a set holds only hashable leaves,
     so its policy is moot). Combinator branches reach ``_convert_sequence``
-    through ``_child`` with the strict default, matching the engine.
+    through ``_branch``, which hands on the extra policy but not the required
+    one, matching the engine.
     """
     items = [
         _convert(element, required_default=required_default, allow_extra=allow_extra)
@@ -928,8 +938,12 @@ def _convert_sequence(
     return result
 
 
-def _convert_leaf(node: Any) -> dict[str, Any]:
-    """Render a leaf node: a type, a literal, or a validator."""
+def _convert_leaf(node: Any, *, allow_extra: bool) -> dict[str, Any]:
+    """Render a leaf node: a type, a literal, or a validator.
+
+    ``allow_extra`` is the enclosing extra-key policy, which a combinator or a
+    ``Maybe`` hands on to a mapping inside it.
+    """
     if node is Self:
         # ``Self`` means "the enclosing schema", the recursive reference the
         # decoder already reads back. At the document root that is ``$ref: "#"``.
@@ -952,7 +966,7 @@ def _convert_leaf(node: Any) -> dict[str, Any]:
     if isinstance(node, str | int | float | bool):
         return {"const": node}
 
-    validator = _convert_validator(node)
+    validator = _convert_validator(node, allow_extra=allow_extra)
     return validator if validator is not None else _open(f"the validator {node!r}")
 
 
@@ -980,7 +994,7 @@ def _convert_type(node: type) -> dict[str, Any]:
     return _open(f"the type {node.__name__!r}")
 
 
-def _convert_validator(node: Any) -> dict[str, Any] | None:
+def _convert_validator(node: Any, *, allow_extra: bool) -> dict[str, Any] | None:
     """Render a combinator, or delegate to the constraint validators."""
     if isinstance(node, Coerce):
         target = node.type
@@ -992,17 +1006,27 @@ def _convert_validator(node: Any) -> dict[str, Any] | None:
         # ``Msg`` only swaps the error message; the shape is the wrapped validator.
         return hoisted_scope(partial(_child, node.validator), node)
 
+    if isinstance(node, Maybe):
+        # A ``Self`` below is the wrapped schema alone: ``None`` is not part of it.
+        inner = hoisted_scope(partial(_branch, node.validator, allow_extra=allow_extra))
+        return {"anyOf": [{"type": "null"}, inner]}
+
     # ``Union``/``Switch`` accept any branch (the discriminant is an
     # optimization), so they render as ``anyOf`` like ``Any``. Checked with
     # ``Any`` since both wrap ``.validators``.
     if isinstance(node, AnyValidator | Union):
-        return _convert_any([_child(validator) for validator in node.validators])
+        return _convert_any(
+            [
+                _branch(validator, allow_extra=allow_extra)
+                for validator in node.validators
+            ]
+        )
 
     if isinstance(node, SomeOf):
-        return _convert_some_of(node)
+        return _convert_some_of(node, allow_extra=allow_extra)
 
     if isinstance(node, All):
-        return _convert_all(node)
+        return _convert_all(node, allow_extra=allow_extra)
 
     presence = key_presence_constraint(node, dependent_required=True)
     if presence is not None:
@@ -1032,7 +1056,7 @@ def _convert_any(branches: list[dict[str, Any]]) -> dict[str, Any]:
     return {"anyOf": branches}
 
 
-def _convert_some_of(node: SomeOf) -> dict[str, Any]:
+def _convert_some_of(node: SomeOf, *, allow_extra: bool) -> dict[str, Any]:
     """Render a SomeOf for the counts JSON Schema can express, else an open schema.
 
     Exactly one branch (``min == max == 1``) is ``oneOf``; at least one
@@ -1046,7 +1070,9 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     then renders as ``anyOf``, which is wider and never rejects such a value.
     """
     before = widenings()
-    branches = [_child(validator) for validator in node.validators]
+    branches = [
+        _branch(validator, allow_extra=allow_extra) for validator in node.validators
+    ]
     count = len(branches)
     if node.min_valid == node.max_valid == 1:
         if count > 1 and widenings() != before:
@@ -1065,7 +1091,7 @@ def _convert_some_of(node: SomeOf) -> dict[str, Any]:
     return _open("a SomeOf with a min/max count JSON Schema cannot express")
 
 
-def _convert_all(node: All[Any]) -> dict[str, Any]:
+def _convert_all(node: All[Any], *, allow_extra: bool) -> dict[str, Any]:
     """Merge an All's validators into one schema, or ``allOf`` when keys conflict.
 
     Merging with ``dict.update`` is the common, compact case (``All(int, Range)``
@@ -1098,7 +1124,7 @@ def _convert_all(node: All[Any]) -> dict[str, Any]:
     leading = head is not None and claimed is None
 
     members = validators[1:] if head is not None else validators
-    parts = [_child(validator) for validator in members]
+    parts = [_branch(validator, allow_extra=allow_extra) for validator in members]
     if claimed is not None:
         parts.insert(0, claimed)
     merged: dict[str, Any] = {}
@@ -1283,11 +1309,6 @@ def _convert_constraint(node: Any) -> dict[str, Any] | None:
 
     if isinstance(node, Match | _JsonPattern):
         return _convert_match(node)
-
-    if isinstance(node, Maybe):
-        # A ``Self`` below is the wrapped schema alone: ``None`` is not part of it.
-        inner = hoisted_scope(partial(_child, node.validator))
-        return {"anyOf": [{"type": "null"}, inner]}
 
     temporal = _convert_temporal_node(node)
     if temporal is not None:
