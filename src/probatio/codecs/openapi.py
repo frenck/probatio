@@ -41,6 +41,7 @@ from probatio.codecs._shared import (
     encoding_root,
     ensure_list_branches,
     exclusive_constraint,
+    first_part_dropping_keys,
     inclusive_constraints,
     is_one_of,
     key_presence_constraint,
@@ -56,6 +57,7 @@ from probatio.codecs._shared import (
     passing_on_is_exact,
     regex_flags_change_meaning,
     self_is_document_root,
+    some_of_after_dropped_keys,
     widenings,
 )
 from probatio.codecs._shared import UNREPRESENTABLE as _UNREPRESENTABLE
@@ -76,7 +78,7 @@ from probatio.markers import (
     Undefined,
     resolve_key,
 )
-from probatio.schema import ALLOW_EXTRA, REMOVE_EXTRA, Schema
+from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, REMOVE_EXTRA, Schema
 from probatio.validators import (
     All,
     AsDate,
@@ -401,14 +403,13 @@ def _ensure_default(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _oa(  # noqa: PLR0913 - the node and each of the policies it inherits
+def _oa(
     node: Any,
     custom: Any,
     version: str,
     *,
     required_default: bool = False,
-    closed: bool = True,
-    additional: Any = None,
+    extra: int = PREVENT_EXTRA,
 ) -> dict[str, Any]:
     """Convert one schema node into an OpenAPI Schema object.
 
@@ -417,12 +418,14 @@ def _oa(  # noqa: PLR0913 - the node and each of the policies it inherits
     presence. It is read off each ``Schema`` as it is unwrapped (a nested one with
     its own setting overrides the outer), carried into mapping values and sequence
     items, and, matching ``to_json_schema``, not into leaf validators.
+
+    ``extra`` is the extra-key policy for that mapping, read off each ``Schema``
+    the same way. It travels further than ``required_default``: the engine hands
+    it on through mapping values, sequence items, combinator branches and
+    ``Maybe``, so a bare dict in any of those is as open as the mapping around it.
     """
     # A ``Schema`` value is itself a valid validator, so schemas can nest. Unwrap
-    # every layer: the innermost one does the validation, so its policy wins. The
-    # strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA`` and
-    # ``REMOVE_EXTRA`` both accept extra keys, so they stay open. A bare nested dict
-    # has no policy of its own and defaults to closed.
+    # every layer: the innermost one does the validation, so its policy wins.
     if isinstance(node, Schema):
         with nested_self_scope(node):
             return _oa(
@@ -430,8 +433,7 @@ def _oa(  # noqa: PLR0913 - the node and each of the policies it inherits
                 custom,
                 version,
                 required_default=node.required,
-                closed=node.extra not in (ALLOW_EXTRA, REMOVE_EXTRA),
-                additional=True if node.extra == ALLOW_EXTRA else None,
+                extra=node.extra,
             )
 
     if custom is not None:
@@ -450,22 +452,27 @@ def _oa(  # noqa: PLR0913 - the node and each of the policies it inherits
         return _open("a Self inside a nested Schema, which is not the document root")
 
     if isinstance(node, dict):
+        # The strict default (``PREVENT_EXTRA``) closes the object; ``ALLOW_EXTRA``
+        # and ``REMOVE_EXTRA`` both accept extra keys, so they stay open.
         return _oa_mapping(
             node,
             custom,
             version,
-            additional,
-            closed=closed,
+            True if extra == ALLOW_EXTRA else None,
+            closed=extra not in (ALLOW_EXTRA, REMOVE_EXTRA),
             required_default=required_default,
+            extra=extra,
         )
     if isinstance(node, list | tuple | set | frozenset):
-        return _oa_sequence(node, custom, version, required_default=required_default)
+        return _oa_sequence(
+            node, custom, version, required_default=required_default, extra=extra
+        )
 
     generic = _oa_generic(node, custom, version)
     if generic is not None:
         return generic
 
-    return _oa_leaf(node, custom, version)
+    return _oa_leaf(node, custom, version, extra=extra)
 
 
 def _oa_generic(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
@@ -569,8 +576,13 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
     *,
     closed: bool = True,
     required_default: bool = False,
+    extra: int = PREVENT_EXTRA,
 ) -> dict[str, Any]:
-    """Render a mapping as an OpenAPI object, mirroring convert()'s key rules."""
+    """Render a mapping as an OpenAPI object, mirroring convert()'s key rules.
+
+    ``closed`` and ``additional`` say how this object treats an undeclared key;
+    ``extra`` is the policy they came from, handed on to the values.
+    """
     properties: dict[str, Any] = {}
     required: list[str] = []
     # The variable keys and their value schemas, gathered so universality is
@@ -606,7 +618,9 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
         facets = resolve_key(key)
         marker = facets.marker
         pkey = facets.key
-        pval = _oa(value, custom, version, required_default=required_default)
+        pval = _oa(
+            value, custom, version, required_default=required_default, extra=extra
+        )
         # Infer the type from the value schema alone, before the marker's
         # description and default land on it. Those are annotations, not
         # constraints, and must not turn an open value into a string.
@@ -1020,7 +1034,12 @@ def _assemble_object(
 
 
 def _oa_sequence(
-    node: Any, custom: Any, version: str, *, required_default: bool = False
+    node: Any,
+    custom: Any,
+    version: str,
+    *,
+    required_default: bool = False,
+    extra: int = PREVENT_EXTRA,
 ) -> dict[str, Any]:
     """Render a sequence schema as an OpenAPI array.
 
@@ -1030,7 +1049,9 @@ def _oa_sequence(
     position). An empty sequence accepts only the empty array.
     """
     items = [
-        _ensure_default(_oa(item, custom, version, required_default=required_default))
+        _ensure_default(
+            _oa(item, custom, version, required_default=required_default, extra=extra)
+        )
         for item in _ordered(node)
     ]
     if len(items) == 1:
@@ -1040,9 +1061,9 @@ def _oa_sequence(
     return {"type": "array", "items": {"anyOf": items}}
 
 
-def _oa_leaf(node: Any, custom: Any, version: str) -> dict[str, Any]:
+def _oa_leaf(node: Any, custom: Any, version: str, *, extra: int) -> dict[str, Any]:
     """Render a leaf node: a validator, a literal, a type, or None."""
-    combinator = _oa_combinator(node, custom, version)
+    combinator = _oa_combinator(node, custom, version, extra=extra)
     if combinator is not None:
         return combinator
 
@@ -1104,10 +1125,17 @@ def _oa_callable(node: Any, custom: Any, version: str) -> dict[str, Any]:
     return _ensure_default(_oa(hint, custom, version))
 
 
-def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | None:
-    """Render the combinators and constraint validators, or None if not one."""
+def _oa_combinator(
+    node: Any, custom: Any, version: str, *, extra: int
+) -> dict[str, Any] | None:
+    """Render the combinators and constraint validators, or None if not one.
+
+    The engine rebinds a combinator and a ``Maybe`` under the enclosing ``extra``
+    policy, so their branches render under it too. ``Msg`` and the collection
+    validators compile their contents under their own policy and do not.
+    """
     if isinstance(node, All):
-        return _oa_all(node, custom, version)
+        return _oa_all(node, custom, version, extra=extra)
     if isinstance(node, Clamp | Range):
         return _oa_range(node, version)
     if isinstance(node, Length):
@@ -1161,13 +1189,13 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
             return _oa(node.validator, custom, version)
     if isinstance(node, Maybe):
         with nested_self_scope(node):
-            return _oa_any([None, node.validator], custom, version)
+            return _oa_any([None, node.validator], custom, version, extra=extra)
     # ``Union``/``Switch`` accept any branch (the discriminant is an optimization),
     # so they render like ``Any``, sharing its version-aware nullable handling.
     if isinstance(node, AnyValidator | UnionValidator):
-        return _oa_any(list(node.validators), custom, version)
+        return _oa_any(list(node.validators), custom, version, extra=extra)
     if isinstance(node, SomeOf):
-        return _oa_some_of(node, custom, version)
+        return _oa_some_of(node, custom, version, extra=extra)
 
     collection = _oa_collection(node, custom, version)
     if collection is not None:
@@ -1176,7 +1204,9 @@ def _oa_combinator(node: Any, custom: Any, version: str) -> dict[str, Any] | Non
     return _oa_typed(node)
 
 
-def _oa_some_of(node: SomeOf, custom: Any, version: str) -> dict[str, Any]:
+def _oa_some_of(
+    node: SomeOf, custom: Any, version: str, *, extra: int
+) -> dict[str, Any]:
     """Render a SomeOf for the counts OpenAPI can express, else an open schema.
 
     Exactly one branch (``min == max == 1``) is ``oneOf``, at least one
@@ -1189,8 +1219,15 @@ def _oa_some_of(node: SomeOf, custom: Any, version: str) -> dict[str, Any]:
     then renders as ``anyOf``, which is wider and never rejects such a value.
     """
     before = widenings()
-    branches = [_oa(validator, custom, version) for validator in node.validators]
+    branches = [
+        _oa(validator, custom, version, extra=extra) for validator in node.validators
+    ]
     count = len(branches)
+
+    chained = some_of_after_dropped_keys(node, branches, extra, widen=_open)
+    if chained is not None:
+        return chained
+
     if node.min_valid == node.max_valid == 1:
         if count > 1 and widenings() != before:
             return {"anyOf": branches}
@@ -1319,7 +1356,7 @@ class _RawLength(dict[str, Any]):
     """
 
 
-def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
+def _oa_all(node: All[Any], custom: Any, version: str, *, extra: int) -> dict[str, Any]:
     """Merge an All's parts, falling back to allOf when keys conflict."""
     merged: dict[str, Any] = {}
     all_of: list[dict[str, Any]] = []
@@ -1339,8 +1376,15 @@ def _oa_all(node: All[Any], custom: Any, version: str) -> dict[str, Any]:
     leading = head is not None and claimed is None
 
     rest = validators[1:] if head is not None else validators
+    # A part after one that drops keys validates a value the document never
+    # sees, so it has no rendering against the input; it is left out.
+    cut = first_part_dropping_keys(rest, extra)
+    if cut is not None:
+        _open("the parts of an All after one that drops keys under REMOVE_EXTRA")
+        rest = rest[: cut + 1]
+
     for part in ([claimed] if claimed is not None else []) + [
-        _oa_all_part(validator, custom, version) for validator in rest
+        _oa_all_part(validator, custom, version, extra=extra) for validator in rest
     ]:
         if not part or _listed(part, all_of) or part == _OPEN_OBJECT:
             continue
@@ -1495,7 +1539,9 @@ def _oa_bound(
     return {key: value, exclusive_key: True}
 
 
-def _oa_all_part(validator: Any, custom: Any, version: str) -> dict[str, Any]:
+def _oa_all_part(
+    validator: Any, custom: Any, version: str, *, extra: int
+) -> dict[str, Any]:
     """Render one part of an All for the merge.
 
     A ``Length`` goes in as raw string-length bounds: a sibling supplies the type
@@ -1508,7 +1554,7 @@ def _oa_all_part(validator: Any, custom: Any, version: str) -> dict[str, Any]:
         if override is UNSUPPORTED:
             return _RawLength(_oa_length(validator))
         return cast("dict[str, Any]", override)
-    return _oa(validator, custom, version)
+    return _oa(validator, custom, version, extra=extra)
 
 
 def _oa_length(node: Length) -> dict[str, Any]:
@@ -1661,7 +1707,9 @@ def _oa_null(version: str) -> dict[str, Any]:
     return {"type": "object", "nullable": True, "description": "Must be null"}
 
 
-def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
+def _oa_any(
+    validators: list[Any], custom: Any, version: str, *, extra: int
+) -> dict[str, Any]:
     """Render an Any (or Maybe), a faithful port of voluptuous-openapi's Any block.
 
     On 3.0 a top-level ``None`` becomes the ``nullable`` flag; on 3.1 it stays a
@@ -1679,13 +1727,13 @@ def _oa_any(validators: list[Any], custom: Any, version: str) -> dict[str, Any]:
         return _oa_null(version)
 
     if len(validators) == 1:
-        result = _oa(validators[0], custom, version)
+        result = _oa(validators[0], custom, version, extra=extra)
         if nullable:
             result["nullable"] = True
         return result
 
     any_of, nested_nullable = _flatten_any(
-        [_oa(validator, custom, version) for validator in validators],
+        [_oa(validator, custom, version, extra=extra) for validator in validators],
     )
     nullable = nullable or nested_nullable
 
