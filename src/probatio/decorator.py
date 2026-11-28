@@ -14,7 +14,7 @@ import inspect
 import typing
 from functools import wraps
 
-from probatio.dataclass_schema import _annotation_to_schema
+from probatio.dataclass_schema import _annotation_to_schema, create_typeddict_schema
 from probatio.error import Invalid, SchemaError
 from probatio.schema import ALLOW_EXTRA, PREVENT_EXTRA, Schema
 from probatio.validators import All
@@ -199,8 +199,14 @@ def _return_schema(
                 f"probatio: returns=True needs a return annotation on {_name(func)!r}"
             )
             raise SchemaError(message)
-        inferred = _annotation_to_schema(hints[_RETURN], {}, PREVENT_EXTRA)
-        _reject_validator_annotation(func, "the return", hints[_RETURN], inferred)
+        annotation = hints[_RETURN]
+        if typing.is_typeddict(annotation):
+            # The annotation is the whole result schema, not a field of an
+            # enclosing one, so it is built top-level and compiles by policy. A
+            # nested TypedDict schema never compiles on its own.
+            return create_typeddict_schema(annotation)
+        inferred = _annotation_to_schema(annotation, {}, PREVENT_EXTRA)
+        _reject_validator_annotation(func, "the return", annotation, inferred)
         return Schema(inferred)
     return Schema(returns)
 

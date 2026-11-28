@@ -124,6 +124,13 @@ inlines the validators that show up most: `Coerce` to `int`/`float`, numeric
 validated value), and `All`/`Any` chains of those. A subclass of one of these that
 overrides `__call__` is not inlined: its override always runs, compiled or not.
 
+A TypedDict nested in another TypedDict or in a dataclass compiles along with the
+schema that holds it when it is a direct field, an optional one (`Inner | None`),
+or a list item. It never compiles on its own, so `compile=False` on the outer
+schema keeps the whole tree interpreted. Nested anywhere else (a `dict` value, a
+tuple, a wider union), it is validated interpreted, like any other shape the
+generator does not reach.
+
 Anything it does not handle is simply left interpreted. A recursive schema (`Self`
 or a recursive JSON Schema `$ref`), an exclusive or inclusive group, a multi-element
 list (an "each item matches one of these" union), a list whose element does not

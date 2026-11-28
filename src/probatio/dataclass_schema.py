@@ -1321,10 +1321,69 @@ def create_typeddict_schema(
         typeddict_type, additional_constraints or {}, self_refs, extra
     )
 
-    inner = Schema(mapping, extra=extra)
+    # A caller that hands in ``_self_refs`` is building a field of an enclosing
+    # schema, so the result is nested: it stays interpreted and offers a twin. A
+    # top-level one is a plain ``Schema`` that compiles by its own policy.
+    schema_cls = Schema if _self_refs is None else _NestedTypedDictSchema
+    inner = schema_cls(mapping, extra=extra)
     ref.bind(inner)
 
     return inner
+
+
+class _NestedTypedDictSchema(Schema):
+    """The mapping ``Schema`` a nested TypedDict field builds into.
+
+    Called as a schema it always validates interpreted: it never arms by policy
+    and never swaps its engine for generated code, not even on ``compile()``.
+
+    Generated code reaches it another way. A compiling schema that holds one asks
+    for its *twin* (``__probatio_twin__``): a generated function for the same
+    mapping that passes a bail up to its caller. The generated outer calls the
+    twin directly, and the twin calls the twins of the TypedDicts nested under it,
+    so a tree runs generated all the way down.
+
+    Keeping the two apart is what bounds a failing validation. The outermost
+    generated validator that sees a bail reruns its interpreted engine to report
+    the failure, and that engine calls the nested schemas, not their twins, so the
+    rerun is interpreted all the way down and happens once. If a nested schema
+    swapped its own engine instead, the rerun would enter generated code again at
+    every level, each level would double the work, and rejecting a value deep in a
+    tree would cost time exponential in the tree's depth. Nested plain mappings are
+    generated the same way, for the same reason (``_maybe_compile_nested``).
+    """
+
+    def _compilable(self) -> bool:
+        """Report that this schema never arms: its engine stays interpreted."""
+        return False
+
+    def _compile_from(self, interpreted: CompiledSchema) -> CompiledSchema:
+        """Keep the interpreted engine in place, on an explicit ``compile()`` too."""
+        return interpreted
+
+    def __probatio_twin__(self) -> CompiledSchema | None:
+        """Return the generated twin, generating it on first request, or ``None``.
+
+        The code generator asks for this when a schema it is compiling holds this
+        one as a field's value, and calls the twin in place of the schema. The twin
+        raises the generator's bail signal on anything it does not settle, so only
+        generated code may call it. ``None``
+        (a shape the generator does not handle, or a ``Self``-using mapping, which
+        resolves ``Self`` through ``Schema.__call__``) is remembered too, so it is
+        decided once.
+        """
+        twin: CompiledSchema | None = self.__dict__.get("_twin", _UNSET)
+        if twin is _UNSET:
+            # A lazily deferred schema has no engine and no ``_uses_self`` yet.
+            self._ensure_built()
+            engine = self._compiled
+            twin = (
+                compile_mapping(engine, nested=True)
+                if isinstance(engine, _MappingValidator) and not self._uses_self
+                else None
+            )
+            self._twin = twin
+        return twin
 
 
 class TypedDictSchema[TypedDictT](Schema):

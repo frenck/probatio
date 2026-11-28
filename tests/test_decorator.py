@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, NewType
+from typing import Annotated, NewType, TypedDict
 
 import pytest
 
 from probatio import (
     ALLOW_EXTRA,
     Coerce,
+    CompilePolicy,
     Invalid,
     Length,
     MultipleInvalid,
@@ -19,7 +20,9 @@ from probatio import (
     Schema,
     SchemaError,
     probatio,
+    set_compile_policy,
 )
+from probatio.decorator import _return_schema
 
 
 def test_infers_a_validator_from_each_annotation() -> None:
@@ -185,6 +188,42 @@ def test_returns_true_validates_against_the_annotation() -> None:
     assert clamp(5) == 5
     with pytest.raises(MultipleInvalid):
         clamp(-1)
+
+
+class _Point(TypedDict):
+    """A TypedDict used as a whole return annotation."""
+
+    x: int
+    y: int
+
+
+def test_returns_true_validates_a_typeddict_annotation() -> None:
+    """``returns=True`` validates the result against a ``-> TypedDict`` annotation."""
+
+    @probatio(returns=True)
+    def point(x: object) -> _Point:
+        return {"x": x, "y": 2}  # type: ignore[typeddict-item]
+
+    assert point(1) == {"x": 1, "y": 2}
+    with pytest.raises(MultipleInvalid, match=r"expected int at 'x'"):
+        point("nope")
+
+
+def test_typeddict_return_annotation_compiles_by_policy() -> None:
+    """A bare TypedDict return is a top-level schema, so the policy compiles it.
+
+    A nested TypedDict schema never compiles on its own; the return annotation is
+    the whole result schema, not a field of another one, so it must not be built
+    as a nested one and left interpreted.
+    """
+    set_compile_policy(CompilePolicy.ON)
+
+    def point() -> _Point:
+        return {"x": 1, "y": 2}
+
+    schema = _return_schema(point, True, {"return": _Point})
+    assert schema({"x": 1, "y": 2}) == {"x": 1, "y": 2}
+    assert schema._compiled.__name__ == "_validate"  # type: ignore[attr-defined]
 
 
 def test_returns_true_without_annotation_is_a_schema_error() -> None:

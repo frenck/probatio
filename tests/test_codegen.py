@@ -8,11 +8,12 @@ generate.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum, StrEnum
 from math import inf, nan
 from types import MappingProxyType
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -32,6 +33,7 @@ from probatio import (
     Forbidden,
     In,
     Invalid,
+    Key,
     Latitude,
     Length,
     Longitude,
@@ -828,6 +830,7 @@ _INLINABLE = {
     "All": (All, All, lambda cls: cls(Range(min=0, max=10)), 3, 3),
     "Length": (Length, Length, lambda cls: cls(min=1, max=3), "ab", None),
     "Match": (Match, Match, lambda cls: cls("^a"), "ab", None),
+    "Maybe": (Maybe, Maybe, lambda cls: cls(int), 3, 3),
 }
 
 _OVERRIDDEN = object()
@@ -1136,3 +1139,275 @@ def test_a_nested_dict_subclass_keeps_its_type() -> None:
 
     assert _is_compiled(compiled)
     assert type(result["child"]) is Settings
+
+
+class _Sensor(TypedDict):
+    """A leaf TypedDict, nested under ``_Station`` in every position."""
+
+    unit: str
+    value: float
+
+
+class _Station(TypedDict):
+    """A TypedDict holding ``_Sensor`` directly, optionally, in a list, and in a dict."""
+
+    direct: _Sensor
+    maybe: _Sensor | None
+    items: list[_Sensor]
+    by_name: dict[str, _Sensor]
+
+
+_SENSOR = {"unit": "W", "value": 1.5}
+_STATION = {
+    "direct": _SENSOR,
+    "maybe": None,
+    "items": [_SENSOR, _SENSOR],
+    "by_name": {"a": _SENSOR},
+}
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        _STATION,
+        {**_STATION, "maybe": _SENSOR},
+        {**_STATION, "direct": {"unit": 1, "value": 1.5}},
+        {**_STATION, "direct": [_SENSOR]},
+        {**_STATION, "maybe": {"unit": "W"}},
+        {**_STATION, "items": [_SENSOR, {"unit": "W", "value": "x"}]},
+        {**_STATION, "items": (_SENSOR,)},
+        {**_STATION, "by_name": {"a": {"unit": "W", "value": 1.5, "extra": 1}}},
+    ],
+)
+def test_compiled_typeddict_calls_the_twins_of_its_nested_typeddicts(
+    data: dict[str, object],
+) -> None:
+    """A compiled TypedDict runs its nested TypedDicts through generated twins.
+
+    A direct field, an optional one, and a list of them each bind a twin (``_g``)
+    in the generated code; the dict-valued field is a shape the generator does not
+    inline, so it binds the interpreted validator (``_c``). The nested schema's own
+    engine is untouched, which is what keeps a failure's interpreted rerun out of
+    generated code. Results and errors match the interpreted tree.
+    """
+    interpreted = TypedDictSchema(_Station, compile=False)
+    compiled = TypedDictSchema(_Station, compile=True).compile()
+    assert _is_compiled(compiled)
+
+    bound = compiled._compiled.__globals__
+    assert {"_g0", "_g1", "_g2s", "_c3"} <= set(bound)
+    direct = compiled.schema["direct"]
+    assert direct.__probatio_twin__() is bound["_g0"]
+    assert isinstance(direct._compiled, _MappingValidator)
+
+    assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+def test_nested_typeddict_schema_never_swaps_its_own_engine() -> None:
+    """A nested TypedDict schema stays interpreted under ON, and on ``compile()``.
+
+    Its interpreted engine is what a generated parent's bail-out reruns, so it must
+    not turn into generated code by policy, by going hot, or by an explicit call.
+    """
+    set_compile_policy(CompilePolicy.ON)
+    schema = TypedDictSchema(_Station)
+    for _ in range(3):
+        assert schema(_STATION) == _STATION
+    assert _is_compiled(schema)
+
+    direct = schema.schema["direct"]
+    assert "_interpreted" not in direct.__dict__
+    assert isinstance(direct._compiled, _MappingValidator)
+    assert direct.compile() is direct
+    assert isinstance(direct._compiled, _MappingValidator)
+    assert direct(_SENSOR) == _SENSOR
+
+
+def test_compile_false_keeps_the_nested_typeddict_schemas_interpreted() -> None:
+    """``compile=False`` on the outer TypedDict keeps the whole tree interpreted.
+
+    A nested schema never arms on its own, under any policy; only a compiling
+    outer schema asks for its twin. So a pinned outer leaves no twin behind.
+    """
+    set_compile_policy(CompilePolicy.ON)
+    schema = TypedDictSchema(_Station, compile=False)
+    for _ in range(3):
+        assert schema(_STATION) == _STATION
+    assert not _is_compiled(schema)
+    assert "_twin" not in schema.schema["direct"].__dict__
+
+
+def test_auto_compiles_a_hot_typeddict_tree() -> None:
+    """Under AUTO a TypedDict that goes hot generates its nested twins with it."""
+    set_compile_policy(CompilePolicy.AUTO)
+    schema = TypedDictSchema(_Station)
+    for _ in range(_AUTO_COMPILE_THRESHOLD):
+        assert schema(_STATION) == _STATION
+    assert _is_compiled(schema)
+    assert "_g0" in schema._compiled.__globals__
+    assert isinstance(schema.schema["direct"]._compiled, _MappingValidator)
+
+
+@dataclass
+class _Mast:
+    """A dataclass holding TypedDicts, directly and as optional list items."""
+
+    sensor: _Sensor
+    spares: list[_Sensor | None]
+
+
+def test_compiled_dataclass_calls_the_twins_of_its_nested_typeddicts() -> None:
+    """A compiled dataclass reaches a nested TypedDict through its twin too."""
+    interpreted = DataclassSchema(_Mast, compile=False)
+    compiled = DataclassSchema(_Mast, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert {"_g0", "_g1s"} <= set(compiled._compiled.__globals__)
+
+    for data in (
+        {"sensor": _SENSOR, "spares": [None, _SENSOR]},
+        {"sensor": _SENSOR, "spares": [None, {"unit": "W"}]},
+        {"sensor": {"unit": 1, "value": 1.5}, "spares": []},
+    ):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+def test_top_level_list_of_nested_typeddicts_calls_the_twin() -> None:
+    """A compiled ``Schema([nested TypedDict schema])`` validates items by the twin."""
+    element = TypedDictSchema(_Station).schema["direct"]
+    interpreted = Schema([element], compile=False)
+    compiled = Schema([element], compile=True).compile()
+    assert _is_compiled(compiled)
+    assert compiled._compiled.__globals__["_g0s"] is element.__probatio_twin__()
+
+    for data in ([_SENSOR, _SENSOR], [_SENSOR, {"unit": "W", "value": "x"}], []):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+def test_maybe_msg_survives_the_twin_bail_out() -> None:
+    """A failure under an inlined ``Maybe`` is reported by the interpreted one."""
+    element = TypedDictSchema(_Station).schema["direct"]
+    interpreted = Schema({"a": Maybe(element, msg="no sensor")}, compile=False)
+    compiled = Schema({"a": Maybe(element, msg="no sensor")}, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert "_g0" in compiled._compiled.__globals__
+
+    for data in ({"a": _SENSOR}, {"a": None}, {"a": {"unit": 1}}):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+    with pytest.raises(MultipleInvalid, match="no sensor"):
+        compiled({"a": {"unit": 1}})
+
+
+class _LoudMaybe(Maybe[object]):
+    """A ``Maybe`` subclass whose call replaces the validated value."""
+
+    def __call__(self, value: object) -> object:
+        """Validate as ``Maybe`` does, then report that the override ran."""
+        return ("loud", super().__call__(value))
+
+
+def test_maybe_subclass_around_a_nested_typeddict_keeps_its_call() -> None:
+    """A ``Maybe`` subclass is called as written, not inlined down to the twin."""
+    element = TypedDictSchema(_Station).schema["direct"]
+    compiled = Schema({"a": _LoudMaybe(element)}, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert "_g0" not in compiled._compiled.__globals__
+    assert compiled({"a": _SENSOR}) == {"a": ("loud", _SENSOR)}
+    assert compiled({"a": None}) == {"a": ("loud", None)}
+
+
+def test_maybe_around_a_schema_with_no_twin_stays_a_validator_call() -> None:
+    """Only a ``Maybe`` whose inner schema offers a twin is inlined."""
+    interpreted = Schema({"a": Maybe(int, msg="int or nothing")}, compile=False)
+    compiled = Schema({"a": Maybe(int, msg="int or nothing")}, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert "_c0" in compiled._compiled.__globals__
+
+    for data in ({"a": 1}, {"a": None}, {"a": "x"}):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+class _Aliased(TypedDict):
+    """A TypedDict the generator does not handle: its key is an alias."""
+
+    unit: Annotated[str, Key(alias="Unit")]
+
+
+class _HoldsAliased(TypedDict):
+    """A generatable TypedDict holding one that is not."""
+
+    inner: _Aliased
+
+
+def test_nested_typeddict_the_generator_cannot_handle_stays_a_schema_call() -> None:
+    """A nested TypedDict with no twin is called as a schema, and decided once."""
+    interpreted = TypedDictSchema(_HoldsAliased, compile=False)
+    compiled = TypedDictSchema(_HoldsAliased, compile=True).compile()
+    assert _is_compiled(compiled)
+
+    bound = compiled._compiled.__globals__
+    assert "_c0" in bound
+    assert "_g0" not in bound
+    inner = compiled.schema["inner"]
+    assert inner.__dict__["_twin"] is None
+    assert inner.__probatio_twin__() is None
+
+    for data in ({"inner": {"Unit": "W"}}, {"inner": {"Unit": 1}}):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+class _SelfChild(TypedDict):
+    """A nested TypedDict whose field uses ``Self``, resolved by its own schema."""
+
+    name: str
+    child: Annotated[object, Any(Self, None)]
+
+
+class _HoldsSelfChild(TypedDict):
+    """A TypedDict holding a ``Self``-using one."""
+
+    node: _SelfChild
+
+
+def test_self_using_nested_typeddict_has_no_twin() -> None:
+    """A ``Self``-using nested TypedDict is called as a schema, which roots ``Self``."""
+    interpreted = TypedDictSchema(_HoldsSelfChild, compile=False)
+    compiled = TypedDictSchema(_HoldsSelfChild, compile=True).compile()
+    assert _is_compiled(compiled)
+    assert compiled.schema["node"].__probatio_twin__() is None
+
+    good = {"node": {"name": "a", "child": {"name": "b", "child": None}}}
+    bad = {"node": {"name": "a", "child": {"name": 1, "child": None}}}
+    for data in (good, bad):
+        assert _outcome(interpreted, data) == _outcome(compiled, data)
+
+
+def test_failing_deep_typeddict_tree_does_not_cost_exponential_time() -> None:
+    """A failure at the bottom of 24 distinct nested TypedDicts is rejected fast.
+
+    No cycle is involved: each level is its own TypedDict holding the next as a
+    required field, and under the ON policy every level that may compile does. The
+    outer bail-out reruns its interpreted engine, which must call the nested
+    *schema* (interpreted), not its generated twin. If it re-entered generated
+    code, each level would double the work and this rejection would take minutes;
+    it has to stay well under a second, and report exactly what the interpreted
+    tree reports.
+    """
+    set_compile_policy(CompilePolicy.ON)
+    depth = 24
+    # The functional form: each level is a distinct TypedDict made in a loop.
+    cls = TypedDict("Level0", {"value": int})  # noqa: UP013
+    for index in range(1, depth):
+        cls = TypedDict(f"Level{index}", {"name": str, "child": cls})  # noqa: UP013
+    data: dict[str, object] = {"value": "bottom"}
+    for _ in range(1, depth):
+        data = {"name": "n", "child": data}
+
+    interpreted = TypedDictSchema(cls, compile=False)
+    compiled = TypedDictSchema(cls)
+    start = time.perf_counter()
+    outcome = _outcome(compiled, data)
+    assert time.perf_counter() - start < 1.0
+    assert _is_compiled(compiled)
+    assert "_g1" in compiled._compiled.__globals__
+    assert outcome[0] == "err"
+    assert outcome == _outcome(interpreted, data)
