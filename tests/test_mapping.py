@@ -497,6 +497,33 @@ def test_a_remove_around_extra_is_tried_first_like_any_remove() -> None:
     assert schema({"dropped": 1, "kept": "x"}) == {"kept": "x"}
 
 
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {Remove(str): int, str: int},
+        {str: int, Remove(str): int},
+        {Remove("k"): int, str: int},
+        {Remove("k"): int, Extra: object},
+        {Remove(str): int, Extra: object},
+    ],
+    ids=[
+        "remove first",
+        "remove last",
+        "literal remove",
+        "literal remove beside extra",
+        "remove beside extra",
+    ],
+)
+def test_a_remove_that_matches_removes(schema: dict[object, object]) -> None:
+    """A key a Remove takes is dropped, also when a later key accepts it as well."""
+    assert Schema(schema)({"k": 1}) == {}
+
+
+def test_a_literal_key_is_found_before_a_remove_can_take_it() -> None:
+    """A key the schema names is looked up first, so a Remove of its type never sees it."""
+    assert Schema({Remove(str): int, "k": int})({"k": 1, "other": 2}) == {"k": 1}
+
+
 def test_reordering_matching_keys_leaves_literal_keys_in_place() -> None:
     """Defaults fill in the order the keys were written, around the matching keys."""
     schema = Schema(
