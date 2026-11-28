@@ -113,11 +113,14 @@ class _RecursiveSchemaRef:
     ``Invalid`` rather than overflowing the stack, exactly like ``Self``.
     """
 
-    __slots__ = ("_validate",)
+    __slots__ = ("_validate", "on_cycle")
 
     def __init__(self) -> None:
         """Start unbound; ``bind`` fills in the compiled schema before any call."""
         self._validate: CompiledSchema | None = None
+        # Set once a field takes this reference, or one to an ancestor through
+        # it: the schema it stands for is on a recursion cycle. See ``_mark_cycle``.
+        self.on_cycle = False
 
     def bind(self, schema: Schema) -> None:
         """Point the reference at the finished schema's compiled engine."""
@@ -263,6 +266,7 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
 
     if _is_dataclass_type(annotation):
         if annotation in self_refs:
+            _mark_cycle(self_refs, annotation)
             return self_refs[annotation]
         return create_dataclass_schema(annotation, extra=extra, _self_refs=self_refs)
 
@@ -270,6 +274,7 @@ def _annotation_to_schema(  # noqa: PLR0911, PLR0912
         # A nested TypedDict validates as its own mapping schema (it cannot be an
         # ``isinstance`` check, since a TypedDict has no runtime type).
         if annotation in self_refs:
+            _mark_cycle(self_refs, annotation)
             return self_refs[annotation]
         return create_typeddict_schema(annotation, extra=extra, _self_refs=self_refs)
 
@@ -412,6 +417,29 @@ def _make_discriminant(
         return validators
 
     return discriminant
+
+
+def _mark_cycle(self_refs: dict[type, _RecursiveSchemaRef], target: type) -> None:
+    """Flag every schema from ``target`` down to the current level as on a cycle.
+
+    A recursive reference is only taken for a type still under construction, so
+    the schemas built between it and the field taking the reference all lie on
+    the cycle the reference closes (``self_refs`` is in build-stack order).
+
+    A TypedDict schema reads the flag: it is a plain mapping schema that arms
+    itself by policy and swaps its own engine for generated code, and a generated
+    validator bails to its interpreted twin on a failure. On a cycle the twin
+    re-enters that same generated code one level down, so a failing validation
+    doubles once per level of data, exponential in its depth. A dataclass schema
+    needs no flag: it never swaps its own engine (see ``_FusedDataclassSchema``),
+    so a recursive reference to it always lands on the interpreted one.
+    """
+    marking = False
+    for referenced_type, ref in self_refs.items():
+        if referenced_type is target:
+            marking = True
+        if marking:
+            ref.on_cycle = True
 
 
 def _tuple_to_schema(
@@ -808,7 +836,7 @@ def create_dataclass_schema(
     constructor = _Constructor(
         dataclass_type, remove, filter_keys=extra == ALLOW_EXTRA or bool(remove)
     )
-    schema = Schema(All(inner, constructor))
+    schema = _FusedDataclassSchema(All(inner, constructor))
     # Fused before ``bind``, so a recursive field's captured engine is the fused
     # one too, not the slower combinator tower.
     _install_fused_interpreted(schema)
@@ -896,7 +924,7 @@ def _fuse_validate_and_construct(
     return validate_splat
 
 
-def _install_fused_interpreted(schema: Schema) -> None:
+def _install_fused_interpreted(schema: _FusedDataclassSchema) -> None:
     """Swap ``schema``'s interpreted engine for the fused validate-and-construct.
 
     ``schema`` wraps ``All(inner, _Constructor)``. The inner mapping schema is
@@ -915,6 +943,9 @@ def _install_fused_interpreted(schema: Schema) -> None:
     if inner._uses_self:  # noqa: SLF001
         return
     fused = _fuse_validate_and_construct(inner._compiled, constructor)  # noqa: SLF001
+    # Kept by name too: the bail-out of the generated twin, and how
+    # ``_compile_from`` tells a schema still interpreted from one already generated.
+    schema._fused_engine = fused  # noqa: SLF001
     if "_interpreted" in schema.__dict__:
         schema._interpreted = fused  # noqa: SLF001
     else:
@@ -1095,7 +1126,72 @@ def _build_constructor(
     return namespace["_construct"]
 
 
-class DataclassSchema[DataclassT](Schema):
+class _FusedDataclassSchema(Schema):
+    """The ``Schema(All(inner_mapping, _Constructor))`` a dataclass builds into.
+
+    ``create_dataclass_schema`` returns one for a top-level dataclass and makes one
+    for every nested dataclass field. Called as a schema it always validates
+    interpreted, through the fused engine ``_install_fused_interpreted`` puts in
+    place; it never arms and never swaps that engine for generated code.
+
+    Generated code reaches it another way. A compiling schema that holds one asks
+    for its *twin* (``__probatio_twin__``): one generated function that validates
+    the mapping and constructs the instance, bailing to the fused engine. The
+    generated outer calls the twin directly, and the twin calls the twins of the
+    dataclasses nested under it, so a tree runs generated all the way down.
+
+    Keeping the two apart is what bounds a failing validation. A generated
+    validator that hits a failure reruns its interpreted engine to report it, and
+    that engine calls the nested schemas, not their twins, so the rerun is
+    interpreted from there down. If compiling swapped a nested schema's own engine
+    instead, the rerun would enter generated code again at every level, each level
+    would double the work, and rejecting a value deep in a tree would cost time
+    exponential in the tree's depth. Nested plain mappings are generated the same
+    way, for the same reason (``_maybe_compile_nested``).
+    """
+
+    # Set by ``_install_fused_interpreted``: the interpreted fused engine. Absent
+    # for a ``Self``-using dataclass, which keeps the combinator tower.
+    _fused_engine: CompiledSchema
+
+    def _generate(self, fallback: CompiledSchema) -> CompiledSchema | None:
+        """Generate the fused validate-and-construct function, or ``None``.
+
+        The schema is ``All(inner_mapping, _Constructor)``. The inner mapping is
+        compiled with each validated field splatted straight into the dataclass,
+        so neither the generic mapping loop nor the constructor's
+        dict-comprehension runs. Any failure bails to ``fallback``, which
+        validates and constructs the same way. An ``ALLOW_EXTRA`` dataclass is not
+        generated (``compile_mapping`` returns ``None``), since the constructor
+        would reject the unknown keys the mapping keeps.
+        """
+        inner, constructor = self.schema.validators
+        mapping = inner._compiled  # noqa: SLF001
+        if not isinstance(
+            mapping, _MappingValidator
+        ):  # pragma: no cover - the inner schema is always a mapping
+            return None
+        return compile_mapping(
+            mapping, construct=constructor.dataclass_type, fallback=fallback
+        )
+
+    def __probatio_twin__(self) -> CompiledSchema | None:
+        """Return the generated twin, generating it on first request, or ``None``.
+
+        The code generator asks for this when a schema it is compiling holds this
+        one as a field's value, and calls the twin in place of the schema. ``None``
+        (a shape the generator does not handle, or a ``Self``-using dataclass with
+        no fused engine to bail to) is remembered too, so it is decided once.
+        """
+        twin: CompiledSchema | None = self.__dict__.get("_twin", _UNSET)
+        if twin is _UNSET:
+            fused = self.__dict__.get("_fused_engine")
+            twin = None if fused is None else self._generate(fused)
+            self._twin = twin
+        return twin
+
+
+class DataclassSchema[DataclassT](_FusedDataclassSchema):
     """A ``Schema`` generated from a dataclass type.
 
     Calling it validates a mapping against the dataclass's fields and returns a
@@ -1200,16 +1296,22 @@ class DataclassSchema[DataclassT](Schema):
         (``compile_mapping`` returns ``None``), since the constructor would reject
         the unknown keys the mapping keeps.
         """
-        mapping = self.schema.validators[0]._compiled  # noqa: SLF001
-        if not isinstance(
-            mapping, _MappingValidator
-        ):  # pragma: no cover - the inner schema is always a mapping
+        fused = self.__dict__.get("_fused_engine")
+        if fused is not None and interpreted is not fused:
+            # Already generated (a second ``compile()``): keep the one in place
+            # rather than stacking a new validator whose bail-out is the old one.
             return interpreted
-
-        generated = compile_mapping(
-            mapping, construct=self.dataclass_type, fallback=interpreted
-        )
+        generated = self._generate(interpreted)
         return generated if generated is not None else interpreted
+
+    def __probatio_twin__(self) -> None:
+        """Offer no twin: a ``DataclassSchema`` compiles itself, by its own flag.
+
+        One a caller placed inside another schema (in an ``Annotated``, say) keeps
+        the ``compile`` choice it was built with, so the schema holding it calls it
+        as built rather than generating code for it on the side.
+        """
+        return
 
 
 def _typeddict_presence(
@@ -1321,7 +1423,8 @@ def create_typeddict_schema(
         typeddict_type, additional_constraints or {}, self_refs, extra
     )
 
-    inner = Schema(mapping, extra=extra)
+    # ``compile=False`` never arms, under any policy: see ``_mark_cycle``.
+    inner = Schema(mapping, extra=extra, compile=False if ref.on_cycle else None)
     ref.bind(inner)
 
     return inner
