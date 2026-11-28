@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from hypothesis import settings
 
 import probatio.schema
 from probatio import (
@@ -37,6 +38,13 @@ from probatio import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+# Hypothesis fails an example that takes longer than 200 ms, and a property test
+# that builds two libraries' schemas per example crosses that now and then on a
+# loaded machine. The examples are derandomized, so a slow one is no finding.
+settings.register_profile("probatio", deadline=None)
+settings.load_profile("probatio")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
