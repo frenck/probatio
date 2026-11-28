@@ -129,6 +129,42 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  upstream:
+    name: Upstream voluptuous suite ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up uv and Python ${{ matrix.python }}
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: 🏗 Install dependencies
+        run: uv sync --locked --all-packages --group test
+      # voluptuous's own test suite, run against probatio through the shim. The
+      # upstream file is fetched at a pinned commit and checksum. The documented
+      # deviations are strict xfails, so a new break and an unexpected pass both
+      # fail the job.
+      - name: ⤵️ Fetch the upstream voluptuous suite
+        run: uv run --no-sync python compat/voluptuous/fetch_upstream.py
+      - name: 🚀 Run the upstream voluptuous suite
+        run: >
+          uv run --no-sync pytest compat/voluptuous/tests.py -o addopts=""
+          -p no:cacheprovider --junitxml=junit-upstream.xml
+          -o junit_family=legacy
+      - name: 🧪 Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
