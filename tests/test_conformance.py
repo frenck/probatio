@@ -280,7 +280,9 @@ def _matching_keys(lib: Any) -> dict[str, Any]:
         "type": str,
         "callable": lib.Coerce(str),
         "validator": lib.In(["k"]),
-        "marker": lib.Optional(str),
+        # Around a validator, not ``str``: a marker equals the key it holds, so
+        # ``Optional(str)`` and ``str`` would be one entry of the schema.
+        "marker": lib.Optional(lib.All(str)),
         "remove": lib.Remove(str),
     }
 
@@ -292,7 +294,9 @@ def _winning_key(lib: Any, first: str, second: str) -> list[str]:
     ``"second"``, so the outcome tells which of the two the engine tried first.
     """
     keys = _matching_keys(lib)
-    schema = lib.Schema({keys[first]: "first", keys[second]: "second"})
+    mapping = {keys[first]: "first", keys[second]: "second"}
+    assert len(mapping) == 2
+    schema = lib.Schema(mapping)
 
     outcomes = []
     for value in ("first", "second"):
