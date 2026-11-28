@@ -341,3 +341,35 @@ def test_a_matching_remove_is_final_where_voluptuous_keeps_looking(build: Any) -
     """
     assert voluptuous.Schema(build(voluptuous))({"k": 1}) == {"k": 1}
     assert probatio.Schema(build(probatio))({"k": 1}) == {}
+
+
+def _through(wrap: Any, policy: str) -> Any:
+    """Build a schema with a mapping behind ``wrap``, under an extra-key policy."""
+
+    def builder(lib: Any) -> Any:
+        return lib.Schema({"k": wrap(lib, {"x": int})}, extra=getattr(lib, policy))
+
+    return builder
+
+
+_WRAPPERS = {
+    "nested": lambda _lib, inner: inner,
+    "Any": lambda lib, inner: lib.Any(inner, str),
+    "All": lambda lib, inner: lib.All(inner),
+    "Maybe": lambda lib, inner: lib.Maybe(inner),
+    "Maybe in Any": lambda lib, inner: lib.Any(str, lib.Maybe(inner)),
+    "Any in Maybe": lambda lib, inner: lib.Maybe(lib.Any(inner, str)),
+    "Schema in Maybe": lambda lib, inner: lib.Maybe(lib.Schema(inner)),
+    "Msg": lambda lib, inner: lib.Msg(inner, "wrong"),
+}
+
+
+@pytest.mark.parametrize("wrapper", _WRAPPERS.values(), ids=_WRAPPERS)
+@pytest.mark.parametrize("policy", ["PREVENT_EXTRA", "ALLOW_EXTRA", "REMOVE_EXTRA"])
+def test_the_extra_policy_reaches_the_same_nested_mappings(
+    wrapper: Any, policy: str
+) -> None:
+    """A mapping behind a validator inherits the extra-key policy where voluptuous's does."""
+    builder = _through(wrapper, policy)
+    for data in ({"k": {"x": 1, "y": 2}}, {"k": {"x": 1}}, {"k": None}):
+        assert _run(builder, data, probatio) == _run(builder, data, voluptuous)

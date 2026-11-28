@@ -10,6 +10,9 @@ from typing import Any, Self, get_args, get_origin, get_overloads, get_type_hint
 import pytest
 
 from probatio import (
+    ALLOW_EXTRA,
+    REMOVE_EXTRA,
+    All,
     Dedupe,
     EnsureList,
     ExactSequence,
@@ -29,6 +32,7 @@ from probatio import (
     Unordered,
     Without,
 )
+from probatio import Any as AnyValidator
 from probatio.error import ExactSequenceInvalid, Invalid, TypeInvalid, ValueInvalid
 
 
@@ -194,6 +198,75 @@ def test_maybe_custom_message() -> None:
     with pytest.raises(MultipleInvalid) as caught:
         Schema(Maybe(int, msg="optional whole number"))("x")
     assert caught.value.errors[0].error_message == "optional whole number"
+
+
+def test_allow_extra_propagates_into_a_mapping_inside_maybe() -> None:
+    """ALLOW_EXTRA reaches a dict schema inside Maybe, as it does inside Any."""
+    schema = Schema({"device": Maybe({"name": str})}, extra=ALLOW_EXTRA)
+
+    assert schema({"device": {"name": "Lamp", "area": "Hall"}, "other": 1}) == {
+        "device": {"name": "Lamp", "area": "Hall"},
+        "other": 1,
+    }
+    assert schema({"device": None}) == {"device": None}
+
+
+def test_remove_extra_propagates_into_a_mapping_inside_maybe() -> None:
+    """REMOVE_EXTRA drops the unknown keys of a dict schema inside Maybe."""
+    schema = Schema({"device": Maybe({"name": str})}, extra=REMOVE_EXTRA)
+    assert schema({"device": {"name": "Lamp", "area": "Hall"}}) == {
+        "device": {"name": "Lamp"}
+    }
+
+
+_DEVICE = {"name": "Lamp", "area": "Hall"}
+
+
+@pytest.mark.parametrize(
+    ("wrapped", "value"),
+    [
+        (Maybe([{"name": str}]), [_DEVICE]),
+        (Maybe(AnyValidator({"name": str}, str)), _DEVICE),
+        (Maybe(Maybe({"name": str})), _DEVICE),
+        (AnyValidator(str, Maybe({"name": str})), _DEVICE),
+        (All(Maybe({"name": str})), _DEVICE),
+        ([Maybe({"name": str})], [_DEVICE, None]),
+    ],
+    ids=["a list", "an Any", "a Maybe", "in an Any", "in an All", "in a list"],
+)
+def test_the_extra_policy_passes_through_maybe_in_both_directions(
+    wrapped: object, value: object
+) -> None:
+    """The policy reaches a mapping through a Maybe, and a Maybe through a combinator."""
+    schema = Schema({"device": wrapped}, extra=ALLOW_EXTRA)
+    assert schema({"device": value}) == {"device": value}
+
+
+def test_a_mapping_inside_maybe_still_rejects_extra_keys_by_default() -> None:
+    """With the default PREVENT_EXTRA, an unknown key inside Maybe still rejects."""
+    with pytest.raises(MultipleInvalid):
+        Schema({"device": Maybe({"name": str})})(
+            {"device": {"name": "Lamp", "area": 1}}
+        )
+
+
+def test_extra_rebind_does_not_change_a_shared_maybe() -> None:
+    """Wrapping a Maybe with ALLOW_EXTRA must not change it for another schema."""
+    shared = Maybe({"name": str})
+    assert Schema(shared, extra=ALLOW_EXTRA)({"name": "Lamp", "area": "Hall"}) == {
+        "name": "Lamp",
+        "area": "Hall",
+    }
+
+    with pytest.raises(Invalid):
+        shared({"name": "Lamp", "area": "Hall"})
+
+
+def test_a_schema_inside_maybe_keeps_its_own_extra_policy() -> None:
+    """An explicit Schema is compiled under its own policy, inside Maybe as elsewhere."""
+    schema = Schema({"device": Maybe(Schema({"name": str}))}, extra=ALLOW_EXTRA)
+    with pytest.raises(MultipleInvalid):
+        schema({"device": {"name": "Lamp", "area": "Hall"}})
 
 
 @pytest.mark.parametrize("wrapper", [Maybe, Msg], ids=lambda cls: cls.__name__)

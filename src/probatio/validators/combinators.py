@@ -62,10 +62,10 @@ def _branch_holds_mapping(node: typing.Any) -> bool:
     """Whether a node holds a dict schema the rebind's extra policy would reach.
 
     The rebind recompiles a branch under the new policy, which reaches a mapping
-    directly, through a sequence, or through a nested combinator (combinators
-    re-thread the policy too). It does not reach into a nested ``Schema`` or a
-    wrapper like ``Maybe`` (they compile their own contents under their own
-    policy), so those are leaves here.
+    directly, through a sequence, or through a validator that hands the policy on
+    itself (a nested combinator, a ``Maybe``) and says so. It does not reach into
+    a nested ``Schema`` or a wrapper like ``Msg`` (they compile their own contents
+    under their own policy), so those are leaves here.
     """
     if isinstance(node, dict):
         return True
@@ -78,10 +78,8 @@ def _branch_holds_mapping(node: typing.Any) -> bool:
             for element in node
         )
 
-    children = getattr(node, "validators", None)
-    if isinstance(children, list):
-        return any(_branch_holds_mapping(child) for child in children)
-    return False
+    needs_extra = getattr(node, "__probatio_needs_extra__", None)
+    return needs_extra is not None and needs_extra()
 
 
 class _Combinator(_SafeValidator):
