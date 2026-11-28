@@ -933,6 +933,8 @@ def drops_keys(node: Any, extra: int) -> bool:  # noqa: PLR0911 - one per node k
     or a ``Maybe``, which the engine rebinds under it. A nested ``Schema`` brings
     its own policy, and ``Msg`` and ``ExactSequence`` compile their contents
     under the strict default; a ``REMOVE_EXTRA`` schema inside one still drops.
+    A mapping with a key that catches every name, and no ``Remove`` key, has
+    no key to drop, though a mapping among its values still can.
     A ``Self`` stands for a scope that may be a mapping under the policy in
     force, so it counts when that policy drops.
     """
@@ -940,9 +942,15 @@ def drops_keys(node: Any, extra: int) -> bool:  # noqa: PLR0911 - one per node k
         return drops_keys(node.schema, node.extra)
 
     if isinstance(node, dict):
-        return extra == REMOVE_EXTRA or any(
-            drops_keys(value, extra) for value in node.values()
-        )
+        # A key that catches every name leaves the policy nothing to drop,
+        # unless a ``Remove`` key sits beside it and drops what it matches.
+        keeps_every_key = any(
+            covers_every_property_name(key) for key in node
+        ) and not any(isinstance(key, Remove) for key in node)
+        if extra == REMOVE_EXTRA and not keeps_every_key:
+            return True
+
+        return any(drops_keys(value, extra) for value in node.values())
 
     if isinstance(node, list | tuple | set | frozenset):
         # A ``Remove`` element compiles as the schema it wraps.

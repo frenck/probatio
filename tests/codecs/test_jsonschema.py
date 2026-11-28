@@ -3946,6 +3946,31 @@ def test_a_pipeline_that_sees_the_input_stays_exact(
         assert _document_validates(document, value) is _accepts(schema, value)
 
 
+@pytest.mark.parametrize(
+    "catch_all", [Extra, str, object], ids=["Extra", "str", "object"]
+)
+def test_a_mapping_that_catches_every_key_drops_none(catch_all: object) -> None:
+    """With a catch-all key REMOVE_EXTRA has nothing to drop, so a later part is exact."""
+    schema = Schema(All({catch_all: int}, Length(min=1)), extra=REMOVE_EXTRA)
+    document = to_json_schema(schema, strict=True)
+
+    for value in ({"x": 1}, {"x": 1, "y": 2}, {"x": "s"}, {}, 1):
+        assert _document_validates(document, value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [{Extra: int, Remove("r"): int}, {Extra: {"x": int}}, {Remove(Extra): int}],
+    ids=["a Remove key beside it", "a mapping among its values", "a Remove catch-all"],
+)
+def test_a_catch_all_key_does_not_hide_other_dropped_keys(mapping: object) -> None:
+    """Keys still dropped beside or below a catch-all key are reported under strict."""
+    schema = Schema(All(mapping, Length(min=1)), extra=REMOVE_EXTRA)
+
+    with pytest.raises(SchemaError, match="drops keys"):
+        to_json_schema(schema, strict=True)
+
+
 def test_a_some_of_counting_none_after_dropped_keys_opens() -> None:
     """With no lower bound there is nothing to keep, so the count opens."""
     schema = Schema(

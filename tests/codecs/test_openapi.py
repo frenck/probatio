@@ -3145,3 +3145,21 @@ def test_a_pipeline_that_sees_the_input_stays_exact(
 
     for value in ({"x": 1}, {"x": 1, "y": 2}, {"x": 1, "y": "s"}, {"y": 1}, {}, 1):
         assert _validates(document, version, value) is _accepts(schema, value)
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+@pytest.mark.parametrize(
+    "catch_all", [probatio.Extra, str, object], ids=["Extra", "str", "object"]
+)
+def test_a_mapping_that_catches_every_key_drops_none(
+    catch_all: object, version: str
+) -> None:
+    """With a catch-all key REMOVE_EXTRA has nothing to drop, so a later part is exact."""
+    schema = Schema(
+        probatio.All({catch_all: int}, probatio.Length(min=1)),
+        extra=probatio.REMOVE_EXTRA,
+    )
+    document = to_openapi(schema, openapi_version=version, strict=True)
+
+    for value in ({"x": 1}, {"x": 1, "y": 2}, {"x": "s"}, {}, 1):
+        assert _validates(document, version, value) is _accepts(schema, value)
