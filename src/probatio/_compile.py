@@ -168,8 +168,10 @@ def _schema_uses_self(node: Any) -> bool:
     # A validator that wraps other schemas (a combinator, a sequence shaper,
     # ``Maybe``/``Msg``) exposes them through ``__probatio_child_schemas__``, so the
     # walk reaches them without guessing which attribute each stored them under.
+    # A validator class used as a schema is a type check with no children; its
+    # hook is unbound.
     child_schemas = getattr(node, "__probatio_child_schemas__", None)
-    if child_schemas is not None:
+    if child_schemas is not None and not isinstance(node, type):
         return any(_schema_uses_self(child) for child in child_schemas())
     return False
 

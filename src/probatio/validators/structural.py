@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import typing
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from probatio.error import (
 )
 from probatio.schema import Schema
 from probatio.validators._base import _SafeValidator
+from probatio.validators.combinators import _branch_holds_mapping
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator
@@ -357,6 +359,22 @@ class Maybe[T](_SafeValidator):
     def __probatio_child_schemas__(self) -> tuple[typing.Any, ...]:
         """Return the single wrapped schema, for ``Self`` detection."""
         return (self.validator,)
+
+    def __probatio_needs_extra__(self) -> bool:
+        """Whether an enclosing schema's extra policy could reach a nested mapping."""
+        return _branch_holds_mapping(self.validator)
+
+    def __probatio_with_extra__(self, extra: int) -> Maybe[T]:
+        """Return a copy whose wrapped schema is compiled under ``extra``.
+
+        voluptuous writes ``Maybe`` as an ``Any``, which hands the enclosing
+        schema's extra policy on to a mapping inside it. This does the same, on a
+        copy, so the shared instance keeps the strict default.
+        """
+        clone = copy.copy(self)
+        clone._schema = Schema(self.validator, extra=extra)  # noqa: SLF001
+
+        return clone
 
     def __call__(self, value: typing.Any) -> T | None:
         """Return None unchanged, else the validated value."""
