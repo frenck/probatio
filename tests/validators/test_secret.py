@@ -73,6 +73,9 @@ def test_secret_is_optional_when_wrapping_optional() -> None:
     assert schema({}) == {}
 
 
+@pytest.mark.eager_interpreted(
+    reason="a lazy schema reports a definition error on first use"
+)
 def test_secret_around_a_type_key_is_rejected() -> None:
     """Secret must name a concrete key, not a type or callable key schema."""
     with pytest.raises(SchemaError):

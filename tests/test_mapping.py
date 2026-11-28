@@ -430,6 +430,7 @@ def test_required_marker_uses_its_custom_message() -> None:
     assert caught.value.errors[0].error_message == "name is required"
 
 
+@pytest.mark.eager_interpreted(reason="reads the interpreted validator off the schema")
 def test_literal_string_keys_share_one_key_check() -> None:
     """No closure is built per literal key, since the engine looks those keys up."""
     schema = Schema({"a": int, Required("b"): str, Optional("c"): int, str: int})

@@ -63,6 +63,9 @@ def test_self_has_a_readable_repr() -> None:
     assert repr(Self) == "Self"
 
 
+@pytest.mark.eager_interpreted(
+    reason="a lazy schema reports a definition error on first use"
+)
 def test_bare_self_is_a_schema_error() -> None:
     """A bare Self has no enclosing schema and is a definition error."""
     with pytest.raises(SchemaError):
@@ -112,6 +115,7 @@ def test_self_inside_all_chains_recursion_with_another_schema() -> None:
         schema({"follow": {"number": 1, "extra": "no"}})
 
 
+@pytest.mark.eager_interpreted(reason="reads a flag that is set when the schema builds")
 def test_self_detection_short_circuits_for_a_trailing_callable() -> None:
     """Once Self is found, a callable value compiled afterwards skips the re-check.
 
@@ -133,6 +137,9 @@ def test_self_in_a_combinator_called_outside_a_schema_is_an_error() -> None:
         Any(Self, "stop")("x")
 
 
+@pytest.mark.eager_interpreted(
+    reason="a lazy schema reports a definition error on first use"
+)
 def test_self_wrapped_in_a_validator_is_a_schema_error() -> None:
     """Self wrapped in a plain validator (Maybe) still fails clearly at build time."""
     with pytest.raises(SchemaError):

@@ -94,6 +94,41 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  lazy-auto:
+    name: Lazy build, auto compile ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🏗 Set up uv and Python ${{ matrix.python }}
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: 🏗 Install dependencies
+        run: uv sync --locked --all-packages --group test
+      # Run the behavioral suite the way a large application runs probatio:
+      # schemas build on first use and compile once they prove hot. The call
+      # threshold is lowered so every schema validated twice crosses it. No
+      # coverage here, like the compiled lane. The conftest skips the property,
+      # fuzz, and compile-specific tests, and the ones marked eager_interpreted.
+      - name: 🚀 Run the lazy build, auto compile lane
+        run: >
+          uv run --no-sync pytest --lazy-auto -o addopts=""
+          -p no:cacheprovider --junitxml=junit-lazy-auto.xml
+          -o junit_family=legacy
+      - name: 🧪 Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1.2.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

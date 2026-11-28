@@ -79,12 +79,18 @@ def test_alias_value_is_validated_under_the_canonical_path() -> None:
     assert caught.value.errors[0].path == ["count"]
 
 
+@pytest.mark.eager_interpreted(
+    reason="a lazy schema reports a definition error on first use"
+)
 def test_alias_colliding_with_another_key_is_a_schema_error() -> None:
     """An alias that names another key in the schema is rejected at build time."""
     with pytest.raises(SchemaError, match="collides"):
         Schema({Alias("a", "b"): str, "b": int})
 
 
+@pytest.mark.eager_interpreted(
+    reason="a lazy schema reports a definition error on first use"
+)
 def test_same_alias_in_two_specs_is_a_schema_error() -> None:
     """An alias used by two keys is ambiguous, rejected at build time."""
     with pytest.raises(SchemaError, match="more than one"):
