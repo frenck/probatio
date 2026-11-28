@@ -3947,7 +3947,16 @@ def test_a_pipeline_that_sees_the_input_stays_exact(
 
 
 @pytest.mark.parametrize(
-    "catch_all", [Extra, str, object], ids=["Extra", "str", "object"]
+    "catch_all",
+    [Extra, str, object, Optional(str), Optional(Extra), Required(Extra)],
+    ids=[
+        "Extra",
+        "str",
+        "object",
+        "Optional(str)",
+        "Optional(Extra)",
+        "Required(Extra)",
+    ],
 )
 def test_a_mapping_that_catches_every_key_drops_none(catch_all: object) -> None:
     """With a catch-all key REMOVE_EXTRA has nothing to drop, so a later part is exact."""

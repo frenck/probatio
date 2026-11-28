@@ -3149,7 +3149,15 @@ def test_a_pipeline_that_sees_the_input_stays_exact(
 
 @pytest.mark.parametrize("version", ["3.0", "3.1.0"])
 @pytest.mark.parametrize(
-    "catch_all", [probatio.Extra, str, object], ids=["Extra", "str", "object"]
+    "catch_all",
+    [
+        probatio.Extra,
+        str,
+        object,
+        probatio.Optional(str),
+        probatio.Optional(probatio.Extra),
+    ],
+    ids=["Extra", "str", "object", "Optional(str)", "Optional(Extra)"],
 )
 def test_a_mapping_that_catches_every_key_drops_none(
     catch_all: object, version: str

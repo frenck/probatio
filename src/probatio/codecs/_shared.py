@@ -944,9 +944,12 @@ def drops_keys(node: Any, extra: int) -> bool:  # noqa: PLR0911 - one per node k
     if isinstance(node, dict):
         # A key that catches every name leaves the policy nothing to drop,
         # unless a ``Remove`` key sits beside it and drops what it matches.
+        # A marker around either key is looked through: it changes presence
+        # rules, not which names the key matches.
+        keys = [resolve_key(key) for key in node]
         keeps_every_key = any(
-            covers_every_property_name(key) for key in node
-        ) and not any(isinstance(key, Remove) for key in node)
+            covers_every_property_name(facets.key) for facets in keys
+        ) and not any(isinstance(facets.marker, Remove) for facets in keys)
         if extra == REMOVE_EXTRA and not keeps_every_key:
             return True
 
