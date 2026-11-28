@@ -44,6 +44,7 @@ from probatio.codecs._shared import (
     inclusive_constraints,
     is_one_of,
     key_presence_constraint,
+    let_removed_properties_pass_on,
     literal_any_names,
     member_present,
     members_a_json_value_can_equal,
@@ -52,6 +53,7 @@ from probatio.codecs._shared import (
     nested_self_scope,
     note_widening,
     only_string_members,
+    passing_on_is_exact,
     regex_flags_change_meaning,
     self_is_document_root,
     widenings,
@@ -559,7 +561,7 @@ def _record_variable_key(
     variable_values.append(pval)
 
 
-def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
+def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policies
     node: dict[Any, Any],
     custom: Any,
     version: str,
@@ -576,6 +578,13 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
     # key must not undo what a universal one established.
     variable_keys: list[Any] = []
     variable_values: list[dict[str, Any]] = []
+    # The variable keys that keep what they match. A ``Remove`` is left out: it
+    # never rejects, it passes the key on, so it does not stand between a property
+    # and the extra-key policy.
+    keeping_keys: list[Any] = []
+    # The properties a ``Remove`` key wrote, which are finished once the object's
+    # ``additionalProperties`` is known.
+    removed: dict[str, dict[str, Any]] = {}
     constraint_groups: list[list[str]] = []
     inclusive: dict[str, list[list[str]]] = {}
     exclusive: dict[str, ExclusiveGroup] = {}
@@ -651,17 +660,21 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
             )
             # A name an alias claims is dropped before this key could match it,
             # so it stays the open property the alias declares.
-            properties.update(
-                {
-                    name: (
-                        _open("a property for a name another key is tried for first")
-                        if name in handed_elsewhere
-                        else prop
-                    )
-                    for name, prop in props.items()
-                    if name not in claimed_names
-                }
-            )
+            # A name that already has a property keeps it. A literal key is found
+            # before this key is tried, wherever it is declared, and one declared
+            # later overwrites what is written here.
+            written = {
+                name: (
+                    _open("a property for a name another key is tried for first")
+                    if name in handed_elsewhere
+                    else prop
+                )
+                for name, prop in props.items()
+                if name not in claimed_names and name not in properties
+            }
+            properties.update(written)
+            if isinstance(marker, Remove):
+                removed.update(written)
             # The properties stand either way; only the at-least-one rule needs
             # this key to own every name it lists.
             if any_group is not None:
@@ -671,13 +684,25 @@ def _oa_mapping(  # noqa: PLR0913 - the mapping and each of its policies
                     _open("a presence rule for a name another key can also match")
         elif isinstance(pkey, str):
             properties[pkey] = pval
+            if isinstance(marker, Remove):
+                # A dict of its own, so the property can be told from one a later
+                # key writes, whatever a custom serializer hands back.
+                properties[pkey] = removed[pkey] = pval.copy()
         else:
             _record_variable_key(
                 pkey, pval, variable_keys, variable_values, demands=demands
             )
+            if not isinstance(marker, Remove):
+                keeping_keys.append(pkey)
 
-    additional = _absorb_extra(
-        variable_values, variable_keys, additional, closed=closed
+    additional = _absorb_extra(variable_values, keeping_keys, additional, closed=closed)
+    let_removed_properties_pass_on(
+        node,
+        properties,
+        removed,
+        _undeclared_values(variable_values, keeping_keys, additional, closed=closed),
+        exact=passing_on_is_exact(variable_keys, keeping_keys, open_policy=not closed),
+        widen=_open,
     )
 
     dependent_required, group_constraints = _group_constraints(
@@ -863,7 +888,7 @@ def _expand_any_key(
 
 def _absorb_extra(
     variable_values: list[dict[str, Any]],
-    variable_keys: list[Any],
+    keeping_keys: list[Any],
     additional: Any,
     *,
     closed: bool,
@@ -882,6 +907,10 @@ def _absorb_extra(
     ``additionalProperties: {"type": "integer"}`` would reject what the mapping
     accepts. That drop is a widening, and so an error under ``strict``.
 
+    A ``Remove`` is not among ``keeping_keys``. It passes on a value it does not
+    match, so ``{Remove(str): int}`` with ``ALLOW_EXTRA`` accepts any value under
+    any name, however universal its key is, and rendering that open loses nothing.
+
     Universality is judged by identity. ``key in (str, object)`` would ask an
     arbitrary key validator whether it equals ``str``, and a validator's ``__eq__``
     is user code that can answer anything.
@@ -889,8 +918,9 @@ def _absorb_extra(
     if not variable_values:
         return additional
 
-    if not (closed or any(map(covers_every_property_name, variable_keys))):
-        _open("a partial variable key on an open mapping")
+    if not (closed or any(map(covers_every_property_name, keeping_keys))):
+        if keeping_keys:
+            _open("a partial variable key on an open mapping")
         return True
 
     # An "any value" value (``object``, an un-hinted callable) folds to the open
@@ -909,6 +939,38 @@ def _absorb_extra(
     # name is a string, so an integer-only rendering rejects most of what the
     # mapping allows. The union is the only rendering that does not narrow.
     return {"anyOf": variable_values}
+
+
+def _undeclared_values(
+    variable_values: list[dict[str, Any]],
+    keeping_keys: list[Any],
+    additional: Any,
+    *,
+    closed: bool,
+) -> Any:
+    """Return what a name the object does not declare may hold.
+
+    A ``Remove`` passes a key on to exactly that, so this is what its property
+    borrows.
+
+    That is ``additional`` once the extra-key policy is filled in: with no
+    variable key to say so, a closed mapping takes nothing and an open one
+    anything.
+
+    One case differs. ``_absorb_extra`` folds an "any object" value to an open
+    ``additionalProperties``, which is how voluptuous-openapi renders it. A
+    property that borrowed that would take a string where the mapping wants an
+    object, so here the value schemas are kept as they were rendered.
+    """
+    reaches_the_policy = not (
+        closed or any(map(covers_every_property_name, keeping_keys))
+    )
+    if additional is True and all(variable_values) and not reaches_the_policy:
+        if len(variable_values) == 1:
+            return variable_values[0]
+        return {"anyOf": variable_values}
+
+    return additional or not closed
 
 
 def _assemble_object(

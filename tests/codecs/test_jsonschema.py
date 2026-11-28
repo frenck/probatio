@@ -1820,6 +1820,148 @@ def test_an_any_key_tried_first_keeps_its_value_schema() -> None:
     }
 
 
+def test_a_removed_key_under_an_open_policy_takes_any_value() -> None:
+    """A Remove whose value does not match passes the key on, and the policy keeps it."""
+    schema = Schema({Remove("old"): int}, extra=ALLOW_EXTRA)
+    assert schema({"old": "text"}) == {"old": "text"}
+
+    document = to_json_schema(schema, strict=True)
+    assert document["properties"] == {"old": {}}
+
+
+def test_a_removed_key_in_a_closed_mapping_keeps_its_value_schema() -> None:
+    """With nothing to pass the key on to, a value the Remove rejects is an error."""
+    document = to_json_schema(Schema({Remove("old"): int}), strict=True)
+    assert document["properties"] == {"old": {"type": "integer"}}
+
+
+def test_a_removed_key_also_takes_what_a_variable_key_takes() -> None:
+    """A value the Remove rejects goes to the variable key, so the property says both."""
+    schema = Schema({Remove("old"): int, str: str})
+    assert schema({"old": "text"}) == {"old": "text"}
+
+    document = to_json_schema(schema, strict=True)
+    assert document["properties"] == {
+        "old": {"anyOf": [{"type": "integer"}, {"type": "string"}]}
+    }
+
+
+def test_a_remove_of_names_passes_each_of_them_on() -> None:
+    """A Remove around an Any of names is finished the same way, name by name."""
+    schema = Schema({Remove(Any("a", "b")): int}, extra=ALLOW_EXTRA)
+    assert schema({"a": 1, "b": "text"}) == {"b": "text"}
+
+    assert to_json_schema(schema)["properties"] == {"a": {}, "b": {}}
+
+
+def test_a_remove_of_names_leaves_a_literal_key_its_property() -> None:
+    """A name a literal key declares is that key's, whatever a Remove lists."""
+    schema = Schema({"a": str, Remove(Any("a", "b")): int}, extra=ALLOW_EXTRA)
+    assert to_json_schema(schema)["properties"] == {"a": {"type": "string"}, "b": {}}
+
+
+def test_a_key_declared_after_a_remove_of_the_same_name_keeps_its_property() -> None:
+    """The later key replaces the Remove, in the engine and so in the document."""
+    schema = Schema({Remove("a"): int, Optional("a"): str}, extra=ALLOW_EXTRA)
+    assert schema({"a": "text"}) == {"a": "text"}
+
+    assert to_json_schema(schema)["properties"] == {"a": {"type": "string"}}
+
+
+def test_a_removed_key_an_any_key_also_lists_is_open() -> None:
+    """The Any key is one of the keys the Remove passes on to, and takes other values."""
+    schema = Schema({Optional(Any("a", "b")): int, Remove("b"): str})
+    assert schema({"b": 1}) == {"b": 1}
+
+    assert to_json_schema(schema)["properties"]["b"] == {}
+    with pytest.raises(SchemaError, match="a removed key another Any key also lists"):
+        to_json_schema(schema, strict=True)
+
+
+def test_a_remove_of_names_beside_a_variable_key_is_not_its_own_rival() -> None:
+    """The names a Remove lists are passed on to the variable key, exactly."""
+    schema = Schema({Remove(Any("a", "b")): int, str: str})
+    assert to_json_schema(schema, strict=True)["properties"]["a"] == {
+        "anyOf": [{"type": "integer"}, {"type": "string"}]
+    }
+
+
+def test_the_last_of_two_removes_of_one_name_keeps_its_value_schema() -> None:
+    """Two literal keys of one name are no reason to open the property."""
+    document = to_json_schema(Schema({Remove("a"): int, Remove("a"): str}), strict=True)
+    assert document["properties"] == {"a": {"type": "string"}}
+
+
+def test_a_removed_key_that_takes_anything_is_left_alone() -> None:
+    """An open property loses nothing, so there is no widening to refuse."""
+    schema = Schema({Remove("b"): object, Optional(Any("a", "b")): int})
+    assert to_json_schema(schema, strict=True)["properties"]["b"] == {}
+
+
+def test_a_removed_key_a_remove_of_names_also_lists_is_open() -> None:
+    """The Remove of names takes what the literal Remove passes on."""
+    schema = Schema({Remove("a"): int, Remove(Any("a", "b")): str})
+    assert schema({"a": "text"}) == {}
+
+    assert to_json_schema(schema)["properties"]["a"] == {}
+    with pytest.raises(SchemaError, match="another Any key also lists"):
+        to_json_schema(schema, strict=True)
+
+
+def test_a_removed_key_beside_a_key_that_cannot_take_it_reports_the_widening() -> None:
+    """The union with a key that never matches the name is wider than the mapping."""
+    removing = {Remove("old"): int, int: str, str: float}
+    assert Schema(removing)({"old": 1.5}) == {"old": 1.5}
+
+    document = to_json_schema(Schema(removing))
+    assert jsonschema.Draft202012Validator(document).is_valid({"old": 1.5})
+    with pytest.raises(SchemaError, match="a variable key that may not take it"):
+        to_json_schema(Schema(removing), strict=True)
+
+    # Exactly one branch may match, and a widened branch cannot promise that it
+    # does not, so the choice falls back to ``anyOf``.
+    exactly_one = Schema(SomeOf([removing, {"old": str}], min_valid=1, max_valid=1))
+    assert exactly_one({"old": "text"}) == {"old": "text"}
+    choice = to_json_schema(exactly_one)
+    assert "oneOf" not in choice
+    assert jsonschema.Draft202012Validator(choice).is_valid({"old": "text"})
+
+
+def test_a_remove_keeps_a_property_of_its_own_under_a_shared_serializer() -> None:
+    """A later key of the same name is told apart even when both render one dict."""
+    shared = {"type": "integer"}
+    schema = Schema({Remove("a"): int, Optional("a"): int}, extra=ALLOW_EXTRA)
+
+    document = to_json_schema(
+        schema, custom_serializer=lambda node: shared if node is int else UNSUPPORTED
+    )
+    assert document["properties"] == {"a": {"type": "integer"}}
+
+
+def test_a_removed_key_is_exact_when_only_removes_stand_before_an_open_policy() -> None:
+    """Whatever the Removes pass on, the open policy keeps: nothing is widened."""
+    schema = Schema({Remove("old"): int, Remove(str): str}, extra=ALLOW_EXTRA)
+    assert schema({"old": None}) == {"old": None}
+
+    assert to_json_schema(schema, strict=True)["properties"] == {"old": {}}
+
+
+def test_removes_alone_before_an_open_policy_widen_nothing() -> None:
+    """A second Remove of the name passes on too, and the policy keeps the rest."""
+    schema = Schema({Remove("a"): int, Remove(Any("a", "b")): str}, extra=ALLOW_EXTRA)
+    assert schema({"a": None, "b": None}) == {"a": None, "b": None}
+
+    assert to_json_schema(schema, strict=True)["properties"] == {"a": {}, "b": {}}
+
+
+def test_a_remove_of_a_type_does_not_close_an_open_mapping() -> None:
+    """Remove(str) matches every name and still rejects nothing under ALLOW_EXTRA."""
+    schema = Schema({Remove(str): int}, extra=ALLOW_EXTRA)
+    assert schema({"dropped": 1, "kept": "text"}) == {"kept": "text"}
+
+    assert to_json_schema(schema, strict=True)["additionalProperties"] is True
+
+
 def test_a_contested_any_key_writes_no_presence_rule() -> None:
     """A name a literal key also declares carries no at-least-one constraint."""
     result = to_json_schema(Schema(_CONTESTED_SCHEMAS["required_any_over_a_literal"]))

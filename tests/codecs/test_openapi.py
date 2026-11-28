@@ -1303,6 +1303,157 @@ def test_a_name_another_key_takes_first_gets_an_open_property(version: str) -> N
         to_openapi(schema, openapi_version=version, strict=True)
 
 
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_removed_key_passes_on_what_its_value_rejects(version: str) -> None:
+    """The property of a Remove says what the key is passed on to as well."""
+    from probatio import ALLOW_EXTRA, Remove  # noqa: PLC0415
+
+    def properties(schema: Schema) -> Any:
+        return to_openapi(schema, openapi_version=version, strict=True)["properties"]
+
+    # Nothing to pass on to: a value the Remove rejects is an error.
+    assert properties(Schema({Remove("old"): int})) == {"old": {"type": "integer"}}
+    # An open policy keeps the key with any value.
+    assert properties(Schema({Remove("old"): int}, extra=ALLOW_EXTRA)) == {"old": {}}
+    # A variable key takes what the Remove does not.
+    assert properties(Schema({Remove("old"): int, str: str})) == {
+        "old": {"anyOf": [{"type": "integer"}, {"type": "string"}]}
+    }
+
+
+def test_a_remove_of_names_passes_each_of_them_on() -> None:
+    """A Remove around an Any of names is finished the same way, name by name."""
+    from probatio import ALLOW_EXTRA, Remove  # noqa: PLC0415
+    from probatio import Any as AnyKey  # noqa: PLC0415
+
+    schema = Schema({"a": str, Remove(AnyKey("a", "b")): int}, extra=ALLOW_EXTRA)
+    assert to_openapi(schema)["properties"] == {"a": {"type": "string"}, "b": {}}
+
+
+def test_a_removed_key_an_any_key_also_lists_is_open() -> None:
+    """The Any key is one of the keys the Remove passes on to, and takes other values."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Optional, Remove  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    schema = Schema({Optional(AnyKey("a", "b")): int, Remove("b"): str})
+    assert to_openapi(schema)["properties"]["b"] == {}
+    with pytest.raises(SchemaError, match="a removed key another Any key also lists"):
+        to_openapi(schema, strict=True)
+
+
+def test_a_remove_of_a_type_does_not_close_an_open_mapping() -> None:
+    """Remove(str) matches every name and still rejects nothing under ALLOW_EXTRA."""
+    from probatio import ALLOW_EXTRA, Remove  # noqa: PLC0415
+
+    schema = Schema({Remove(str): int}, extra=ALLOW_EXTRA)
+    assert to_openapi(schema, strict=True)["additionalProperties"] is True
+
+
+def test_a_removed_key_keeps_what_it_says_about_itself() -> None:
+    """Widening the values a property takes leaves its description and secret flag."""
+    from probatio import ALLOW_EXTRA, Remove, Secret  # noqa: PLC0415
+
+    described = Secret(Remove("old", description="legacy field"))
+    assert to_openapi(Schema({described: int}, extra=ALLOW_EXTRA))["properties"] == {
+        "old": {"description": "legacy field", "writeOnly": True}
+    }
+    assert to_openapi(Schema({described: int, str: str}))["properties"] == {
+        "old": {
+            "description": "legacy field",
+            "writeOnly": True,
+            "anyOf": [{"type": "integer"}, {"type": "string"}],
+        }
+    }
+
+
+def test_a_removed_key_beside_a_key_that_cannot_take_it_reports_the_widening() -> None:
+    """An open value hides the union, and the widening is reported all the same."""
+    from probatio import Remove, SomeOf  # noqa: PLC0415
+    from probatio.error import SchemaError  # noqa: PLC0415
+
+    removing = {Remove("old"): int, int: object, str: float}
+    assert to_openapi(Schema(removing))["properties"] == {"old": {}}
+    with pytest.raises(SchemaError, match="a variable key that may not take it"):
+        to_openapi(Schema(removing), strict=True)
+
+    exactly_one = Schema(SomeOf([removing, {"old": str}], min_valid=1, max_valid=1))
+    assert exactly_one({"old": "text"}) == {"old": "text"}
+    assert "oneOf" not in to_openapi(exactly_one)
+
+
+def test_a_remove_keeps_a_property_of_its_own_under_a_shared_serializer() -> None:
+    """A later key of the same name is told apart even when both render one dict."""
+    from probatio import ALLOW_EXTRA, Optional, Remove  # noqa: PLC0415
+
+    shared = {"type": "integer"}
+    schema = Schema({Remove("a"): int, Optional("a"): int}, extra=ALLOW_EXTRA)
+
+    document = to_openapi(
+        schema, custom_serializer=lambda node: shared if node is int else UNSUPPORTED
+    )
+    assert document["properties"] == {"a": {"type": "integer"}}
+
+
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_removed_key_keeps_the_object_constraint_it_is_passed_on_to(
+    version: str,
+) -> None:
+    """An "any object" value folds to an open object, and not to an open property."""
+    from probatio import Remove, SomeOf  # noqa: PLC0415
+
+    removing = {Remove("old"): int, str: dict}
+    document = to_openapi(Schema(removing), openapi_version=version, strict=True)
+    assert document["additionalProperties"] is True
+    assert document["properties"] == {
+        "old": {
+            "anyOf": [
+                {"type": "integer"},
+                {"type": "object", "additionalProperties": True},
+            ]
+        }
+    }
+
+    # Several value schemas stay a union of what each of them rendered as.
+    both = to_openapi(
+        Schema({Remove("old"): int, Remove(str): float, str: dict}),
+        openapi_version=version,
+    )
+    assert both["properties"]["old"]["anyOf"][1] == {
+        "anyOf": [{"type": "number"}, {"type": "object", "additionalProperties": True}]
+    }
+
+    # The property rejects a string, so exactly one branch takes one.
+    exactly_one = Schema(SomeOf([removing, {"old": str}], min_valid=1, max_valid=1))
+    assert exactly_one({"old": "text"}) == {"old": "text"}
+    choice = to_openapi(exactly_one, openapi_version=version)
+    assert jsonschema.Draft202012Validator(choice).is_valid({"old": "text"})
+
+
+def test_removes_alone_before_an_open_policy_widen_nothing() -> None:
+    """A second Remove of the name passes on too, and the policy keeps the rest."""
+    from probatio import ALLOW_EXTRA, Remove  # noqa: PLC0415
+    from probatio import Any as AnyKey  # noqa: PLC0415
+
+    schema = Schema(
+        {Remove("a"): int, Remove(AnyKey("a", "b")): str}, extra=ALLOW_EXTRA
+    )
+    assert to_openapi(schema, strict=True)["properties"] == {"a": {}, "b": {}}
+
+
+def test_a_literal_key_keeps_its_property_beside_an_any_key() -> None:
+    """A literal key is found before an Any key is tried, also when it is written first."""
+    from probatio import Any as AnyKey  # noqa: PLC0415
+    from probatio import Optional  # noqa: PLC0415
+
+    schema = Schema({"a": int, Optional(AnyKey("a", "b")): str})
+    assert schema({"a": 1}) == {"a": 1}
+    assert to_openapi(schema)["properties"] == {
+        "a": {"type": "integer"},
+        "b": {"type": "string"},
+    }
+
+
 def test_a_contested_name_writes_no_constraint() -> None:
     """A name another key can also match carries no presence or group rule."""
     from probatio import Any as AnyKey  # noqa: PLC0415

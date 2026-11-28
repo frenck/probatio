@@ -48,12 +48,14 @@ from probatio.codecs._shared import (
     inclusive_constraints,
     is_one_of,
     key_presence_constraint,
+    let_removed_properties_pass_on,
     literal_any_names,
     members_a_json_value_can_equal,
     membership_normalizes_strings,
     names_handed_elsewhere_first,
     note_widening,
     only_string_members,
+    passing_on_is_exact,
     referenced_definition,
     regex_flags_change_meaning,
     render_self,
@@ -425,7 +427,7 @@ class _Groups:
         return inclusive_constraints(self.inclusive.values())
 
 
-def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
+def _convert_mapping(  # noqa: PLR0912, PLR0915 - one branch per kind of mapping key
     node: dict[Any, Any],
     *,
     required_default: bool,
@@ -451,6 +453,13 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
     # every property name": an unrepresentable callable renders ``{}`` exactly as
     # ``object`` does, and the two want opposite answers.
     variable_key_names: list[Any] = []
+    # The variable keys that keep what they match, each with its value schema. A
+    # ``Remove`` is left out: it never rejects, it passes the key on, so it does
+    # not stand between a property and the extra-key policy.
+    keeping_keys: list[tuple[Any, dict[str, Any]]] = []
+    # The properties a ``Remove`` key wrote, which are finished once the object's
+    # ``additionalProperties`` is known.
+    removed: dict[str, dict[str, Any]] = {}
     # A ``Forbidden`` over a type/callable key (``Forbidden(str)`` forbids every
     # string key, so every JSON key) closes the object regardless of the extra
     # policy.
@@ -486,6 +495,7 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             # ``Any`` over literal names is a fixed set of properties, not a
             # variable key. Collapsing it to ``additionalProperties`` would hide
             # the names from the reader of the schema.
+            unclaimed = [listed for listed in names if listed not in properties]
             decorated = _decorate_property(
                 value_schema,
                 marker,
@@ -502,6 +512,10 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
                 contested=contested,
                 handed_elsewhere=handed_elsewhere,
             )
+            if isinstance(marker, Remove):
+                # Only the properties this key wrote. One that was there already
+                # belongs to the key that declared it.
+                removed.update({listed: properties[listed] for listed in unclaimed})
             continue
 
         if isinstance(name, type) or callable(name):
@@ -511,6 +525,8 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             _record_variable_key(
                 name, value_schema, variable_values, variable_keys, variable_key_names
             )
+            if not isinstance(marker, Remove):
+                keeping_keys.append((name, value_schema))
             continue
 
         if not isinstance(name, str):
@@ -524,7 +540,9 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
             # A removed key is stripped from the output, but a present value is
             # validated first, so input carrying it is valid: emit it as an
             # optional property (never rejected as an extra key).
-            properties[name] = value_schema
+            # A dict of its own, so the property can be told from one a later key
+            # writes, whatever a custom serializer hands back.
+            properties[name] = removed[name] = dict(value_schema)
             continue
 
         decorated = _decorate_property(
@@ -547,9 +565,22 @@ def _convert_mapping(  # noqa: PLR0912 - one branch per kind of mapping key
         False
         if forbid_extra
         else _additional_properties(
-            variable_values, variable_key_names, allow_extra=allow_extra
+            variable_values, keeping_keys, allow_extra=allow_extra
         )
     )
+    let_removed_properties_pass_on(
+        node,
+        properties,
+        removed,
+        additional,
+        exact=passing_on_is_exact(
+            variable_key_names,
+            [key for key, _ in keeping_keys],
+            open_policy=allow_extra,
+        ),
+        widen=_open,
+    )
+
     result: dict[str, Any] = {
         "type": "object",
         "properties": properties,
@@ -703,7 +734,7 @@ def _is_required(marker: Marker | None, *, required_default: bool) -> bool:
 
 def _additional_properties(
     variable_values: list[dict[str, Any]],
-    variable_keys: list[Any],
+    keeping_keys: list[tuple[Any, dict[str, Any]]],
     *,
     allow_extra: bool,
 ) -> Any:
@@ -722,20 +753,26 @@ def _additional_properties(
     ``additionalProperties: {"type": "integer"}`` would reject what the mapping
     accepts. There the object renders open instead.
 
-    ``variable_keys`` holds the keys themselves, not their rendered schemas, and
-    that is load-bearing: a callable with no JSON Schema form renders ``{}`` just
-    as ``object`` does, so the rendering cannot tell a key that matches everything
-    from one that merely could not be written down.
+    ``keeping_keys`` holds the keys themselves beside their value schemas, not
+    their rendered schemas, and that is load-bearing: a callable with no JSON
+    Schema form renders ``{}`` just as ``object`` does, so the rendering cannot
+    tell a key that matches everything from one that merely could not be written
+    down. A ``Remove`` is not among them. It passes on a value it does not match,
+    so ``{Remove(str): int}`` with ``ALLOW_EXTRA`` accepts any value under any
+    name, however universal its key is.
     """
     if not variable_values:
         return allow_extra
 
-    if allow_extra and not any(map(covers_every_property_name, variable_keys)):
+    if allow_extra and not any(
+        covers_every_property_name(key) for key, _ in keeping_keys
+    ):
         # The value schemas go with the key constraint, and strict mode refuses a
         # silent drop. ``_property_names`` reports the *key* side; this is the
         # value side, and only when there is something to lose. An accept-anything
-        # value renders ``{}``, which ``additionalProperties: true`` already says.
-        if any(value != {} for value in variable_values):
+        # value renders ``{}``, which ``additionalProperties: true`` already says,
+        # and so does a mapping whose only variable keys are ``Remove`` keys.
+        if any(value != {} for _, value in keeping_keys):
             _open("a variable key's value schema on an open mapping")
         return True
     if len(variable_values) == 1:
