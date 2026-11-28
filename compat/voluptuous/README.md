@@ -5,40 +5,39 @@ voluptuous's _own_ test suite, run against Probatio: its test authors' notion of
 the contract, at the exact version Probatio targets (0.16.0). This directory
 holds a small harness that does that.
 
-It is not part of Probatio's CI (it needs a voluptuous checkout), but it is kept
-here so the proof is reproducible.
+It runs in CI on every pull request, and locally with one command.
 
 ## How it works
 
 `conftest.py` calls `probatio.compat.install_as_voluptuous()` before collection,
 so voluptuous's upstream `tests.py` imports Probatio instead. The same conftest
-marks the known divergences `xfail` (with a reason each), so a clean run is "all
-green": everything passes or is an expected, documented `xfail`, and any _new_
-break, a regression, or a divergence that unexpectedly starts passing, shows up
-loudly.
+marks the known divergences as strict `xfail` (with a reason each), so a clean
+run is "all green": everything passes or is an expected, documented `xfail`, and
+any _new_ break, a regression, or a divergence that unexpectedly starts passing,
+fails the run.
 
 The upstream `tests.py` cannot be imported in place (Probatio is aliased as the
 `voluptuous` package, so a file under `voluptuous/tests/` fails to import as
-`voluptuous.tests.tests`). So you copy it next to the conftest, where it imports
-as a plain top-level module. That copy is voluptuous's BSD-licensed file; it is
-git-ignored, not vendored.
+`voluptuous.tests.tests`). So `fetch_upstream.py` downloads it next to the
+conftest, where it imports as a plain top-level module. That copy is voluptuous's
+BSD-licensed file; it is git-ignored, not vendored. The script pins both the
+upstream commit and the SHA-256 of the file, so what a green run means cannot
+change unnoticed.
 
 ## Running it
 
-From a Probatio checkout whose venv has Probatio installed, with a voluptuous
-0.16.0 source checkout available:
+From a Probatio checkout whose venv has Probatio installed:
 
 ```bash
-cp /path/to/voluptuous/voluptuous/tests/tests.py compat/voluptuous/tests.py
-uv run --no-sync python -m pytest compat/voluptuous/tests.py -o addopts="" -q
+uv run --no-sync just compat-voluptuous
 ```
 
-(`-o addopts=""` drops Probatio's own coverage/strict options, which do not apply
-to a foreign test file.)
+The recipe fetches the pinned file and runs it with `-o addopts=""`, which drops
+Probatio's own coverage options: they do not apply to a foreign test file.
 
 ## Result
 
-116 passed, 51 xfailed, 0 unexpected failures.
+115 passed, 52 xfailed, 0 unexpected failures.
 
 Getting there fixed several real bugs that Probatio's own tests had not surfaced,
 each pinned with a Probatio test:
@@ -55,7 +54,7 @@ each pinned with a Probatio test:
 - Markers were not orderable; `sorted([Required("b"), Required("a")])` and
   `Optional("a") < "b"` now work (compare by the underlying key).
 
-The 51 xfails are all documented divergences, grouped in `conftest.py`:
+The 52 xfails are all documented divergences, grouped in `conftest.py`:
 
 - **The error rendering deviation (ADR-015)**: `str(error)` renders the path as
   a dotted trail (`at 'a.b'`) instead of `@ data['a']['b']`, drops the
@@ -66,7 +65,8 @@ The 51 xfails are all documented divergences, grouped in `conftest.py`:
   ...?" unknown-key error, lower-cased `Number` messages, the richer error wording
   for `Contains`, `In`, `NotIn`, `Maybe`, `Coerce`, and `FqdnUrl`, the reworded
   `Literal` message, set and empty-container element errors that carry an index
-  path, `SomeOf`'s bounds-assertion message, and `Maybe`'s own `repr` (probatio's
+  path, a `float` matcher that matches an `int` too (ADR-017, which is why
+  `Remove(float)` in a list drops ints), `SomeOf`'s bounds-assertion message, and `Maybe`'s own `repr` (probatio's
   `Maybe` is a real validator, not an alias of `Any`).
 - **Out of scope**: one test of the voluptuous internal
   `_iterate_mapping_candidates`, not part of the public contract.

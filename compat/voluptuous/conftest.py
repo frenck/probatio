@@ -23,8 +23,11 @@ divergences*, marked ``xfail`` below with a reason, in three groups:
 - One voluptuous internal the suite reaches for (``_iterate_mapping_candidates``),
   which is not part of the public contract.
 
-Because they are ``xfail`` (not skipped), any *new* break, a regression, or one of
-these unexpectedly starting to pass, shows up loudly rather than hiding.
+Because they are strict ``xfail`` (not skipped), any *new* break, a regression,
+or one of these unexpectedly starting to pass, fails the run rather than hiding.
+
+``fetch_upstream.py`` downloads the pinned upstream ``tests.py`` next to this
+file; ``just compat-voluptuous`` fetches it and runs it, and so does CI.
 """
 
 from __future__ import annotations
@@ -67,6 +70,8 @@ _DELIBERATE_DEVIATIONS = {
     "test_schema_empty_dict_key": "empty-list value rejection message differs",
     "test_SomeOf_on_bounds_assertion": "SomeOf with no bounds raises a ValueError "
     "with a different message",
+    "test_remove": "a float matcher matches an int too (ADR-017), so Remove(float) "
+    "in a list drops the ints as well",
     "test_repr": "validators repr readably now, but probatio's Maybe is its own "
     "validator and reprs as Maybe(...), where voluptuous implements Maybe as Any",
 }
@@ -131,4 +136,4 @@ def pytest_collection_modifyitems(
     for item in items:
         reason = _KNOWN_DIVERGENCES.get(item.originalname)  # type: ignore[attr-defined]
         if reason is not None:
-            item.add_marker(pytest.mark.xfail(reason=reason, strict=False))
+            item.add_marker(pytest.mark.xfail(reason=reason, strict=True))

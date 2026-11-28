@@ -131,6 +131,13 @@ ha-proof:
       .venv/bin/python -m pytest tests/helpers/test_config_validation.py \
       -p probatio_vol_swap -q
 
+# Run voluptuous's own 0.16.0 test suite against probatio (the drop-in proof).
+# The upstream file is fetched at a pinned commit and checksum, not vendored; the
+# conftest next to it marks the documented deviations as strict xfails.
+compat-voluptuous:
+    uv run --no-sync python compat/voluptuous/fetch_upstream.py
+    uv run --no-sync pytest compat/voluptuous/tests.py -o addopts="" -p no:cacheprovider
+
 # Build the documentation site.
 docs:
     cd docs && npm ci && npm run build
