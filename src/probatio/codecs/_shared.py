@@ -216,6 +216,46 @@ def names_handed_elsewhere_first(node: dict[Any, Any]) -> frozenset[str]:
     return frozenset(handed_elsewhere)
 
 
+def let_removed_properties_pass_on(
+    properties: dict[Any, Any],
+    removed: dict[str, dict[str, Any]],
+    additional: Any,
+    *,
+    contested: frozenset[str],
+    widen: Callable[[str], dict[str, Any]],
+) -> None:
+    """Finish the properties a ``Remove`` key wrote, now the object is known.
+
+    A ``Remove`` drops the key when its value matches, and passes the key on when
+    it does not: to the keys that match by shape, and then to the extra-key
+    policy. So the name takes whatever the ``Remove`` takes, plus whatever an
+    undeclared property may hold, which is what ``additional`` (the object's
+    ``additionalProperties``) says. A named property is not checked against
+    ``additionalProperties``, so that half has to be written into the property.
+
+    An ``Any`` key that lists the name is one of the keys it is passed on to, and
+    its value schema is not in ``additional``. Such a name is in ``contested``,
+    and its property is opened through ``widen``, the encoder's own report of a
+    widening.
+
+    ``removed`` maps each name to the schema the ``Remove`` wrote for it. A
+    property that is no longer that schema was replaced by a key declared later
+    under the same name, and is left alone.
+    """
+    for name, written in removed.items():
+        if properties[name] is not written:
+            continue
+
+        if name in contested:
+            properties[name] = widen("a removed key an Any key also lists")
+        elif additional is False:
+            continue
+        elif additional is True or not additional:
+            properties[name] = {}
+        else:
+            properties[name] = {"anyOf": [written, additional]}
+
+
 def claimed_canonical_name(marker: Alias, name: Any) -> str | None:
     """Return the canonical name an ``Alias`` claims without accepting, or None.
 
