@@ -299,7 +299,8 @@ Probatio does.
   comes last, but `Extra` is a function there, so it is ranked with the callables:
   it is tried before every type key, and before a callable key written after it.
   Probatio follows the same order and does put `Extra` last, wherever it is
-  written, so it only catches the keys nothing else matched.
+  written and also inside a marker like `Optional(Extra)`, so it only catches the
+  keys nothing else matched. A `Remove(Extra)` is tried first, like any `Remove`.
 - **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
   is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
   any key schema, including an `Any` of names

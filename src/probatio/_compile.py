@@ -388,17 +388,19 @@ def compile_node(schema: Any, ctx: CompileCtx) -> CompiledSchema:  # noqa: PLR09
 
 # The order in which the keys that match rather than name are tried against a
 # data key no literal key took. It is voluptuous's order, with one exception: an
-# ``Extra`` goes last. voluptuous means that too, but ranks ``Extra`` with the
-# callables, because it is one.
+# ``Extra`` goes last, also inside a marker like ``Optional``. voluptuous means
+# that too, but ranks ``Extra`` with the callables, because it is one. A
+# ``Remove`` goes first whatever it holds: when its value does not match it
+# passes the key on, so it takes nothing from the keys after it.
 _REMOVE_KEY, _MARKER_KEY, _CALLABLE_KEY, _TYPE_KEY, _EXTRA_KEY = range(5)
 
 
-def _matching_rank(key: Any) -> int:
+def _matching_rank(key: Any, candidate: _Candidate) -> int:
     """Where a matching key stands in the order the engine tries them."""
-    if key is Extra:
-        return _EXTRA_KEY
     if isinstance(key, Remove):
         return _REMOVE_KEY
+    if candidate.key_schema is Extra:
+        return _EXTRA_KEY
     if isinstance(key, Marker):
         return _MARKER_KEY
     if isinstance(key, type):
@@ -426,7 +428,10 @@ def _candidates(schema: dict[Any, Any], ctx: CompileCtx) -> list[_Candidate]:
     ]
     if len(positions) > 1:
         keys = list(schema)
-        ranked = sorted(positions, key=lambda position: _matching_rank(keys[position]))
+        ranked = sorted(
+            positions,
+            key=lambda position: _matching_rank(keys[position], candidates[position]),
+        )
         reordered = [candidates[position] for position in ranked]
         for position, candidate in zip(positions, reordered, strict=True):
             candidates[position] = candidate
