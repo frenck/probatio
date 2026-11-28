@@ -3,7 +3,8 @@
 A *spec* is a small, library-agnostic description of a schema (nested tuples).
 ``build(spec, lib)`` materializes it in either probatio or voluptuous, so the
 exact same schema can be run in both and their behavior compared. The data
-strategy generates JSON-shaped values likely to both pass and fail.
+strategy generates JSON-shaped values likely to both pass and fail, and
+``fitting`` builds a value shaped like a given spec.
 
 The construct set is deliberately the subset where probatio is meant to match
 voluptuous exactly. Numeric/length bounds are always guarded behind a type check
@@ -14,9 +15,12 @@ validation error.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from hypothesis import strategies as st
+
+if TYPE_CHECKING:
+    from random import Random
 
 _literals = st.one_of(
     st.integers(min_value=-10, max_value=10),
@@ -37,24 +41,27 @@ _json_literals = st.one_of(
 )
 
 
-# Remove is exercised by curated conformance cases, not fuzzed: its interaction
-# with an Extra catch-all and with bool-vs-int values exposes voluptuous quirks
-# that are not worth chasing through the broad differential.
+# Remove is pinned by curated cases (``test_conformance.py``, ``test_mapping.py``)
+# and not fuzzed. A matching ``Remove`` is final in probatio, while voluptuous only
+# marks the key and keeps it when a key tried later accepts it too, a documented
+# deviation. Every ``Remove`` beside one of the catch-alls below would land on it.
 _KEY_KINDS = ("required", "optional")
 _EXTRA_MODES = (None, "allow", "remove")
+# Members of one all-or-none group and of one at-most-one group. A single group
+# of each is enough for two members to meet in one mapping.
+_GROUP_KINDS = ("inclusive", "exclusive")
 
 # What a mapping's catch-all entry is keyed on. ``Extra`` is the marker; the rest
-# are *variable keys*, where the key itself is validated. Those were never
-# generated before, so every property suite was blind to the whole region,
-# ``{str: int}`` included, and to the ``propertyNames`` the encoder renders from a
-# restrictive one.
+# are *variable keys*, where the key itself is validated. Without them every
+# property suite is blind to the whole region, ``{str: int}`` included, and to the
+# ``propertyNames`` the encoder renders from a restrictive one.
 _CATCHALL_KINDS = ("extra", "str_key", "int_key", "in_key", "coerce_key")
 
 # Field names and data keys are drawn from this shared alphabet as well as from
-# free text. Both sides used to draw arbitrary text independently, so a generated
-# value almost never landed on a declared property or inside a variable key's
-# set, and the whole mapping region was explored far more shallowly than the
-# example counts suggested. The digits matter for a coercing key, which turns
+# free text. Were both sides to draw arbitrary text independently, a generated
+# value would almost never land on a declared property or inside a variable key's
+# set, and the mapping region would be explored far more shallowly than the
+# example counts suggest. The digits matter for a coercing key, which turns
 # "1" into a number the way a property name never could.
 _KEY_ALPHABET = ("a", "b", "c", "1", "2")
 
@@ -97,7 +104,21 @@ def _names() -> st.SearchStrategy[str]:
     return st.sampled_from(_KEY_ALPHABET) | st.text(min_size=1, max_size=3)
 
 
-def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
+# The pairs without ``Extra``. Beside another variable key ``Extra`` is tried last
+# in probatio and ahead of the type keys in voluptuous, a documented deviation, so
+# a differential against voluptuous leaves those pairs out.
+_CATCHALL_PAIRS_WITHOUT_EXTRA = tuple(
+    pair for pair in _CATCHALL_PAIRS if "extra" not in pair
+)
+
+
+def specs(
+    *,
+    no_narrowing: bool = False,
+    extra_beside_a_variable_key: bool = True,
+    float_type: bool = True,
+    markers: bool = False,
+) -> st.SearchStrategy[Any]:
     """A recursive strategy yielding library-agnostic schema specs.
 
     With ``no_narrowing=True`` the strategy drops the constructs whose JSON Schema
@@ -106,9 +127,30 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
     boolean literals (the bool-is-int impedance). The remainder is the subset over
     which the emitted schema must never reject an input probatio accepts, so the
     differential oracle can assert exactly that.
+
+    The next two switches keep a differential against voluptuous inside the
+    region where probatio means to behave exactly like it. Each turns off one
+    documented deviation: ``Extra`` beside another variable key (see above), and
+    the ``float`` type, which takes an ``int`` in probatio and not in voluptuous
+    (ADR-017). A caller that wants ``float`` schemas compared anyway keeps the
+    type and passes its values through ``without_integers``.
+
+    ``markers=True`` adds the keys that do more than say required or optional: a
+    key with a default, and members of an ``Inclusive`` and an ``Exclusive``
+    group. It is opt-in because the codec suites built on this strategy render a
+    document from every spec, and those keys have rules of their own there. While
+    ``float`` is in the type set a default is never an integer; integer defaults
+    are drawn with ``float_type=False``.
     """
     literals = _json_literals if no_narrowing else _literals
     types = [int, str, float] if no_narrowing else [int, str, bool, float]
+    if not float_type:
+        types.remove(float)
+    pairs = (
+        _CATCHALL_PAIRS
+        if extra_beside_a_variable_key
+        else _CATCHALL_PAIRS_WITHOUT_EXTRA
+    )
     leaf_options = [
         st.sampled_from(types).map(lambda t: ("type", t)),
         literals.map(lambda v: ("literal", v)),
@@ -133,6 +175,15 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
             st.sampled_from([int, str, float]).map(lambda t: ("coerce", t)),
         ]
     leaves = st.one_of(*leaf_options)
+    key_kinds: st.SearchStrategy[Any] = st.sampled_from(_KEY_KINDS)
+    if markers:
+        # A default is validated against the key's value schema like any input,
+        # so under a schema that may hold ``float`` an integer default would let
+        # ADR-017 back in through the schema, past ``without_integers``.
+        defaults = literals.map(without_integers) if float_type else literals
+        key_kinds |= st.sampled_from(_GROUP_KINDS) | st.tuples(
+            st.sampled_from(_KEY_KINDS), defaults
+        )
     return st.recursive(
         leaves,
         lambda children: st.one_of(
@@ -144,7 +195,7 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
                 lambda fields, extra, catchall: ("dict", fields, extra, catchall),
                 st.dictionaries(
                     _names(),
-                    st.tuples(st.sampled_from(_KEY_KINDS), children),
+                    st.tuples(key_kinds, children),
                     max_size=3,
                 ),
                 st.sampled_from(_EXTRA_MODES),
@@ -155,7 +206,7 @@ def specs(*, no_narrowing: bool = False) -> st.SearchStrategy[Any]:
                     # pair useless for the thing it exists to check: taking the
                     # first key's value and merging both produce the same document
                     # when the values are identical.
-                    st.tuples(st.sampled_from(_CATCHALL_PAIRS), children, children),
+                    st.tuples(st.sampled_from(pairs), children, children),
                 ),
             ),
         ),
@@ -182,6 +233,115 @@ def data(*, booleans: bool = True, floats: bool = True) -> st.SearchStrategy[Any
         lambda c: st.lists(c, max_size=3) | st.dictionaries(_names(), c, max_size=3),
         max_leaves=6,
     )
+
+
+# What a value is replaced by when a near miss is wanted: one of every JSON shape.
+_STRAY_VALUES: tuple[Any, ...] = (None, 0, 1, -1, 1.5, True, "", "a", "1", [], {})
+
+# How often a value is a stray one and not what the spec asks for. Often enough
+# that most mappings carry a wrong value somewhere, rarely enough that most of a
+# nested schema is still reached.
+_STRAY_CHANCE = 0.15
+
+
+def fitting(spec: Any, random: Random) -> Any:
+    """Draw a value shaped like a spec: mostly one it accepts, sometimes a near miss.
+
+    ``data()`` knows nothing of the schema it is paired with, so a random value
+    almost never gets past the first type check and the engine below it goes
+    unvisited. This builds the value from what the spec asks for, and swaps in a
+    stray value at any level, which is where the near misses come from: a mapping
+    of the right keys with one wrong value, a list with one stray item.
+
+    It is a plain function over a ``random.Random`` (draw one with
+    ``st.randoms()``) and not a strategy, because a strategy built per spec costs
+    more than the validation it is there to exercise.
+    """
+    if random.random() < _STRAY_CHANCE:
+        return random.choice(_STRAY_VALUES)
+
+    return _fitting_value(spec, random)
+
+
+def _small_int(random: Random) -> int:
+    """An integer in the range the specs draw their bounds and literals from."""
+    return random.randint(-12, 12)
+
+
+def _fitting_type(spec: Any, random: Random) -> Any:
+    """A value of the type, or an ``int`` where the type is ``float``."""
+    if spec[1] is str:
+        return random.choice(("", "a", "b", "1", "ab"))
+    if spec[1] is bool:
+        return random.choice((True, False))
+    if spec[1] is float and random.random() < 0.5:
+        return random.uniform(-12, 12)
+    return _small_int(random)
+
+
+def _fitting_dict(spec: Any, random: Random) -> dict[str, Any]:
+    """A mapping with some of the declared fields and a few undeclared names.
+
+    An undeclared name takes a value shaped like one of the catch-alls' value
+    schemas, since which catch-all a name lands on is the engine's decision.
+    """
+    _, fields, _, catchall = spec
+    value: dict[str, Any] = {}
+    # With a catch-all there is always an undeclared name for it to take.
+    for _ in range(random.randint(0 if catchall is None else 1, 3)):
+        name = random.choice(_KEY_ALPHABET)
+        value[name] = (
+            random.choice(_STRAY_VALUES)
+            if catchall is None
+            else fitting(random.choice(catchall[1:]), random)
+        )
+
+    for name, (_, child) in fields.items():
+        if random.random() < 0.7:
+            value[name] = fitting(child, random)
+
+    return value
+
+
+def _fitting_value(spec: Any, random: Random) -> Any:
+    """A value the spec is likely to accept, by kind."""
+    kind = spec[0]
+    if kind == "type":
+        return _fitting_type(spec, random)
+    if kind in ("literal", "equal"):
+        return spec[1]
+    if kind == "in":
+        return random.choice(spec[1])
+    if kind in ("not_in", "range", "clamp"):
+        return _small_int(random)
+    if kind == "length":
+        return "x" * random.randint(0, 6)
+    if kind == "coerce":
+        return random.choice((_small_int(random), "1", "x"))
+    if kind == "maybe":
+        return random.choice((None, fitting(spec[1], random)))
+    if kind in ("any", "union"):
+        return fitting(random.choice(spec[1]), random)
+    if kind == "list":
+        return [fitting(spec[1], random) for _ in range(random.randint(0, 3))]
+    return _fitting_dict(spec, random)
+
+
+def without_integers(value: Any) -> Any:
+    """Turn every integer in a value into a float next to it, booleans aside.
+
+    For a differential against voluptuous that keeps the ``float`` type: an
+    ``int`` is the one value the two libraries disagree on there (ADR-017).
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value + 0.5
+    if isinstance(value, list):
+        return [without_integers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: without_integers(item) for key, item in value.items()}
+    return value
 
 
 def build(spec: Any, lib: Any) -> Any:
@@ -222,8 +382,7 @@ def _build_dict(spec: Any, lib: Any) -> Any:
     _, fields, extra, catchall = spec
     mapping: dict[Any, Any] = {}
     for key, (key_kind, child) in fields.items():
-        marker = (lib.Required if key_kind == "required" else lib.Optional)(key)
-        mapping[marker] = build(child, lib)
+        mapping[_field_key(key, key_kind, lib)] = build(child, lib)
     if catchall is not None:
         kinds, *children = catchall
         # A single kind comes with one child; a pair comes with one each, so a
@@ -236,6 +395,21 @@ def _build_dict(spec: Any, lib: Any) -> Any:
         return mapping
     policy = lib.ALLOW_EXTRA if extra == "allow" else lib.REMOVE_EXTRA
     return lib.Schema(mapping, extra=policy)
+
+
+def _field_key(key: str, kind: Any, lib: Any) -> Any:
+    """The marker a declared field sits under.
+
+    A kind is a name, or a ``(name, default)`` pair for a key that fills itself in.
+    """
+    if kind == "inclusive":
+        return lib.Inclusive(key, "all or none")
+    if kind == "exclusive":
+        return lib.Exclusive(key, "at most one")
+
+    kind, *default = kind if isinstance(kind, tuple) else (kind,)
+    marker = lib.Required if kind == "required" else lib.Optional
+    return marker(key, default=default[0]) if default else marker(key)
 
 
 def _catchall_key(kind: str, lib: Any) -> Any:
