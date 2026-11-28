@@ -11,6 +11,7 @@ import pytest
 
 from probatio import (
     ALLOW_EXTRA,
+    PREVENT_EXTRA,
     REMOVE_EXTRA,
     All,
     Dedupe,
@@ -260,6 +261,16 @@ def test_extra_rebind_does_not_change_a_shared_maybe() -> None:
 
     with pytest.raises(Invalid):
         shared({"name": "Lamp", "area": "Hall"})
+
+
+@pytest.mark.parametrize("policy", [PREVENT_EXTRA, ALLOW_EXTRA, REMOVE_EXTRA])
+@pytest.mark.parametrize("validator_class", [All, Maybe], ids=["All", "Maybe"])
+def test_a_validator_class_as_a_branch_is_a_plain_type_check(
+    validator_class: type, policy: int
+) -> None:
+    """A validator class used as a schema holds no mapping for the policy to reach."""
+    schema = Schema({"device": AnyValidator(validator_class, str)}, extra=policy)
+    assert schema({"device": "Lamp"}) == {"device": "Lamp"}
 
 
 def test_a_schema_inside_maybe_keeps_its_own_extra_policy() -> None:

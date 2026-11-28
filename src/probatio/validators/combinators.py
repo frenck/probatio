@@ -78,6 +78,11 @@ def _branch_holds_mapping(node: typing.Any) -> bool:
             for element in node
         )
 
+    # A validator class used as a schema is a type check, not a validator that
+    # holds branches; its hook is unbound and there is nothing behind it.
+    if isinstance(node, type):
+        return False
+
     needs_extra = getattr(node, "__probatio_needs_extra__", None)
     return needs_extra is not None and needs_extra()
 
