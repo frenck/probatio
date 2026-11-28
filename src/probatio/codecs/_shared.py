@@ -124,10 +124,10 @@ def contested_names(node: dict[Any, Any]) -> frozenset[str]:
     engine actually hands the name to, and several things can take it first: a
     literal key (which wins whatever the declaration order), an ``Alias`` under any
     of its accepted names, another ``Any`` listing the same name, and a variable
-    key (``{str: ...}``), which matches anything and wins when it is declared
-    first. Whether a variable key gets there first is declaration order, so rather
-    than model the engine's precedence this reports every name it cannot prove is
-    safely owned; the codecs then leave the rule out. ``Extra`` is excluded: it is
+    key (``{str: ...}``), which matches anything and wins when the engine tries it
+    first. Which key that is depends on the kinds of both keys and on where they
+    are declared, so rather than model the engine's precedence this reports every
+    name it cannot prove is safely owned; the codecs then leave the rule out. ``Extra`` is excluded: it is
     the catch-all for names nothing else matched, so it never takes one first.
 
     The properties are unaffected and always emitted. Only the object-level rule,

@@ -17,6 +17,7 @@ from probatio import (
     Exclusive,
     Extra,
     ExtraKeysInvalid,
+    In,
     Invalid,
     MultipleInvalid,
     Optional,
@@ -444,6 +445,61 @@ def test_literal_string_keys_share_one_key_check() -> None:
     assert candidates[0].check_key is _literal_key_is_looked_up
     # The type key is matched by its check, so it keeps one of its own.
     assert candidates[-1].check_key is not _literal_key_is_looked_up
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {str: int, Coerce(str): str},
+        {Coerce(str): str, str: int},
+    ],
+    ids=["type first", "callable first"],
+)
+def test_a_callable_key_is_tried_before_a_type_key(
+    schema: dict[object, object],
+) -> None:
+    """A callable key gets a data key before a type key does, wherever it sits."""
+    assert Schema(schema)({"k": "x"}) == {"k": "x"}
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {str: str, Remove(str): int},
+        {Remove(str): int, str: str},
+    ],
+    ids=["type first", "remove first"],
+)
+def test_a_remove_key_is_tried_before_a_type_key(schema: dict[object, object]) -> None:
+    """A Remove drops what it matches before another key can keep it."""
+    assert Schema(schema)({"dropped": 1, "kept": "x"}) == {"kept": "x"}
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {Extra: int, Coerce(str): str},
+        {Extra: int, In(["k"]): str},
+        {Extra: int, str: str},
+    ],
+    ids=["callable", "validator", "type"],
+)
+def test_extra_is_tried_after_every_other_key(schema: dict[object, object]) -> None:
+    """Extra catches only what no other key took, even when it is written first."""
+    assert Schema(schema)({"k": "x"}) == {"k": "x"}
+
+
+def test_reordering_matching_keys_leaves_literal_keys_in_place() -> None:
+    """Defaults fill in the order the keys were written, around the matching keys."""
+    schema = Schema(
+        {
+            str: int,
+            Optional("b", default=2): int,
+            Coerce(str): int,
+            Optional("a", default=1): int,
+        }
+    )
+    assert list(schema({})) == ["b", "a"]
 
 
 def test_the_shared_literal_key_check_refuses_to_be_called() -> None:

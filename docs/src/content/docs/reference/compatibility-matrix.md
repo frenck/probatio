@@ -293,6 +293,13 @@ Probatio does.
   have rejected is affected, and a `float` matcher now matches an `int` too (so
   `Remove(float)` in a list drops ints, and a `{float: ...}` type key matches an int
   key).
+- **`Extra` beside another key that matches by shape (`{Extra: int, str: str}`).**
+  voluptuous tries the keys that match rather than name a key in a fixed order:
+  `Remove` keys, other markers, callables, then types. Its source says `Extra`
+  comes last, but `Extra` is a function there, so it is ranked with the callables:
+  it is tried before every type key, and before a callable key written after it.
+  Probatio follows the same order and does put `Extra` last, wherever it is
+  written, so it only catches the keys nothing else matched.
 - **A validator as the key of an `Inclusive`/`Exclusive` group.** A group member
   is usually a literal key (`Inclusive("host", "server")`), but the marker accepts
   any key schema, including an `Any` of names
