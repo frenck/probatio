@@ -328,6 +328,7 @@ def test_a_combinator_still_builds_a_schema_for_a_structured_branch(
     assert built == [mapping, sequence]
 
 
+@pytest.mark.eager_interpreted(reason="reads the interpreted validator off the schema")
 @pytest.mark.parametrize(
     "leaf",
     [int, None, "on", 5, Range(min=0, max=9), Coerce(int), lambda value: value],

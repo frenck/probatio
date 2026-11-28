@@ -26,6 +26,13 @@ test *args:
 test-compiled:
     uv run --no-sync pytest --compiled -o addopts="" -p no:cacheprovider
 
+# Run the deterministic behavioral suite the way a large application runs
+# probatio: schemas build on first use and compile once they prove hot, with the
+# call threshold lowered so the suite crosses it. The conftest skips the tests
+# that need an eager, interpreted schema; no coverage gate here either.
+test-lazy-auto:
+    uv run --no-sync pytest --lazy-auto -o addopts="" -p no:cacheprovider
+
 # Run the workspace packages' own suites (the core coverage gate does not apply).
 test-packages:
     uv run --no-sync pytest packages/pytest-probatio/tests -o addopts=""
