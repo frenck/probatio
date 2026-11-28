@@ -1395,6 +1395,52 @@ def test_a_remove_keeps_a_property_of_its_own_under_a_shared_serializer() -> Non
     assert document["properties"] == {"a": {"type": "integer"}}
 
 
+@pytest.mark.parametrize("version", ["3.0", "3.1.0"])
+def test_a_removed_key_keeps_the_object_constraint_it_is_passed_on_to(
+    version: str,
+) -> None:
+    """An "any object" value folds to an open object, and not to an open property."""
+    from probatio import Remove, SomeOf  # noqa: PLC0415
+
+    removing = {Remove("old"): int, str: dict}
+    document = to_openapi(Schema(removing), openapi_version=version, strict=True)
+    assert document["additionalProperties"] is True
+    assert document["properties"] == {
+        "old": {
+            "anyOf": [
+                {"type": "integer"},
+                {"type": "object", "additionalProperties": True},
+            ]
+        }
+    }
+
+    # Several value schemas stay a union of what each of them rendered as.
+    both = to_openapi(
+        Schema({Remove("old"): int, Remove(str): float, str: dict}),
+        openapi_version=version,
+    )
+    assert both["properties"]["old"]["anyOf"][1] == {
+        "anyOf": [{"type": "number"}, {"type": "object", "additionalProperties": True}]
+    }
+
+    # The property rejects a string, so exactly one branch takes one.
+    exactly_one = Schema(SomeOf([removing, {"old": str}], min_valid=1, max_valid=1))
+    assert exactly_one({"old": "text"}) == {"old": "text"}
+    choice = to_openapi(exactly_one, openapi_version=version)
+    assert jsonschema.Draft202012Validator(choice).is_valid({"old": "text"})
+
+
+def test_removes_alone_before_an_open_policy_widen_nothing() -> None:
+    """A second Remove of the name passes on too, and the policy keeps the rest."""
+    from probatio import ALLOW_EXTRA, Remove  # noqa: PLC0415
+    from probatio import Any as AnyKey  # noqa: PLC0415
+
+    schema = Schema(
+        {Remove("a"): int, Remove(AnyKey("a", "b")): str}, extra=ALLOW_EXTRA
+    )
+    assert to_openapi(schema, strict=True)["properties"] == {"a": {}, "b": {}}
+
+
 def test_a_literal_key_keeps_its_property_beside_an_any_key() -> None:
     """A literal key is found before an Any key is tried, also when it is written first."""
     from probatio import Any as AnyKey  # noqa: PLC0415

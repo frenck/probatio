@@ -1946,6 +1946,14 @@ def test_a_removed_key_is_exact_when_only_removes_stand_before_an_open_policy() 
     assert to_json_schema(schema, strict=True)["properties"] == {"old": {}}
 
 
+def test_removes_alone_before_an_open_policy_widen_nothing() -> None:
+    """A second Remove of the name passes on too, and the policy keeps the rest."""
+    schema = Schema({Remove("a"): int, Remove(Any("a", "b")): str}, extra=ALLOW_EXTRA)
+    assert schema({"a": None, "b": None}) == {"a": None, "b": None}
+
+    assert to_json_schema(schema, strict=True)["properties"] == {"a": {}, "b": {}}
+
+
 def test_a_remove_of_a_type_does_not_close_an_open_mapping() -> None:
     """Remove(str) matches every name and still rejects nothing under ALLOW_EXTRA."""
     schema = Schema({Remove(str): int}, extra=ALLOW_EXTRA)

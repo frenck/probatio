@@ -270,7 +270,8 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
 
     Another ``Any`` key that lists the name is one of the keys it is passed on to
     as well, and its value schema is not in ``additional`` at all. There the
-    property is opened.
+    property is opened, which is a widening, unless that key is a ``Remove`` too
+    and everything it passes on in turn is taken anyway.
 
     ``removed`` maps each name to the schema the ``Remove`` wrote for it, a dict
     of its own. A property that is no longer that dict was replaced by a key
@@ -278,14 +279,19 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
     about itself (a description, a secret flag) stays on it whatever happens to
     the values it takes.
     """
-    listed_by_any: Counter[str] = Counter()
+    kept_by_any: set[str] = set()
+    removed_by_any: Counter[str] = Counter()
     literal: set[str] = set()
     for key in node:
-        name = resolve_key(key).key
-        if isinstance(name, str):
-            literal.add(name)
+        facets = resolve_key(key)
+        if isinstance(facets.key, str):
+            literal.add(facets.key)
+        elif isinstance(facets.marker, Remove):
+            removed_by_any.update(literal_any_names(facets.key) or ())
         else:
-            listed_by_any.update(literal_any_names(name) or ())
+            kept_by_any.update(literal_any_names(facets.key) or ())
+
+    takes_anything = exact and (additional is True or additional == {})
 
     for name, written in removed.items():
         if properties[name] is not written:
@@ -305,10 +311,12 @@ def let_removed_properties_pass_on(  # noqa: PLR0913 - one object, described onc
         if not constraint:
             continue
 
-        # A literal ``Remove`` wins the property from an ``Any`` key, so any ``Any``
-        # key listing the name is another key. Otherwise one of them wrote it.
+        # A literal ``Remove`` wins the property from an ``Any`` key, so every
+        # ``Remove`` of names listing it is another key. Otherwise one of them
+        # wrote it.
         written_by_any = name not in literal
-        if listed_by_any[name] > written_by_any:
+        another_remove = removed_by_any[name] > written_by_any
+        if name in kept_by_any or (another_remove and not takes_anything):
             widen("a removed key another Any key also lists")
             properties[name] = described
             continue

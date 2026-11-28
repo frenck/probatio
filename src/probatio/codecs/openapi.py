@@ -696,13 +696,11 @@ def _oa_mapping(  # noqa: PLR0913, PLR0915 - the mapping and each of its policie
                 keeping_keys.append(pkey)
 
     additional = _absorb_extra(variable_values, keeping_keys, additional, closed=closed)
-    # What an undeclared property may hold once the object is assembled: with no
-    # variable key to say so, the extra-key policy decides.
     let_removed_properties_pass_on(
         node,
         properties,
         removed,
-        additional or not closed,
+        _undeclared_values(variable_values, keeping_keys, additional, closed=closed),
         exact=passing_on_is_exact(variable_keys, keeping_keys, open_policy=not closed),
         widen=_open,
     )
@@ -941,6 +939,38 @@ def _absorb_extra(
     # name is a string, so an integer-only rendering rejects most of what the
     # mapping allows. The union is the only rendering that does not narrow.
     return {"anyOf": variable_values}
+
+
+def _undeclared_values(
+    variable_values: list[dict[str, Any]],
+    keeping_keys: list[Any],
+    additional: Any,
+    *,
+    closed: bool,
+) -> Any:
+    """Return what a name the object does not declare may hold.
+
+    A ``Remove`` passes a key on to exactly that, so this is what its property
+    borrows.
+
+    That is ``additional`` once the extra-key policy is filled in: with no
+    variable key to say so, a closed mapping takes nothing and an open one
+    anything.
+
+    One case differs. ``_absorb_extra`` folds an "any object" value to an open
+    ``additionalProperties``, which is how voluptuous-openapi renders it. A
+    property that borrowed that would take a string where the mapping wants an
+    object, so here the value schemas are kept as they were rendered.
+    """
+    reaches_the_policy = not (
+        closed or any(map(covers_every_property_name, keeping_keys))
+    )
+    if additional is True and all(variable_values) and not reaches_the_policy:
+        if len(variable_values) == 1:
+            return variable_values[0]
+        return {"anyOf": variable_values}
+
+    return additional or not closed
 
 
 def _assemble_object(
